@@ -5,8 +5,9 @@ All database operations use aiosqlite. The schema uses WAL mode and foreign keys
 Call init_db() from FastAPI's lifespan startup hook.
 """
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import aiosqlite
 from loguru import logger
@@ -84,13 +85,14 @@ def _mastery_level(mastery: float) -> str:
     return "beginner"
 
 
-async def _get_db() -> aiosqlite.Connection:
-    """Open and configure a database connection."""
-    db = await aiosqlite.connect(settings.DB_PATH)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL;")
-    await db.execute("PRAGMA foreign_keys=ON;")
-    return db
+@asynccontextmanager
+async def _get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
+    """Async context manager that opens, configures, and closes a DB connection."""
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA foreign_keys=ON;")
+        yield db
 
 
 # ──────────────────────────────────────────────────────────────
@@ -115,7 +117,7 @@ async def create_student(
     """Create a new student record and return it as a dict."""
     student_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             """
             INSERT INTO students (id, name, age, language, grade_level, created_at)
@@ -134,7 +136,7 @@ async def create_student(
 
 async def get_student(student_id: str) -> dict[str, Any] | None:
     """Retrieve a single student by ID. Returns None if not found."""
-    async with await _get_db() as db:
+    async with _get_db() as db:
         cursor = await db.execute(
             "SELECT * FROM students WHERE id = ?", (student_id,)
         )
@@ -145,7 +147,7 @@ async def get_student(student_id: str) -> dict[str, Any] | None:
 async def update_last_active(student_id: str) -> None:
     """Update the last_active timestamp of a student to now."""
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             "UPDATE students SET last_active = ? WHERE id = ?",
             (now, student_id),
@@ -157,7 +159,7 @@ async def create_session(student_id: str) -> dict[str, Any]:
     """Create a new learning session for a student and return it as a dict."""
     session_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             """
             INSERT INTO sessions (id, student_id, started_at)
@@ -177,7 +179,7 @@ async def create_session(student_id: str) -> dict[str, Any]:
 async def end_session(session_id: str) -> None:
     """Mark a session as ended by recording the current timestamp."""
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             "UPDATE sessions SET ended_at = ? WHERE id = ?",
             (now, session_id),
@@ -187,7 +189,7 @@ async def end_session(session_id: str) -> None:
 
 async def increment_message_count(session_id: str) -> None:
     """Atomically increment the message_count field of a session."""
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             "UPDATE sessions SET message_count = message_count + 1 WHERE id = ?",
             (session_id,),
@@ -207,7 +209,7 @@ async def record_quiz_result(
     """Persist a single quiz answer and return the stored record as a dict."""
     result_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         await db.execute(
             """
             INSERT INTO quiz_results
@@ -248,7 +250,7 @@ async def update_mastery(
     Returns: {"mastery": float, "level": str, "previous_level": str}
     """
     now = datetime.utcnow().isoformat()
-    async with await _get_db() as db:
+    async with _get_db() as db:
         cursor = await db.execute(
             "SELECT mastery, level FROM topic_mastery WHERE student_id = ? AND topic = ?",
             (student_id, topic),
@@ -303,7 +305,7 @@ async def update_mastery(
 
 async def get_all_students() -> list[dict[str, Any]]:
     """Return all students with their latest mastery summary."""
-    async with await _get_db() as db:
+    async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM students ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in rows]
@@ -325,7 +327,7 @@ async def get_all_students() -> list[dict[str, Any]]:
 
 async def get_student_mastery(student_id: str) -> list[dict[str, Any]]:
     """Return all topic mastery records for a given student."""
-    async with await _get_db() as db:
+    async with _get_db() as db:
         cursor = await db.execute(
             """
             SELECT * FROM topic_mastery
@@ -349,7 +351,7 @@ async def get_dashboard_data() -> dict[str, Any]:
             "topics_by_struggle": [...]
         }
     """
-    async with await _get_db() as db:
+    async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM students ORDER BY created_at DESC")
         student_rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in student_rows]
