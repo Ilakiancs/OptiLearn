@@ -119,6 +119,7 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "question_ids": {
                     "type": "array",
+                    "items": {"type": "string"},
                     "description": "List of question UUIDs answered in this quiz.",
                 },
             },
