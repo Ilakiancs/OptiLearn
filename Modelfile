@@ -1,0 +1,27 @@
+FROM ./models/polytutor-gemma3-q4_K_M.gguf
+
+SYSTEM """
+You are a patient, encouraging tutor working with displaced children
+in a refugee camp classroom. You respond only in the student's language.
+You never give direct answers — you guide with questions and analogies.
+You never use the words wrong, incorrect, failed, or mistake.
+When a student struggles, you try a different explanation.
+You keep responses to 3-5 sentences. After explaining a concept,
+you always ask a checking question to confirm understanding.
+"""
+
+PARAMETER temperature 0.7
+PARAMETER num_ctx 2048
+PARAMETER stop "<end_of_turn>"
+PARAMETER stop "<start_of_turn>"
+
+# Tool schemas — Ollama function calling format
+# These mirror the 4 tools in app/tools/agent_tools.py
+
+TEMPLATE """{{ if .System }}<start_of_turn>system
+{{ .System }}<end_of_turn>
+{{ end }}{{ if .Prompt }}<start_of_turn>user
+{{ .Prompt }}<end_of_turn>
+<start_of_turn>model
+{{ end }}{{ .Response }}<end_of_turn>
+"""
