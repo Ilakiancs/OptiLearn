@@ -4,9 +4,8 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.6
 python-multipart>=0.0.9
 
-# Gemma / Google AI
-# Bumped to >=0.8.0 to pull in updated protobuf compatible with Python 3.14
-google-generativeai>=0.8.0
+# Gemma / Google AI (new SDK — replaces deprecated google-generativeai)
+google-genai>=0.8.0
 
 # HTTP client (Ollama path)
 httpx==0.27.2
