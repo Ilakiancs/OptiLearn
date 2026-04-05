@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # Gemma API
     GEMMA_API_KEY: str = ""
-    GEMMA_MODEL: str = "gemma-2.0-flash-exp"
+    GEMMA_MODEL: str = "gemini-2.0-flash"
 
     # Ollama
     OLLAMA_HOST: str = "http://localhost:11434"
