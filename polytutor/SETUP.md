@@ -33,8 +33,8 @@ git clone <your-repo-url>
 cd polytutor
 
 # 2. Run the one-shot installer
-chmod +x setup.sh start.sh stop.sh
-./setup.sh
+chmod +x scripts/setup.sh scripts/start.sh scripts/stop.sh
+./scripts/setup.sh
 ```
 
 The setup script will:
@@ -67,7 +67,7 @@ All other defaults work out of the box for local development.
 ## Starting the Server
 
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 The API will be available at: **http://localhost:8000**
@@ -79,7 +79,7 @@ Interactive API docs: **http://localhost:8000/docs**
 ## Stopping the Server
 
 ```bash
-./stop.sh
+./scripts/stop.sh
 ```
 
 ---
@@ -91,7 +91,7 @@ Place plain `.txt` files in `data/curriculum/`. Each file should cover one topic
 To rebuild the index manually without re-running full setup:
 ```bash
 source .venv/bin/activate
-python data/build_index.py
+python data/scripts/build_index.py
 ```
 
 ---
@@ -107,7 +107,7 @@ When you are ready to go fully offline (Phase 3):
    USE_LOCAL_OLLAMA=true
    OLLAMA_MODEL=gemma4:9b
    ```
-4. Restart the server: `./stop.sh && ./start.sh`
+4. Restart the server: `./scripts/stop.sh && ./scripts/start.sh`
 
 No other changes are needed — the model client routes automatically.
 
