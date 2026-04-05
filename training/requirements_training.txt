@@ -1,0 +1,16 @@
+# Install order matters — unsloth must come after torch
+torch==2.4.1
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+transformers==4.44.2
+datasets==2.21.0
+peft==0.12.0
+trl==0.10.1
+bitsandbytes==0.43.3
+accelerate==0.33.0
+sentencepiece==0.2.0
+huggingface_hub==0.24.6
+llama-cpp-python==0.2.90
+langdetect==1.0.9
+tqdm==4.66.5
+pandas==2.2.2
+numpy==1.26.4
