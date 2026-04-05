@@ -3,10 +3,10 @@ app/services/model_client.py — unified AI model client.
 
 This is the ONLY file that communicates with an AI model (Gemma API or Ollama).
 All other files must call methods on ModelClient; they must never import
-google-generativeai or httpx directly.
+google-genai or httpx directly.
 
 Routing:
-  USE_LOCAL_OLLAMA=false → Google Generative AI SDK (Gemma API)
+  USE_LOCAL_OLLAMA=false → google-genai SDK (Gemma / Gemini API)
   USE_LOCAL_OLLAMA=true  → Ollama HTTP API (local)
 
 Retry: tenacity @retry(attempts=3, wait=2s) on both paths.
@@ -28,66 +28,73 @@ from app.core.config import settings
 # ToolCallEvent
 # ──────────────────────────────────────────────────────────────
 @dataclass
-class ToolCallEvent:
-    """Emitted when the model requests a tool invocation instead of text."""
+class ToolCallEvent(Exception):
+    """Emitted when the model requests a tool invocation instead of text.
+
+    Inherits from Exception so it can be raised from async generators.
+    """
 
     tool_name: str
     arguments: dict[str, Any]
 
 
 # ──────────────────────────────────────────────────────────────
-# Tool schema conversion helpers
+# Tool schema conversion helpers (google-genai SDK)
 # ──────────────────────────────────────────────────────────────
-def _to_genai_tools(tools: list[dict]) -> list[Any]:
+def _to_genai_tool_config(tools: list[dict]) -> Any:
     """
-    Convert the standard tool-schema list to google-generativeai Tool objects.
+    Convert the standard tool-schema list to google.genai types.Tool objects.
 
-    Imports google.generativeai lazily so the module doesn't crash when
-    USE_LOCAL_OLLAMA=true and the package is not fully configured.
+    Lazily imports google.genai so the module doesn't crash when
+    USE_LOCAL_OLLAMA=true.
     """
-    import google.generativeai as genai
-    from google.generativeai import protos
+    from google.genai import types as genai_types
 
-    genai_tools: list[Any] = []
+    fn_declarations = []
     for tool_def in tools:
         params = tool_def.get("parameters", {})
         props_raw = params.get("properties", {})
         required = params.get("required", [])
 
-        schema_props: dict[str, protos.Schema] = {}
+        schema_props: dict[str, Any] = {}
         for prop_name, prop_info in props_raw.items():
-            schema_props[prop_name] = protos.Schema(
-                type=_map_type_to_genai(prop_info.get("type", "string")),
-                description=prop_info.get("description", ""),
+            schema_kwargs: dict[str, Any] = {
+                "type": _map_type(prop_info.get("type", "string")),
+                "description": prop_info.get("description", ""),
+            }
+            # Array properties require an 'items' schema
+            if prop_info.get("type") == "array" and "items" in prop_info:
+                schema_kwargs["items"] = genai_types.Schema(
+                    type=_map_type(prop_info["items"].get("type", "string"))
+                )
+            schema_props[prop_name] = genai_types.Schema(**schema_kwargs)
+
+        fn_declarations.append(
+            genai_types.FunctionDeclaration(
+                name=tool_def["name"],
+                description=tool_def.get("description", ""),
+                parameters=genai_types.Schema(
+                    type="OBJECT",
+                    properties=schema_props,
+                    required=required,
+                ),
             )
-
-        fn_decl = protos.FunctionDeclaration(
-            name=tool_def["name"],
-            description=tool_def.get("description", ""),
-            parameters=protos.Schema(
-                type=protos.Type.OBJECT,
-                properties=schema_props,
-                required=required,
-            ),
         )
-        genai_tools.append(protos.Tool(function_declarations=[fn_decl]))
 
-    return genai_tools
+    return [genai_types.Tool(function_declarations=fn_declarations)]
 
 
-def _map_type_to_genai(type_str: str) -> Any:
-    """Map JSON-schema type string to google.generativeai protos.Type enum."""
-    from google.generativeai import protos
-
+def _map_type(type_str: str) -> str:
+    """Map JSON-schema type string to google-genai Schema type string."""
     mapping = {
-        "string": protos.Type.STRING,
-        "integer": protos.Type.INTEGER,
-        "number": protos.Type.NUMBER,
-        "boolean": protos.Type.BOOLEAN,
-        "array": protos.Type.ARRAY,
-        "object": protos.Type.OBJECT,
+        "string": "STRING",
+        "integer": "INTEGER",
+        "number": "NUMBER",
+        "boolean": "BOOLEAN",
+        "array": "ARRAY",
+        "object": "OBJECT",
     }
-    return mapping.get(type_str.lower(), protos.Type.STRING)
+    return mapping.get(type_str.lower(), "STRING")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -97,20 +104,20 @@ class ModelClient:
     """
     Unified client for calling AI models.
 
-    Routes calls to Gemma API or Ollama depending on USE_LOCAL_OLLAMA setting.
+    Routes calls to Gemma/Gemini API or Ollama depending on USE_LOCAL_OLLAMA setting.
     """
 
     def __init__(self) -> None:
+        """Initialise the appropriate backend client."""
         if not settings.USE_LOCAL_OLLAMA:
             self._init_gemma()
 
     def _init_gemma(self) -> None:
-        """Configure google-generativeai with the API key from settings."""
-        import google.generativeai as genai
+        """Configure google-genai client with the API key from settings."""
+        from google import genai
 
-        genai.configure(api_key=settings.GEMMA_API_KEY)
-        self._genai_model = genai.GenerativeModel(settings.GEMMA_MODEL)
-        logger.info("ModelClient using Gemma API model={}", settings.GEMMA_MODEL)
+        self._genai_client = genai.Client(api_key=settings.GEMMA_API_KEY)
+        logger.info("ModelClient using Gemma/Gemini API model={}", settings.GEMMA_MODEL)
 
     # ──────────────────────────────────────────────────────────
     # Public interface
@@ -147,49 +154,53 @@ class ModelClient:
         return await self._gemma_complete(messages, tools, image_b64)
 
     # ──────────────────────────────────────────────────────────
-    # Gemma API path
+    # Gemma / Gemini API path (google-genai SDK)
     # ──────────────────────────────────────────────────────────
-    def _build_gemma_content(
+    def _build_genai_contents(
         self,
         messages: list[dict],
         image_b64: str | None,
-    ) -> list[Any]:
-        """Build google-generativeai content list from OpenAI-style messages."""
+    ) -> tuple[str | None, list[Any]]:
+        """
+        Convert OpenAI-style messages to google-genai contents format.
+
+        Returns (system_instruction, contents_list).
+        The system message is extracted separately; all other messages
+        become contents entries with role 'user' or 'model'.
+        """
         import base64
 
-        from google.generativeai import protos
+        from google.genai import types as genai_types
 
-        content_parts: list[Any] = []
+        system_instruction: str | None = None
+        contents: list[Any] = []
 
+        image_attached = False
         for msg in messages:
             role = msg.get("role", "user")
             text = msg.get("content", "")
 
             if role == "system":
-                content_parts.append({"role": "user", "parts": [text]})
-                content_parts.append(
-                    {"role": "model", "parts": ["Understood. I will follow your instructions."]}
-                )
-            elif role == "user":
-                parts: list[Any] = [text]
-                if image_b64:
-                    img_bytes = base64.b64decode(image_b64)
-                    parts.append(
-                        protos.Part(
-                            inline_data=protos.Blob(
-                                mime_type="image/jpeg",
-                                data=img_bytes,
-                            )
-                        )
-                    )
-                    image_b64 = None
-                content_parts.append({"role": "user", "parts": parts})
-            elif role in ("assistant", "model"):
-                content_parts.append({"role": "model", "parts": [text]})
-            elif role == "tool":
-                content_parts.append({"role": "user", "parts": [text]})
+                system_instruction = text
+                continue
 
-        return content_parts
+            if role in ("assistant", "model"):
+                contents.append(genai_types.Content(role="model", parts=[genai_types.Part(text=text)]))
+                continue
+
+            # user / tool messages
+            parts: list[Any] = [genai_types.Part(text=text)]
+            if image_b64 and not image_attached:
+                img_bytes = base64.b64decode(image_b64)
+                parts.append(
+                    genai_types.Part(
+                        inline_data=genai_types.Blob(mime_type="image/jpeg", data=img_bytes)
+                    )
+                )
+                image_attached = True
+            contents.append(genai_types.Content(role="user", parts=parts))
+
+        return system_instruction, contents
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     async def _gemma_complete(
@@ -198,31 +209,44 @@ class ModelClient:
         tools: list[dict],
         image_b64: str | None,
     ) -> "ToolCallEvent | str":
-        """Call Gemma API (non-streaming) and detect tool calls or return text."""
+        """Call Gemma/Gemini API (non-streaming) and detect tool calls or return text."""
         import asyncio
 
-        content = self._build_gemma_content(messages, image_b64)
-        genai_tools = _to_genai_tools(tools) if tools else []
+        from google.genai import types as genai_types
+
+        system_instruction, contents = self._build_genai_contents(messages, image_b64)
+
+        config_kwargs: dict[str, Any] = {}
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+        if tools:
+            config_kwargs["tools"] = _to_genai_tool_config(tools)
+
+        config = genai_types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
         loop = asyncio.get_event_loop()
-        kwargs: dict[str, Any] = {"contents": content, "stream": False}
-        if genai_tools:
-            kwargs["tools"] = genai_tools
 
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._genai_model.generate_content(**kwargs),
-        )
+        def _call() -> Any:
+            kwargs: dict[str, Any] = {
+                "model": settings.GEMMA_MODEL,
+                "contents": contents,
+            }
+            if config:
+                kwargs["config"] = config
+            return self._genai_client.models.generate_content(**kwargs)
 
+        response = await loop.run_in_executor(None, _call)
+
+        # Check for function/tool calls
         for candidate in response.candidates:
             for part in candidate.content.parts:
-                if part.function_call and part.function_call.name:
+                if part.function_call:
                     fn = part.function_call
                     args = dict(fn.args) if fn.args else {}
                     logger.info("Gemma requested tool: {}", fn.name)
                     return ToolCallEvent(tool_name=fn.name, arguments=args)
 
-        return response.text
+        return response.text or ""
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     async def _gemma_stream(
@@ -234,23 +258,39 @@ class ModelClient:
         """Stream tokens from Gemma API, raising ToolCallEvent if tool is requested."""
         import asyncio
 
-        content = self._build_gemma_content(messages, image_b64)
-        genai_tools = _to_genai_tools(tools) if tools else []
+        from google.genai import types as genai_types
+
+        system_instruction, contents = self._build_genai_contents(messages, image_b64)
+
+        config_kwargs: dict[str, Any] = {}
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+        if tools:
+            config_kwargs["tools"] = _to_genai_tool_config(tools)
+
+        config = genai_types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
         loop = asyncio.get_event_loop()
-        kwargs: dict[str, Any] = {"contents": content, "stream": True}
-        if genai_tools:
-            kwargs["tools"] = genai_tools
 
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._genai_model.generate_content(**kwargs),
-        )
+        def _call() -> Any:
+            kwargs: dict[str, Any] = {
+                "model": settings.GEMMA_MODEL,
+                "contents": contents,
+            }
+            if config:
+                kwargs["config"] = config
+            return self._genai_client.models.generate_content_stream(**kwargs)
 
-        for chunk in response:
+        stream = await loop.run_in_executor(None, _call)
+
+        for chunk in stream:
+            if not chunk.candidates:
+                continue
             for candidate in chunk.candidates:
+                if not candidate.content or not candidate.content.parts:
+                    continue
                 for part in candidate.content.parts:
-                    if part.function_call and part.function_call.name:
+                    if part.function_call:
                         fn = part.function_call
                         args = dict(fn.args) if fn.args else {}
                         logger.info("Gemma stream requested tool: {}", fn.name)
