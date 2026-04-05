@@ -1,0 +1,10 @@
+{
+  "name": "PolyTutor",
+  "short_name": "PolyTutor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#6c63ff",
+  "description": "Offline-first multilingual adaptive learning agent for refugee classrooms.",
+  "icons": []
+}
