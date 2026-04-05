@@ -1,5 +1,5 @@
 """
-backend/db.py — SQLite schema initialisation and async helper functions.
+app/services/db.py — SQLite schema initialisation and async helper functions.
 
 All database operations use aiosqlite. The schema uses WAL mode and foreign keys.
 Call init_db() from FastAPI's lifespan startup hook.
@@ -11,7 +11,7 @@ from typing import Any
 import aiosqlite
 from loguru import logger
 
-from backend.config import settings
+from app.core.config import settings
 
 
 # ──────────────────────────────────────────────────────────────
@@ -344,13 +344,12 @@ async def get_dashboard_data() -> dict[str, Any]:
 
     Returns:
         {
-            "students": [...],          # all students with mastery
+            "students": [...],
             "total_sessions": int,
-            "topics_by_struggle": [...]  # topics with lowest avg mastery
+            "topics_by_struggle": [...]
         }
     """
     async with await _get_db() as db:
-        # All students
         cursor = await db.execute("SELECT * FROM students ORDER BY created_at DESC")
         student_rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in student_rows]
@@ -367,12 +366,10 @@ async def get_dashboard_data() -> dict[str, Any]:
             mastery_rows = await m_cursor.fetchall()
             student["mastery_summary"] = [_row_to_dict(r) for r in mastery_rows]
 
-        # Total sessions
         count_cursor = await db.execute("SELECT COUNT(*) AS cnt FROM sessions")
         count_row = await count_cursor.fetchone()
         total_sessions: int = count_row["cnt"]
 
-        # Topics ordered by lowest average mastery (most struggle)
         struggle_cursor = await db.execute(
             """
             SELECT topic, AVG(mastery) AS avg_mastery, COUNT(*) AS student_count

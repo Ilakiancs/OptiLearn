@@ -1,11 +1,11 @@
 """
-backend/tools.py — four agent tool implementations called by main.py.
+app/tools/agent_tools.py — four agent tool implementations.
 
 Tools are pure async functions dispatched after the model emits a ToolCallEvent.
 generate_quiz is the one exception: it calls model_client for structured generation.
 
 TOOL_SCHEMAS: list[dict] is the canonical tool definition list passed into
-every model_client call from main.py.
+every model_client call from the route handlers.
 """
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ from langdetect import detect_langs
 from langdetect.lang_detect_exception import LangDetectException
 from loguru import logger
 
-from backend import db, faiss_store
-from backend.config import settings
-from backend.model_client import model_client
+from app.core.config import settings
+from app.services import db, faiss_store
+from app.services.model_client import model_client
 
 # ──────────────────────────────────────────────────────────────
-# Tool schema definitions (standard format for model_client)
+# Tool schema definitions
 # ──────────────────────────────────────────────────────────────
 TOOL_SCHEMAS: list[dict] = [
     {
@@ -137,12 +137,6 @@ async def detect_language(text: str) -> dict[str, Any]:
 
     Returns the ISO 639-1 language code and a confidence score.
     Falls back to English with confidence 0.0 on any error.
-
-    Args:
-        text: The input text to analyse.
-
-    Returns:
-        {"language": str, "confidence": float}
     """
     threshold = settings.LANGDETECT_CONFIDENCE_THRESHOLD
     try:
@@ -181,15 +175,6 @@ async def retrieve_curriculum(
 ) -> list[dict[str, Any]]:
     """
     Retrieve relevant curriculum passages from the FAISS vector store.
-
-    Args:
-        topic:       The topic to search for.
-        grade_level: Student's grade level.
-        language:    Student's ISO 639-1 language code (reserved for future use).
-
-    Returns:
-        List of {"passage": str, "source": str} dicts.
-        Returns a single-item list with a note if no results are found.
     """
     results = faiss_store.query(topic=topic, grade_level=grade_level, k=3)
 
@@ -219,18 +204,6 @@ async def generate_quiz(
 ) -> dict[str, Any]:
     """
     Generate a multiple-choice quiz using the AI model with structured JSON output.
-
-    Args:
-        topic:    The quiz topic.
-        level:    Difficulty level: 'beginner', 'intermediate', or 'advanced'.
-        language: ISO 639-1 language code for the quiz language.
-        n:        Number of questions to generate.
-
-    Returns:
-        {"questions": [{"id": str, "question": str, "options": list[str], "answer": str, "type": "mcq"}]}
-
-    Raises:
-        ValueError: If the model response cannot be parsed as valid quiz JSON.
     """
     prompt = (
         f"Generate exactly {n} multiple-choice quiz questions about '{topic}' "
@@ -249,7 +222,7 @@ async def generate_quiz(
     messages = [{"role": "user", "content": prompt}]
     result = await model_client.complete_with_tools(
         messages=messages,
-        tools=[],  # no tool recursion
+        tools=[],
         image_b64=None,
     )
 
@@ -259,7 +232,6 @@ async def generate_quiz(
             f"got {type(result).__name__}"
         )
 
-    # Strip markdown code fences if present
     cleaned = re.sub(r"```(?:json)?\s*", "", result).strip()
     cleaned = cleaned.rstrip("`").strip()
 
@@ -306,19 +278,10 @@ async def update_progress(
     student_id: str,
     topic: str,
     score: float,
-    question_ids: list[str],  # noqa: ARG001 — stored for audit trail in future
+    question_ids: list[str],  # noqa: ARG001 — reserved for future audit trail
 ) -> dict[str, Any]:
     """
     Update a student's mastery for a topic using EMA and return the new level.
-
-    Args:
-        student_id:   Student UUID.
-        topic:        Topic that was assessed.
-        score:        Quiz score as a fraction 0.0–1.0.
-        question_ids: Question UUIDs answered (reserved for future audit trail).
-
-    Returns:
-        {"new_level": str, "mastery": float, "previous_level": str}
     """
     result = await db.update_mastery(
         student_id=student_id,

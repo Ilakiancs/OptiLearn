@@ -1,5 +1,5 @@
 """
-backend/faiss_store.py — lazy-loaded FAISS index singleton.
+app/services/faiss_store.py — lazy-loaded FAISS index singleton.
 
 Exposes a single public function:
     query(topic, grade_level, k=3) -> list[dict]
@@ -15,14 +15,14 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from backend.config import settings
+from app.core.config import settings
 
 # ──────────────────────────────────────────────────────────────
 # Lazy singleton state
 # ──────────────────────────────────────────────────────────────
-_index: Any | None = None          # faiss.Index
-_meta: list[dict] | None = None    # passage metadata
-_embed_model: Any | None = None    # SentenceTransformer
+_index: Any | None = None
+_meta: list[dict] | None = None
+_embed_model: Any | None = None
 
 
 def _load() -> bool:
@@ -39,7 +39,7 @@ def _load() -> bool:
     if not os.path.exists(index_path):
         logger.warning(
             "FAISS index not found at {}. Topic retrieval disabled. "
-            "Run 'python data/build_index.py' to build it.",
+            "Run 'python data/scripts/build_index.py' to build it.",
             index_path,
         )
         return False
@@ -52,7 +52,7 @@ def _load() -> bool:
         return False
 
     logger.info("Loading FAISS index from {}", index_path)
-    import faiss  # imported here to avoid import-time crash if faiss not installed
+    import faiss
     _index = faiss.read_index(index_path)
 
     with open(meta_path, encoding="utf-8") as fh:
@@ -85,7 +85,6 @@ def query(topic: str, grade_level: int, k: int = 3) -> list[dict[str, Any]]:
     """
     global _index, _meta, _embed_model  # noqa: PLW0603
 
-    # Load on first call
     if _index is None:
         success = _load()
         if not success:
@@ -94,12 +93,10 @@ def query(topic: str, grade_level: int, k: int = 3) -> list[dict[str, Any]]:
     if _index is None or _meta is None or _embed_model is None:
         return []
 
-    # Embed the query
     query_vec: np.ndarray = _embed_model.encode(
         [topic], convert_to_numpy=True
     ).astype(np.float32)
 
-    # Search FAISS
     distances, indices = _index.search(query_vec, k)
 
     results: list[dict] = []

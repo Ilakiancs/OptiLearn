@@ -1,5 +1,5 @@
 """
-backend/model_client.py — unified AI model client.
+app/services/model_client.py — unified AI model client.
 
 This is the ONLY file that communicates with an AI model (Gemma API or Ollama).
 All other files must call methods on ModelClient; they must never import
@@ -21,7 +21,7 @@ import httpx
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from backend.config import settings
+from app.core.config import settings
 
 
 # ──────────────────────────────────────────────────────────────
@@ -101,7 +101,6 @@ class ModelClient:
     """
 
     def __init__(self) -> None:
-        """Initialise the client and configure the active backend."""
         if not settings.USE_LOCAL_OLLAMA:
             self._init_gemma()
 
@@ -126,14 +125,6 @@ class ModelClient:
         Stream a chat response, yielding token strings.
 
         If the model emits a tool call, raises ToolCallEvent instead of yielding.
-
-        Args:
-            messages:  OpenAI-style message list [{role, content}, ...].
-            tools:     Tool definitions in standard schema format.
-            image_b64: Base64-encoded JPEG if a textbook image is attached.
-
-        Yields:
-            Token strings from the model response.
         """
         if settings.USE_LOCAL_OLLAMA:
             async for token in self._ollama_stream(messages, tools, image_b64):
@@ -150,14 +141,6 @@ class ModelClient:
     ) -> "ToolCallEvent | str":
         """
         Call the model and return either a ToolCallEvent or a full text string.
-
-        Args:
-            messages:  OpenAI-style message list.
-            tools:     Tool definitions in standard schema format.
-            image_b64: Base64-encoded JPEG if present.
-
-        Returns:
-            ToolCallEvent if the model requested a tool, else the response text string.
         """
         if settings.USE_LOCAL_OLLAMA:
             return await self._ollama_complete(messages, tools, image_b64)
@@ -171,12 +154,7 @@ class ModelClient:
         messages: list[dict],
         image_b64: str | None,
     ) -> list[Any]:
-        """
-        Build google-generativeai content list from OpenAI-style messages.
-
-        The system message is promoted into an instruction; the rest become
-        user/model turns. The image attaches to the last user turn if provided.
-        """
+        """Build google-generativeai content list from OpenAI-style messages."""
         import base64
 
         from google.generativeai import protos
@@ -188,7 +166,6 @@ class ModelClient:
             text = msg.get("content", "")
 
             if role == "system":
-                # Prepend system text to the first user message
                 content_parts.append({"role": "user", "parts": [text]})
                 content_parts.append(
                     {"role": "model", "parts": ["Understood. I will follow your instructions."]}
@@ -196,7 +173,6 @@ class ModelClient:
             elif role == "user":
                 parts: list[Any] = [text]
                 if image_b64:
-                    # Attach image to this user turn
                     img_bytes = base64.b64decode(image_b64)
                     parts.append(
                         protos.Part(
@@ -206,12 +182,11 @@ class ModelClient:
                             )
                         )
                     )
-                    image_b64 = None  # only attach once
+                    image_b64 = None
                 content_parts.append({"role": "user", "parts": parts})
             elif role in ("assistant", "model"):
                 content_parts.append({"role": "model", "parts": [text]})
             elif role == "tool":
-                # Tool result — encode as a user message with function response
                 content_parts.append({"role": "user", "parts": [text]})
 
         return content_parts
@@ -239,7 +214,6 @@ class ModelClient:
             lambda: self._genai_model.generate_content(**kwargs),
         )
 
-        # Check for tool call
         for candidate in response.candidates:
             for part in candidate.content.parts:
                 if part.function_call and part.function_call.name:
@@ -248,7 +222,6 @@ class ModelClient:
                     logger.info("Gemma requested tool: {}", fn.name)
                     return ToolCallEvent(tool_name=fn.name, arguments=args)
 
-        # Plain text response
         return response.text
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
@@ -285,12 +258,6 @@ class ModelClient:
                     if part.text:
                         yield part.text
 
-    # Make _gemma_stream a proper async generator
-    # (the retry decorator wraps it; we need to yield from inside the loop above)
-    # This is handled implicitly since _gemma_stream uses `yield`, making it an
-    # async generator — but tenacity doesn't support async generators directly.
-    # We work around by making stream_chat call a wrapper.
-
     # ──────────────────────────────────────────────────────────
     # Ollama path
     # ──────────────────────────────────────────────────────────
@@ -310,7 +277,6 @@ class ModelClient:
         if tools:
             body["tools"] = tools
         if image_b64:
-            # Attach image to the last user message
             body["messages"] = list(messages)
             for i in range(len(body["messages"]) - 1, -1, -1):
                 if body["messages"][i]["role"] == "user":
@@ -327,7 +293,6 @@ class ModelClient:
 
         message = data.get("message", {})
 
-        # Detect tool call
         tool_calls = message.get("tool_calls")
         if tool_calls:
             first = tool_calls[0]
@@ -341,7 +306,6 @@ class ModelClient:
 
         content = message.get("content", "")
 
-        # Fallback: try parsing raw JSON from content
         if content.strip().startswith("{"):
             try:
                 parsed = json.loads(content)
@@ -411,6 +375,6 @@ class ModelClient:
 
 
 # ──────────────────────────────────────────────────────────────
-# Singleton — import this in main.py and tools.py
+# Singleton — import this in routes and tools
 # ──────────────────────────────────────────────────────────────
 model_client = ModelClient()

@@ -1,11 +1,11 @@
 """
-data/build_index.py — one-time FAISS index builder.
+data/scripts/build_index.py — one-time FAISS index builder.
 
 Reads all .txt files from CURRICULUM_DIR, splits them into overlapping passages,
 embeds them with sentence-transformers, and saves the FAISS index + metadata JSON.
 
 Usage:
-    python data/build_index.py
+    python data/scripts/build_index.py
 """
 import json
 import os
@@ -13,7 +13,7 @@ import sys
 import uuid
 
 # Ensure project root is on the path when run directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import faiss
 import numpy as np
@@ -21,7 +21,7 @@ from loguru import logger
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
-from backend.config import settings
+from app.core.config import settings
 
 # ──────────────────────────────────────────────────────────────
 # Passage splitting
@@ -48,10 +48,7 @@ def _split_passages(text: str, source: str) -> list[dict]:
     while start < len(words):
         end = min(start + _PASSAGE_WORDS, len(words))
         chunk = " ".join(words[start:end])
-
-        # Derive a simple grade hint from the source filename
         grade_hint = _infer_grade_hint(source)
-
         passages.append(
             {
                 "id": str(uuid.uuid4()),
@@ -60,10 +57,9 @@ def _split_passages(text: str, source: str) -> list[dict]:
                 "grade_hint": grade_hint,
             }
         )
-
         if end == len(words):
             break
-        start = end - _OVERLAP_WORDS  # slide back for overlap
+        start = end - _OVERLAP_WORDS
 
     return passages
 
@@ -93,7 +89,6 @@ def build_index() -> None:
     meta_path = settings.FAISS_META_PATH
     embed_model_name = settings.EMBED_MODEL
 
-    # ── Collect .txt files ─────────────────────────────────────
     txt_files = sorted(
         f for f in os.listdir(curriculum_dir) if f.endswith(".txt")
     )
@@ -103,7 +98,6 @@ def build_index() -> None:
 
     logger.info("Found {} curriculum file(s) in {}", len(txt_files), curriculum_dir)
 
-    # ── Parse passages ─────────────────────────────────────────
     all_passages: list[dict] = []
     for fname in txt_files:
         fpath = os.path.join(curriculum_dir, fname)
@@ -115,11 +109,9 @@ def build_index() -> None:
 
     logger.info("Total passages to embed: {}", len(all_passages))
 
-    # ── Load embedding model ───────────────────────────────────
     logger.info("Loading embedding model: {}", embed_model_name)
     model = SentenceTransformer(embed_model_name)
 
-    # ── Embed with progress bar ────────────────────────────────
     texts = [p["text"] for p in all_passages]
     embeddings: np.ndarray = model.encode(
         texts,
@@ -128,12 +120,10 @@ def build_index() -> None:
         convert_to_numpy=True,
     )
 
-    # ── Build FAISS index ──────────────────────────────────────
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings.astype(np.float32))
 
-    # ── Save index and metadata ────────────────────────────────
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     faiss.write_index(index, index_path)
     logger.info("FAISS index saved to {}", index_path)

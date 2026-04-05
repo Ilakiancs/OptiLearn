@@ -1,5 +1,5 @@
 """
-backend/config.py — centralised configuration via pydantic-settings BaseSettings.
+app/core/config.py — centralised configuration via pydantic-settings BaseSettings.
 
 All other files import `settings` from here. No file may read os.environ directly.
 """

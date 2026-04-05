@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — one-shot installer for PolyTutor
+# scripts/setup.sh — one-shot installer for PolyTutor
 set -euo pipefail
 
 echo "═══════════════════════════════════════"
@@ -71,7 +71,7 @@ echo "▶ Initialising database..."
 import asyncio
 import sys
 sys.path.insert(0, '.')
-from backend.db import init_db
+from app.services.db import init_db
 asyncio.run(init_db())
 print('  ✓ Database schema created')
 "
@@ -105,7 +105,7 @@ if [ -f "$FAISS_INDEX" ]; then
 elif [ "$TXT_COUNT" -eq 0 ]; then
     echo "  ⚠ Skipping FAISS build — no curriculum files found"
 else
-    "$PYTHON" data/build_index.py
+    "$PYTHON" data/scripts/build_index.py
     echo "  ✓ FAISS index built"
 fi
 
@@ -115,5 +115,5 @@ fi
 echo ""
 echo "═══════════════════════════════════════"
 echo "  Setup complete. Edit .env with your"
-echo "  GEMMA_API_KEY, then run ./start.sh"
+echo "  GEMMA_API_KEY, then run ./scripts/start.sh"
 echo "═══════════════════════════════════════"
