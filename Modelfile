@@ -1,4 +1,4 @@
-FROM ./models/polytutor-gemma3-q4_K_M.gguf
+FROM ./models/optilearn-gemma4-q4_K_M.gguf
 
 SYSTEM """
 You are a patient, encouraging tutor working with displaced children

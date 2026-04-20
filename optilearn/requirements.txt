@@ -1,0 +1,59 @@
+# Web framework
+# fastapi 0.115.0 pinned; relax to allow compatible patch versions on Python 3.14
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+python-multipart>=0.0.9
+
+# Gemma / Google AI (new SDK — replaces deprecated google-generativeai)
+google-genai>=0.8.0
+
+# HTTP client (Ollama path)
+httpx==0.27.2
+
+# Validation
+# pydantic 2.8.2 requires pydantic-core 2.20.1 which cannot build on Python 3.14
+# Using latest pydantic with pre-built 3.14 wheels
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Image processing
+Pillow>=10.4.0
+
+# Vector store
+# faiss-cpu 1.8.0 is not published; minimum available is 1.12.0
+faiss-cpu==1.13.2
+
+# Embeddings
+# Unpinned to latest compatible — exact older pins (3.1.1 / 2.4.1 / 4.44.2)
+# are not available for Python 3.14
+sentence-transformers>=3.1.1
+torch>=2.4.1
+transformers>=4.44.2
+
+# Language detection fallback
+langdetect==1.0.9
+
+# Database
+aiosqlite==0.20.0
+
+# Retry logic
+tenacity==9.0.0
+
+# Logging
+loguru==0.7.2
+
+# Progress bars (setup scripts)
+tqdm==4.66.5
+
+# Utilities
+python-dotenv==1.0.1
+
+# PDF extraction (material upload)
+PyMuPDF>=1.24.0
+
+# PDF report generation
+reportlab>=4.2.2
+
+# Dev / testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
