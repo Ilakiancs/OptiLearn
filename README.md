@@ -16,7 +16,7 @@
 ### 1. Clone and enter the project
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Ilakiancs/OptiLearn
 cd Optilearn/optilearn
 ```
 
