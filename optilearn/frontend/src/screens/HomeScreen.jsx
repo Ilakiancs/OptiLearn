@@ -1,287 +1,288 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { listStudents, createStudent } from '../api/client'
+import {
+  ArrowSquareOut,
+  DoorOpen,
+  Moon,
+  Plus,
+  Student,
+  Sun,
+  User,
+  Users,
+} from '@phosphor-icons/react'
+import { createStudent, listStudents } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import { avatarColor, getInitials } from '../components/StudentLayout'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
-  { code: 'ar', label: 'Arabic — عربي' },
-  { code: 'fr', label: 'French — Français' },
-  { code: 'sw', label: 'Swahili — Kiswahili' },
-  { code: 'so', label: 'Somali — Soomaali' },
-  { code: 'am', label: 'Amharic — አማርኛ' },
-  { code: 'ti', label: 'Tigrinya — ትግርኛ' },
-  { code: 'om', label: 'Oromo — Afaan Oromoo' },
+  { code: 'ar', label: 'Arabic' },
+  { code: 'fr', label: 'French' },
+  { code: 'sw', label: 'Swahili' },
+  { code: 'so', label: 'Somali' },
+  { code: 'am', label: 'Amharic' },
+  { code: 'ti', label: 'Tigrinya' },
+  { code: 'om', label: 'Oromo' },
   { code: 'ha', label: 'Hausa' },
   { code: 'yo', label: 'Yoruba' },
   { code: 'ig', label: 'Igbo' },
   { code: 'rw', label: 'Kinyarwanda' },
   { code: 'ln', label: 'Lingala' },
-  { code: 'ps', label: 'Pashto — پښتو' },
-  { code: 'fa', label: 'Farsi / Persian — فارسی' },
-  { code: 'ur', label: 'Urdu — اردو' },
-  { code: 'hi', label: 'Hindi — हिन्दी' },
-  { code: 'bn', label: 'Bengali — বাংলা' },
-  { code: 'my', label: 'Burmese — မြန်မာ' },
-  { code: 'km', label: 'Khmer — ខ្មែរ' },
-  { code: 'ne', label: 'Nepali — नेपाली' },
-  { code: 'ta', label: 'Tamil — தமிழ்' },
-  { code: 'tr', label: 'Turkish — Türkçe' },
-  { code: 'ku', label: 'Kurdish — Kurdî' },
-  { code: 'uk', label: 'Ukrainian — Українська' },
-  { code: 'ru', label: 'Russian — Русский' },
-  { code: 'es', label: 'Spanish — Español' },
-  { code: 'pt', label: 'Portuguese — Português' },
-  { code: 'de', label: 'German — Deutsch' },
-  { code: 'zh', label: 'Chinese — 中文' },
-  { code: 'vi', label: 'Vietnamese — Tiếng Việt' },
-  { code: 'tl', label: 'Filipino / Tagalog' },
+  { code: 'ps', label: 'Pashto' },
+  { code: 'fa', label: 'Farsi' },
+  { code: 'ur', label: 'Urdu' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'bn', label: 'Bengali' },
+  { code: 'my', label: 'Burmese' },
+  { code: 'km', label: 'Khmer' },
+  { code: 'ne', label: 'Nepali' },
+  { code: 'ta', label: 'Tamil' },
+  { code: 'tr', label: 'Turkish' },
+  { code: 'ku', label: 'Kurdish' },
+  { code: 'uk', label: 'Ukrainian' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'de', label: 'German' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'vi', label: 'Vietnamese' },
+  { code: 'tl', label: 'Filipino' },
 ]
 
 const GRADES = Array.from({ length: 13 }, (_, i) => i + 1)
 
-function StudentCard({ student, onSelect }) {
-  const [hovered, setHovered] = useState(false)
-  const bg = avatarColor(student.name)
+function ProfileCard({ student, onSelect }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onSelect(student)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: 'var(--color-surface)',
-        border: `1px solid ${hovered ? bg : 'var(--color-border)'}`,
-        borderRadius: 'var(--radius-lg)',
-        padding: '24px 16px',
-        cursor: 'pointer',
-        textAlign: 'center',
-        transition: 'all 0.15s',
-        transform: hovered ? 'translateY(-3px)' : 'none',
-        boxShadow: hovered ? `0 8px 24px ${bg}22` : 'none',
-      }}
+      className="surface-card"
+      style={{ padding: 14, textAlign: 'left', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)' }}
     >
-      <div style={{
-        width: 60, height: 60, borderRadius: '50%', background: bg,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '1.4rem', fontWeight: 800, color: '#fff',
-        margin: '0 auto 12px', border: `3px solid ${bg}66`,
-      }}>
-        {getInitials(student.name)}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            background: avatarColor(student.name),
+            color: '#fff',
+            display: 'grid',
+            placeItems: 'center',
+            fontWeight: 700,
+          }}
+        >
+          {getInitials(student.name)}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student.name}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Grade {student.grade_level} • {student.language?.toUpperCase()}</div>
+        </div>
       </div>
-      <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>{student.name}</div>
-      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginBottom: 14 }}>
-        Grade {student.grade_level} · {student.language?.toUpperCase()}
-      </div>
-      <div style={{
-        padding: '7px 0', borderRadius: 'var(--radius-md)',
-        background: hovered ? bg : 'var(--color-surface-2)',
-        color: hovered ? '#fff' : 'var(--color-text-muted)',
-        fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.15s',
-      }}>
-        {hovered ? '▶  Go to Dashboard' : '● Select'}
-      </div>
-    </div>
-  )
-}
-
-function SkeletonCard() {
-  return (
-    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: 24, opacity: 0.4 }}>
-      <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--color-surface-2)', margin: '0 auto 12px' }} />
-      <div style={{ height: 14, background: 'var(--color-surface-2)', borderRadius: 4, width: '60%', margin: '0 auto 8px' }} />
-      <div style={{ height: 11, background: 'var(--color-surface-2)', borderRadius: 4, width: '40%', margin: '0 auto' }} />
-    </div>
+    </button>
   )
 }
 
 export default function HomeScreen() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', age: '', language: 'en', grade_level: '1' })
-  const [formError, setFormError] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const { data: students = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['students'],
-    queryFn: listStudents,
-  })
+  const { data: students = [], isLoading, refetch } = useQuery({ queryKey: ['students'], queryFn: listStudents })
 
-  function handleSelect(student) {
+  const selectStudent = (student) => {
     login(student.id)
     navigate(`/student/${student.id}`)
   }
 
-  function handleFormChange(e) {
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }))
-  }
-
-  async function handleFormSubmit(e) {
+  async function submit(e) {
     e.preventDefault()
-    setFormError('')
-    if (!form.name.trim()) { setFormError('Name is required.'); return }
-    const age = form.age ? parseInt(form.age) : null
-    if (age !== null && (isNaN(age) || age < 3 || age > 25)) { setFormError('Age must be 3–25.'); return }
-    setSubmitting(true)
+    setError('')
+
+    if (!form.name.trim()) {
+      setError('Please add a name.')
+      return
+    }
+
+    const ageValue = form.age ? Number(form.age) : null
+    if (ageValue !== null && (Number.isNaN(ageValue) || ageValue < 3 || ageValue > 25)) {
+      setError('Age must be between 3 and 25.')
+      return
+    }
+
+    setSaving(true)
     try {
-      const s = await createStudent({
-        name: form.name.trim(), age,
+      const created = await createStudent({
+        name: form.name.trim(),
+        age: ageValue,
         language: form.language,
-        grade_level: parseInt(form.grade_level),
+        grade_level: Number(form.grade_level),
       })
       await refetch()
-      login(s.id)
-      navigate(`/student/${s.id}`)
+      login(created.id)
+      navigate(`/student/${created.id}`)
     } catch (err) {
-      setFormError(err.message)
-      setSubmitting(false)
+      setError(err.message || 'Could not create profile.')
+      setSaving(false)
     }
   }
 
-  const input = {
-    width: '100%', padding: '11px 14px', borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--color-border)', background: 'var(--color-surface-2)',
-    color: 'var(--color-text)', fontSize: '0.95rem', boxSizing: 'border-box',
-  }
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', color: 'var(--color-text)', display: 'flex', flexDirection: 'column' }}>
+    <div className="app-shell" style={{ padding: '14px 12px 24px' }}>
+      <a className="quick-exit" href="https://www.google.com" target="_blank" rel="noreferrer" title="Quick exit to a neutral page">
+        <DoorOpen size={16} weight="bold" />
+        <span>Quick Exit</span>
+      </a>
 
-      {/* Top bar */}
-      <header style={{
-        padding: '14px 24px', borderBottom: '1px solid var(--color-border)',
-        background: 'var(--color-surface)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: '1.5rem' }}>🎓</span>
-          <span style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--color-primary)', letterSpacing: '-0.3px' }}>OptiLearn</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Auth placeholder */}
-          <div style={{
-            padding: '6px 14px', borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--color-border)', color: 'var(--color-text-hint)',
-            fontSize: '0.82rem', cursor: 'not-allowed',
-          }} title="Authentication coming soon">
-            🔐 Sign In <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>(soon)</span>
+      <header className="surface-card" style={{ padding: 12, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span className="icon-only">
+            <Student size={20} weight="duotone" />
+          </span>
+          <div>
+            <div style={{ fontWeight: 800 }}>OptiLearn</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>Icon-guided learning</div>
           </div>
-          <Link to="/teacher" style={{
-            padding: '6px 14px', borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--color-border)',
-            color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '0.85rem',
-          }}>
-            🏫 Teacher Portal
-          </Link>
+        </div>
+
+        <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="pill-button" onClick={toggleTheme}>
+                {theme === 'dark' ? <Sun size={16} weight="duotone" /> : <Moon size={16} weight="duotone" />}
+                <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+
+            <button
+                type="button"
+                className="pill-button"
+                disabled
+                aria-disabled="true"
+                title="Coming Soon"
+                style={{ opacity: 0.58, cursor: 'not-allowed' }}
+            >
+                <User size={16} weight="duotone" />
+                <span>Student Sign In (Coming Soon)</span>
+            </button>
+
+            <Link to="/teacher" className="pill-button">
+                <ArrowSquareOut size={16} weight="duotone" />
+                <span>Teacher</span>
+            </Link>
         </div>
       </header>
 
-      <main style={{ flex: 1, maxWidth: 900, margin: '0 auto', padding: '40px 20px', width: '100%' }}>
-
-        {/* Hero */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontSize: '2.8rem', marginBottom: 10 }}>👋</div>
-          <h1 style={{ fontSize: '1.8rem', fontWeight: 800, marginBottom: 8, color: 'var(--color-text)' }}>
-            Welcome to OptiLearn
-          </h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '1rem', maxWidth: 400, margin: '0 auto' }}>
-            Adaptive learning for every child. Select your profile to continue.
+      <main style={{ marginTop: 12, display: 'grid', gap: 12, maxWidth: 1000, marginInline: 'auto' }}>
+        <section className="surface-card" style={{ padding: 16 }}>
+          <h1 style={{ margin: 0, fontSize: '1.35rem' }}>Choose profile by icon</h1>
+          <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+            This interface is designed to stay predictable and calm. You can stop and return at any time.
           </p>
-        </div>
+          <div className="tid-banner" style={{ marginTop: 10 }}>
+            Why we ask details: language and grade help personalize materials; nothing else is required.
+          </div>
+        </section>
 
-        {/* Student profiles */}
-        <section>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Student Profiles
-            </h2>
-            {!showForm && (
-              <button
-                onClick={() => setShowForm(true)}
-                style={{
-                  padding: '7px 16px', borderRadius: 'var(--radius-md)',
-                  background: 'var(--color-primary)', color: '#fff',
-                  border: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                + New Student
-              </button>
-            )}
+        <section className="surface-card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+              <Users size={18} weight="duotone" />
+              <span>Profiles</span>
+            </div>
+            <button type="button" className="pill-button" onClick={() => setShowForm((v) => !v)}>
+              <Plus size={16} weight="bold" />
+              <span>{showForm ? 'Close form' : 'New profile'}</span>
+            </button>
           </div>
 
-          {error && <p style={{ color: 'var(--color-danger)', marginBottom: 16 }}>Could not load profiles: {error.message}</p>}
-
-          {!showForm && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 14, marginBottom: 24 }}>
-              {isLoading
-                ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-                : students.map(s => <StudentCard key={s.id} student={s} onSelect={handleSelect} />)
-              }
-              {!isLoading && students.length === 0 && (
-                <div style={{ gridColumn: '1/-1', padding: '40px 20px', textAlign: 'center', color: 'var(--color-text-muted)', background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)' }}>
-                  <div style={{ fontSize: '2rem', marginBottom: 10 }}>🧑‍🎓</div>
-                  No students yet. Add the first one!
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Add student form */}
-          {showForm && (
-            <div style={{
-              background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-lg)', padding: '28px 24px', maxWidth: 460,
-            }}>
-              <h3 style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 20 }}>🧑‍🎓 Register New Student</h3>
-              <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 5 }}>Full Name *</label>
-                  <input name="name" value={form.name} onChange={handleFormChange} placeholder="Student's full name" required style={input} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 5 }}>Age</label>
-                  <input name="age" type="number" min="3" max="25" value={form.age} onChange={handleFormChange} placeholder="Optional" style={input} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 5 }}>Language *</label>
-                  <select name="language" value={form.language} onChange={handleFormChange} style={{ ...input, cursor: 'pointer' }}>
-                    {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 5 }}>Grade Level *</label>
-                  <select name="grade_level" value={form.grade_level} onChange={handleFormChange} style={{ ...input, cursor: 'pointer' }}>
-                    {GRADES.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                  </select>
-                </div>
-                {formError && <p style={{ color: 'var(--color-danger)', fontSize: '0.88rem', margin: 0 }}>{formError}</p>}
-                <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                  <button type="submit" disabled={submitting} style={{
-                    flex: 1, padding: '11px', background: submitting ? 'var(--color-primary-dim)' : 'var(--color-primary)',
-                    color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
-                    fontSize: '0.95rem', fontWeight: 600, cursor: submitting ? 'default' : 'pointer',
-                  }}>
-                    {submitting ? 'Creating…' : '✓ Create Profile'}
-                  </button>
-                  <button type="button" onClick={() => { setShowForm(false); setFormError('') }} style={{
-                    padding: '11px 18px', background: 'transparent', border: '1px solid var(--color-border)',
-                    color: 'var(--color-text-muted)', borderRadius: 'var(--radius-md)', cursor: 'pointer',
-                  }}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
+          {isLoading ? (
+            <div style={{ color: 'var(--text-muted)' }}>Loading profiles…</div>
+          ) : students.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '8px 0' }}>No profiles yet. Add one to start.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+              {students.map((student) => (
+                <ProfileCard key={student.id} student={student} onSelect={selectStudent} />
+              ))}
             </div>
           )}
         </section>
-      </main>
 
-      {/* Footer */}
-      <footer style={{ padding: '16px 24px', borderTop: '1px solid var(--color-border)', textAlign: 'center', color: 'var(--color-text-hint)', fontSize: '0.78rem' }}>
-        OptiLearn · Adaptive Learning for Refugee Classrooms · Gemma 4 Good 2026
-      </footer>
+        {showForm && (
+          <section className="surface-card" style={{ padding: 16 }}>
+            <form onSubmit={submit} style={{ display: 'grid', gap: 10 }}>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name</span>
+                <input
+                  name="name"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  style={{ borderRadius: 10, border: '1px solid var(--border)', padding: '10px 12px', background: 'var(--surface)', color: 'var(--text)' }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Age (optional)</span>
+                <input
+                  name="age"
+                  type="number"
+                  min="3"
+                  max="25"
+                  value={form.age}
+                  onChange={(e) => setForm((f) => ({ ...f, age: e.target.value }))}
+                  style={{ borderRadius: 10, border: '1px solid var(--border)', padding: '10px 12px', background: 'var(--surface)', color: 'var(--text)' }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Language</span>
+                <select
+                  name="language"
+                  value={form.language}
+                  onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
+                  style={{ borderRadius: 10, border: '1px solid var(--border)', padding: '10px 12px', background: 'var(--surface)', color: 'var(--text)' }}
+                >
+                  {LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code}>
+                      {language.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Grade level</span>
+                <select
+                  name="grade_level"
+                  value={form.grade_level}
+                  onChange={(e) => setForm((f) => ({ ...f, grade_level: e.target.value }))}
+                  style={{ borderRadius: 10, border: '1px solid var(--border)', padding: '10px 12px', background: 'var(--surface)', color: 'var(--text)' }}
+                >
+                  {GRADES.map((grade) => (
+                    <option key={grade} value={grade}>{`Grade ${grade}`}</option>
+                  ))}
+                </select>
+              </label>
+
+              {error && <div style={{ color: 'var(--danger)', fontSize: '0.82rem' }}>{error}</div>}
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="pill-button primary" disabled={saving}>
+                  <User size={16} weight="duotone" />
+                  <span>{saving ? 'Creating…' : 'Create profile'}</span>
+                </button>
+                <button type="button" className="pill-button" onClick={() => setShowForm(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+      </main>
     </div>
   )
 }

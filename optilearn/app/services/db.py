@@ -347,6 +347,48 @@ async def update_mastery(
     }
 
 
+async def get_topic_mastery(student_id: str, topic: str) -> float:
+    """Return current mastery for a student's topic, or 0.0 if no record exists."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT mastery FROM topic_mastery WHERE student_id = ? AND topic = ?",
+            (student_id, topic),
+        )
+        row = await cursor.fetchone()
+    return float(row["mastery"]) if row else 0.0
+
+
+async def get_seen_question_ids(
+    student_id: str,
+    topic: str,
+    question_ids: list[str],
+) -> set[str]:
+    """
+    Return the subset of question_ids already attempted by this student for this topic.
+
+    Used to reduce mastery inflation when the same activity is repeated.
+    """
+    unique_ids = [q.strip() for q in question_ids if q and q.strip()]
+    if not unique_ids:
+        return set()
+
+    placeholders = ",".join("?" for _ in unique_ids)
+    params: list[Any] = [student_id, topic, *unique_ids]
+    sql = f"""
+        SELECT DISTINCT question_text
+        FROM quiz_results
+        WHERE student_id = ?
+          AND topic = ?
+          AND question_text IN ({placeholders})
+    """
+
+    async with _get_db() as db:
+        cursor = await db.execute(sql, params)
+        rows = await cursor.fetchall()
+
+    return {str(r["question_text"]) for r in rows}
+
+
 async def get_all_students() -> list[dict[str, Any]]:
     """Return all students with their latest mastery summary."""
     async with _get_db() as db:

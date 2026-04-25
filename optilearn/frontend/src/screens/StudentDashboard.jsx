@@ -2,37 +2,10 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getStudent, getSubjects, startSession } from '../api/client'
 import { useState } from 'react'
+import { BookOpenText, ChatsCircle, FileText, Sparkle } from '@phosphor-icons/react'
 
-const SUBJECT_ICONS = {
-  mathematics: '📐',
-  math: '📐',
-  science: '🔬',
-  english: '📖',
-  literacy: '📖',
-  reading: '📖',
-  writing: '✏️',
-  history: '🏛️',
-  geography: '🌍',
-  art: '🎨',
-  music: '🎵',
-  'life skills': '🌱',
-  health: '💊',
-  'physical education': '⚽',
-  ict: '💻',
-  computer: '💻',
-  technology: '💻',
-  religion: '📿',
-  social: '🤝',
-  default: '📚',
-}
-
-function subjectIcon(subject) {
-  if (!subject) return SUBJECT_ICONS.default
-  const key = subject.toLowerCase()
-  for (const [word, icon] of Object.entries(SUBJECT_ICONS)) {
-    if (key.includes(word)) return icon
-  }
-  return SUBJECT_ICONS.default
+function subjectIcon() {
+  return <BookOpenText size={30} weight="duotone" />
 }
 
 function subjectColor(index) {
@@ -40,10 +13,10 @@ function subjectColor(index) {
     { bg: '#1e3a5f', border: '#2563eb', text: '#93c5fd' },
     { bg: '#1a3320', border: '#16a34a', text: '#86efac' },
     { bg: '#3b1f2b', border: '#9333ea', text: '#d8b4fe' },
-    { bg: '#3a2000', border: '#d97706', text: '#fcd34d' },
+    { bg: '#0f2f41', border: '#0ea5e9', text: '#7dd3fc' },
     { bg: '#1f2d3b', border: '#0891b2', text: '#67e8f9' },
-    { bg: '#3a1a1a', border: '#dc2626', text: '#fca5a5' },
-    { bg: '#1e2d1e', border: '#65a30d', text: '#bef264' },
+    { bg: '#152c35', border: '#2a8dbf', text: '#9fd6f2' },
+    { bg: '#1e2d2a', border: '#2c9b7d', text: '#96dcc8' },
     { bg: '#2d1e2d', border: '#c026d3', text: '#f0abfc' },
   ]
   return colors[index % colors.length]
@@ -112,7 +85,7 @@ export default function StudentDashboard() {
             fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer',
           }}
         >
-          {startingChat ? 'Loading…' : '🤖 AI Tutor'}
+          {startingChat ? 'Loading…' : 'AI Tutor'}
         </button>
       </header>
 
@@ -130,7 +103,7 @@ export default function StudentDashboard() {
           gap: '20px',
           flexWrap: 'wrap',
         }}>
-          <div style={{ fontSize: '2.5rem' }}>👋</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Sparkle size={34} weight="duotone" /></div>
           <div>
             <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 4 }}>
               Welcome back{student?.name ? `, ${student.name.split(' ')[0]}` : ''}!
@@ -169,7 +142,7 @@ export default function StudentDashboard() {
             textAlign: 'center',
             color: 'var(--color-text-muted)',
           }}>
-            <div style={{ fontSize: '2rem', marginBottom: 12 }}>📭</div>
+            <div style={{ marginBottom: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><FileText size={30} /></div>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>No subjects yet</div>
             <div style={{ fontSize: '0.9rem' }}>
               Your teacher hasn't uploaded any materials yet. Try the AI Tutor while you wait!
@@ -211,7 +184,7 @@ export default function StudentDashboard() {
                       e.currentTarget.style.boxShadow = ''
                     }}
                   >
-                    <div style={{ fontSize: '2rem', marginBottom: 8 }}>{subjectIcon(subject)}</div>
+                    <div style={{ marginBottom: 8 }}>{subjectIcon(subject)}</div>
                     <div>
                       <div style={{ fontWeight: 700, color: col.text, fontSize: '1rem' }}>{subject}</div>
                       <div style={{ fontSize: '0.78rem', color: col.text, opacity: 0.7, marginTop: 2 }}>
@@ -238,7 +211,7 @@ export default function StudentDashboard() {
           flexWrap: 'wrap',
         }}>
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>🤖 AI Tutor</div>
+            <div style={{ fontWeight: 700, marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 8 }}><ChatsCircle size={18} weight="duotone" />AI Tutor</div>
             <div style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)' }}>
               Get personalised explanations, ask any question, and practice with adaptive quizzes.
             </div>
