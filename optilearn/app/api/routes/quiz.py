@@ -20,27 +20,19 @@ async def submit_quiz(body: SubmitQuizRequest) -> dict:
     results: list[dict] = []
     correct_count = 0
 
+    graded_answers: list[dict] = []
+
     for answer in body.answers:
         is_correct = answer.answer.strip().lower() == answer.correct_answer.strip().lower()
         if is_correct:
             correct_count += 1
 
-        record = await db.record_quiz_result(
-            student_id=body.student_id,
-            session_id=body.session_id,
-            topic=body.topic,
-            question_text=answer.question_id,
-            student_answer=answer.answer,
-            correct=is_correct,
-            score=1.0 if is_correct else 0.0,
-        )
-        results.append(
+        graded_answers.append(
             {
                 "question_id": answer.question_id,
                 "student_answer": answer.answer,
                 "correct_answer": answer.correct_answer,
                 "correct": is_correct,
-                "record_id": record["id"],
             }
         )
 
@@ -52,6 +44,18 @@ async def submit_quiz(body: SubmitQuizRequest) -> dict:
         score=overall_score,
         question_ids=[a.question_id for a in body.answers],
     )
+
+    for graded in graded_answers:
+        record = await db.record_quiz_result(
+            student_id=body.student_id,
+            session_id=body.session_id,
+            topic=body.topic,
+            question_text=graded["question_id"],
+            student_answer=graded["student_answer"],
+            correct=graded["correct"],
+            score=1.0 if graded["correct"] else 0.0,
+        )
+        results.append({**graded, "record_id": record["id"]})
 
     return {
         "score": round(overall_score, 4),
