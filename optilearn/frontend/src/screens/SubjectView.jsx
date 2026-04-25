@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { CheckCircle, FileText, PencilSimpleLine, XCircle } from '@phosphor-icons/react'
 import { getMaterialsBySubject, getQuizzesBySubject, getMaterialFileUrl, submitQuiz } from '../api/client'
 
 // ── File type helpers ──────────────────────────────────────────
@@ -292,10 +293,20 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
           let bg = 'var(--color-surface)'
           let border = 'var(--color-border)'
           let color = 'var(--color-text)'
+          let verdictIcon = null
+          let verdictLabel = null
 
           if (confirmed) {
-            if (opt === q.correct_answer) { bg = '#14532d'; border = '#16a34a'; color = '#4ade80' }
-            else if (opt === selected) { bg = '#3a1a1a'; border = '#dc2626'; color = '#fca5a5' }
+            if (opt === q.correct_answer) {
+              bg = '#14532d'; border = '#16a34a'; color = '#4ade80'
+              verdictIcon = <CheckCircle size={20} weight="bold" />
+              verdictLabel = 'Correct'
+            }
+            else if (opt === selected) {
+              bg = 'rgba(115, 201, 247, 0.12)'; border = 'var(--color-primary)'; color = 'var(--color-text)'
+              verdictIcon = <XCircle size={20} weight="bold" />
+              verdictLabel = 'Wrong'
+            }
           } else if (opt === selected) {
             bg = 'var(--color-surface-2)'; border = 'var(--color-primary)'; color = 'var(--color-text)'
           }
@@ -309,11 +320,16 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
                 background: bg, border: `2px solid ${border}`, color,
                 fontSize: '0.95rem', cursor: confirmed ? 'default' : 'pointer',
                 transition: 'all 0.15s', fontWeight: opt === q.correct_answer && confirmed ? 600 : 400,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
               }}
             >
-              {opt}
-              {confirmed && opt === q.correct_answer && ' ✓'}
-              {confirmed && opt === selected && opt !== q.correct_answer && ' ✗'}
+              <span>{opt}</span>
+              {verdictIcon ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', fontWeight: 700 }}>
+                  {verdictIcon}
+                  <span>{verdictLabel}</span>
+                </span>
+              ) : null}
             </button>
           )
         })}
@@ -326,7 +342,7 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
           borderRadius: 'var(--radius-md)', padding: '12px 16px',
           fontSize: '0.88rem', color: 'var(--color-text-muted)', marginBottom: 16, lineHeight: 1.6,
         }}>
-          💡 {q.explanation}
+          Hint: {q.explanation}
         </div>
       )}
 
@@ -434,10 +450,10 @@ export default function SubjectView() {
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
           <button style={tabStyle(activeTab === 'materials')} onClick={() => { setActiveTab('materials'); setTakingQuiz(null) }}>
-            📄 Materials {matLoading ? '' : `(${materials.length})`}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><FileText size={18} weight="bold" />Materials {matLoading ? '' : `(${materials.length})`}</span>
           </button>
           <button style={tabStyle(activeTab === 'quizzes')} onClick={() => { setActiveTab('quizzes'); setTakingQuiz(null) }}>
-            ✏️ Quizzes {quizLoading ? '' : `(${quizzes.length})`}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><PencilSimpleLine size={18} weight="bold" />Quizzes {quizLoading ? '' : `(${quizzes.length})`}</span>
           </button>
         </div>
 

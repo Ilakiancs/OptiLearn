@@ -27,7 +27,7 @@ export default function QuizCard({
       return { ...base, background: '#14532d', borderColor: '#4ade80', color: '#4ade80' }
     }
     if (opt === selectedAnswer && opt !== correctAnswer) {
-      return { ...base, background: '#7f1d1d', borderColor: '#ef4444', color: '#ef4444' }
+      return { ...base, background: 'rgba(115, 201, 247, 0.12)', borderColor: 'var(--color-primary)', color: 'var(--color-text)' }
     }
     return { ...base, opacity: 0.5 }
   }
