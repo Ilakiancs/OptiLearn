@@ -2,3 +2,23 @@
 .claude.md
 claude.md 
 .idea
+
+# Local agent notes / prompts
+.claude/
+AGENTS.md
+CLAUDE*.md
+CC_*.md
+
+# Local build/session state
+build_state.txt
+optilearn/build_state.txt
+optilearn/C*build_state.txt
+
+# Runtime data and generated artifacts
+optilearn/data/materials/
+optilearn/data/voices/
+optilearn/data/*.db
+optilearn/test*.wav
+optilearn/test*.raw
+optilearn/*.log
+optilearn/uvicorn_check.*.log

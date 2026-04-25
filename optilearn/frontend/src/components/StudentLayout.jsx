@@ -105,6 +105,41 @@ function Sidebar({ studentId, student, onNavigate }) {
         </div>
       </Link>
 
+        <div style={{ padding: '10px 16px 4px', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-hint)', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 6 }}>
+          Tools
+        </div>
+        <Link
+          to={`/session/${studentId}`}
+          onClick={onNav}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', margin: '1px 8px',
+            borderRadius: 'var(--radius-md)', textDecoration: 'none',
+            color: 'var(--color-text-muted)', fontSize: '0.88rem',
+          }}
+        >
+          <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>🤖</span>
+          AI Tutor
+        </Link>
+        <NavLink
+          to={`/student/${studentId}/translate-learn`}
+          onClick={onNav}
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', margin: '1px 8px',
+            borderRadius: 'var(--radius-md)', textDecoration: 'none',
+            background: isActive ? 'var(--color-primary)' : 'transparent',
+            color: isActive ? '#fff' : 'var(--color-text-muted)',
+            fontWeight: isActive ? 600 : 400,
+            fontSize: '0.88rem', transition: 'all 0.12s',
+          })}
+        >
+          <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>📖</span>
+          Translate &amp; Learn
+        </NavLink>
+        <Link
+          to={`/student/${studentId}/progress`}
+          onClick={onNav}
       <div className="surface-card" style={{ padding: 13, display: 'flex', gap: 12, alignItems: 'center' }}>
         <div
           style={{
