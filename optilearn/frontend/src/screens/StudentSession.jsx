@@ -5,6 +5,7 @@ import { useSSE } from '../hooks/useSSE'
 import ChatMessage from '../components/ChatMessage'
 import QuizCard from '../components/QuizCard'
 import MasteryBadge from '../components/MasteryBadge'
+import { ArrowLeft, Camera, PaperPlaneTilt, Paperclip, X } from '@phosphor-icons/react'
 
 const TOOL_LABELS = {
   detect_language: 'Detecting language...',
@@ -252,7 +253,7 @@ export default function StudentSession() {
           flexShrink: 0,
         }}>
           <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            ←
+            <ArrowLeft size={22} weight="bold" />
           </Link>
           <span style={{ fontWeight: 700, fontSize: '1.05rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {student?.name || '...'}
@@ -293,7 +294,7 @@ export default function StudentSession() {
             gap: '10px',
             flexShrink: 0,
           }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>📎 Image attached</span>
+            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Paperclip size={18} weight="bold" />Image attached</span>
             <button
               onClick={() => setImageB64(null)}
               style={{
@@ -301,7 +302,7 @@ export default function StudentSession() {
                 cursor: 'pointer', fontSize: '1rem', padding: '4px 8px', minHeight: 44,
               }}
             >
-              ×
+              <X size={20} weight="bold" />
             </button>
           </div>
         )}
@@ -335,7 +336,7 @@ export default function StudentSession() {
             }}
             title="Attach photo"
           >
-            📷
+            <Camera size={22} weight="bold" />
           </button>
 
           <textarea
@@ -373,7 +374,7 @@ export default function StudentSession() {
               flexShrink: 0,
             }}
           >
-            ↑
+            <PaperPlaneTilt size={22} weight="bold" />
           </button>
         </div>
       </div>
@@ -401,7 +402,7 @@ export default function StudentSession() {
           gap: '12px',
         }}>
           <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            ←
+            <ArrowLeft size={22} weight="bold" />
           </Link>
           <span style={{ fontWeight: 700, fontSize: '1.05rem', flex: 1 }}>Quick check</span>
           {currentTopic && (
@@ -461,7 +462,7 @@ export default function StudentSession() {
           gap: '12px',
         }}>
           <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            ←
+            <ArrowLeft size={22} weight="bold" />
           </Link>
           <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Results</span>
         </header>

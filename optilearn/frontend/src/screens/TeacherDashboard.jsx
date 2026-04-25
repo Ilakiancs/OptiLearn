@@ -82,7 +82,7 @@ export default function TeacherDashboard() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', color: 'var(--color-text)' }}>
+    <div className="page-shell">
       {/* Header */}
       <header style={{
         padding: '14px 20px',

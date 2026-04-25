@@ -299,20 +299,42 @@ async def update_progress(
     student_id: str,
     topic: str,
     score: float,
-    question_ids: list[str],  # noqa: ARG001 — reserved for future audit trail
+    question_ids: list[str],
 ) -> dict[str, Any]:
     """
-    Update a student's mastery for a topic using EMA and return the new level.
+    Update a student's mastery for a topic using EMA and novelty-aware scoring.
+
+    Repeating the exact same questions should not continuously inflate mastery.
+    We blend the submitted score with current mastery based on question novelty.
     """
+    cleaned_ids = [q.strip() for q in question_ids if q and q.strip()]
+    unique_ids = list(dict.fromkeys(cleaned_ids))
+
+    current_mastery = await db.get_topic_mastery(student_id=student_id, topic=topic)
+    seen_ids = await db.get_seen_question_ids(
+        student_id=student_id,
+        topic=topic,
+        question_ids=unique_ids,
+    )
+
+    novelty_ratio = 1.0
+    if unique_ids:
+        novelty_ratio = max(0.0, 1.0 - (len(seen_ids) / len(unique_ids)))
+
+    adjusted_score = (score * novelty_ratio) + (current_mastery * (1.0 - novelty_ratio))
+
     result = await db.update_mastery(
         student_id=student_id,
         topic=topic,
-        new_score=score,
+        new_score=adjusted_score,
     )
     logger.info(
-        "Progress updated student={} topic={} mastery={:.2f} level={}",
+        "Progress updated student={} topic={} raw_score={:.2f} adjusted_score={:.2f} novelty={:.2f} mastery={:.2f} level={}",
         student_id,
         topic,
+        score,
+        adjusted_score,
+        novelty_ratio,
         result["mastery"],
         result["level"],
     )

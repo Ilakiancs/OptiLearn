@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { uploadMaterial, listMaterials } from '../api/client'
 import { Link } from 'react-router-dom'
+import { FileText } from '@phosphor-icons/react'
 
 const ALLOWED = ['.pdf', '.txt', '.png', '.jpg', '.jpeg', '.webp']
 
@@ -97,7 +98,7 @@ export default function MaterialUpload() {
   const sectionHead = { fontSize: '1rem', fontWeight: 700, marginBottom: 16, marginTop: 0 }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', color: 'var(--color-text)' }}>
+    <div className="page-shell">
       <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
         <Link to="/teacher" style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '0.9rem', minHeight: 44, display: 'inline-flex', alignItems: 'center', paddingRight: 12 }}>
           ← Back to Dashboard
@@ -135,7 +136,7 @@ export default function MaterialUpload() {
                 </div>
               ) : (
                 <div>
-                  <div style={{ fontSize: '2rem', marginBottom: 8 }}>📄</div>
+                  <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><FileText size={30} /></div>
                   <div style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Drag & drop a file here, or click to browse</div>
                   <div style={{ color: 'var(--color-text-hint)', fontSize: '0.8rem', marginTop: 6 }}>PDF, TXT, PNG, JPG, WEBP — max 50 MB</div>
                 </div>
