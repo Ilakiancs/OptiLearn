@@ -113,6 +113,22 @@ function SidebarContent({ student, studentId, onNav }) {
           <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>🤖</span>
           AI Tutor
         </Link>
+        <NavLink
+          to={`/student/${studentId}/translate-learn`}
+          onClick={onNav}
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', margin: '1px 8px',
+            borderRadius: 'var(--radius-md)', textDecoration: 'none',
+            background: isActive ? 'var(--color-primary)' : 'transparent',
+            color: isActive ? '#fff' : 'var(--color-text-muted)',
+            fontWeight: isActive ? 600 : 400,
+            fontSize: '0.88rem', transition: 'all 0.12s',
+          })}
+        >
+          <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>📖</span>
+          Translate &amp; Learn
+        </NavLink>
         <Link
           to={`/student/${studentId}/progress`}
           onClick={onNav}

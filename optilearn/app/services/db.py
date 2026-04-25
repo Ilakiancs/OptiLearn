@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS materials (
     subject       TEXT,
     file_path     TEXT NOT NULL,
     uploaded_by   TEXT,
+    student_id    TEXT,
+    translated_text TEXT,
     faiss_indexed INTEGER DEFAULT 0,
     created_at    TEXT DEFAULT (datetime('now'))
 );
@@ -149,6 +151,16 @@ async def init_db() -> None:
         db.row_factory = aiosqlite.Row
         await db.executescript(_SCHEMA_SQL)
         await db.commit()
+        # Additive migrations — safe to run on existing DBs (ignores duplicate column errors)
+        for migration in [
+            "ALTER TABLE materials ADD COLUMN student_id TEXT",
+            "ALTER TABLE materials ADD COLUMN translated_text TEXT",
+        ]:
+            try:
+                await db.execute(migration)
+                await db.commit()
+            except Exception:
+                pass
     logger.info("Database schema ready.")
 
 
@@ -601,20 +613,45 @@ async def create_material(
     subject: str | None,
     file_path: str,
     uploaded_by: str | None = None,
+    student_id: str | None = None,
     faiss_indexed: bool = False,
 ) -> dict[str, Any]:
     """Insert a materials row and return it."""
     mat_id = str(uuid.uuid4())[:16].replace("-", "")
     async with _get_db() as db:
         await db.execute(
-            """INSERT INTO materials (id, title, subject, file_path, uploaded_by, faiss_indexed)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (mat_id, title, subject, file_path, uploaded_by, 1 if faiss_indexed else 0),
+            """INSERT INTO materials (id, title, subject, file_path, uploaded_by, student_id, faiss_indexed)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (mat_id, title, subject, file_path, uploaded_by, student_id, 1 if faiss_indexed else 0),
         )
         await db.commit()
         cursor = await db.execute("SELECT * FROM materials WHERE id = ?", (mat_id,))
         row = await cursor.fetchone()
     return _row_to_dict(row)
+
+
+async def get_material(material_id: str) -> dict[str, Any] | None:
+    """Return a single material record by id (alias for get_material_by_id)."""
+    return await get_material_by_id(material_id)
+
+
+async def get_student_with_profile(student_id: str) -> dict[str, Any] | None:
+    """Return student record combined with topic_mastery list."""
+    student = await get_student(student_id)
+    if student is None:
+        return None
+    student["topic_mastery"] = await get_student_mastery(student_id)
+    return student
+
+
+async def update_material_translation(material_id: str, translated_text: str) -> None:
+    """Persist the completed translation text and mark faiss_indexed=1."""
+    async with _get_db() as db:
+        await db.execute(
+            "UPDATE materials SET translated_text = ?, faiss_indexed = 1 WHERE id = ?",
+            (translated_text, material_id),
+        )
+        await db.commit()
 
 
 async def get_all_materials() -> list[dict[str, Any]]:

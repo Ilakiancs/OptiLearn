@@ -16,15 +16,17 @@ class Settings(BaseSettings):
     )
 
     # Model backend
-    USE_LOCAL_OLLAMA: bool = False
+    USE_LOCAL_OLLAMA: bool = True
 
-    # Gemma API
+    # Gemini API (online fallback when USE_LOCAL_OLLAMA=false and internet available)
     GEMMA_API_KEY: str = ""
-    GEMMA_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemma-4-e2b-it"
 
-    # Ollama
+    # Ollama (primary — offline/local)
     OLLAMA_HOST: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "optilearn-gemma4"
+    OLLAMA_MODEL: str = "gemma4:e2b"
+    OLLAMA_MODEL_FAST: str = "gemma4:e2b"
+    OLLAMA_MODEL_DEEP: str = "gemma4:e4b"
 
     # Language detection
     LANGDETECT_CONFIDENCE_THRESHOLD: float = 0.85

@@ -119,3 +119,76 @@ export function getMaterialFileUrl(materialId) {
 export function getQuizzesBySubject(subject, studentId) {
   return request(`/api/teacher/quiz?subject=${encodeURIComponent(subject)}&student_id=${encodeURIComponent(studentId)}`)
 }
+
+// ── SSE streaming helper ────────────────────────────────────────
+export async function streamSSE(url, body, onEvent, onDone) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+    try { const b = await response.json(); message = b.detail || b.message || message } catch (_) {}
+    throw new Error(message)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let completed = false
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) { if (!completed) onDone?.(); break }
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(line.slice(6))
+          onEvent(event)
+          if (event.type === 'done') {
+            completed = true
+            onDone?.()
+            await reader.cancel()
+            return
+          }
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+// ── Feature 1 — Language-Adaptive AI Tutor ─────────────────────
+export const feature1 = {
+  getLanguages() {
+    return request('/api/feature1/languages')
+  },
+  upload(formData) {
+    return fetch(`${BASE}/api/feature1/upload`, { method: 'POST', body: formData })
+      .then(async res => {
+        if (!res.ok) {
+          let msg = `HTTP ${res.status}`
+          try { const b = await res.json(); msg = b.detail || b.message || msg } catch (_) {}
+          throw new Error(msg)
+        }
+        return res.json()
+      })
+  },
+  translateStream(body, onEvent, onDone) {
+    return streamSSE(`${BASE}/api/feature1/translate`, body, onEvent, onDone)
+  },
+  explainStream(body, onEvent, onDone) {
+    return streamSSE(`${BASE}/api/feature1/explain`, body, onEvent, onDone)
+  },
+  askStream(body, onEvent, onDone) {
+    return streamSSE(`${BASE}/api/feature1/ask`, body, onEvent, onDone)
+  },
+  ask(body) {
+    return request('/api/feature1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, format: 'json' }),
+    })
+  },
+}

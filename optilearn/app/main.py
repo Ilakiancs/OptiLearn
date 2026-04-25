@@ -15,7 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.api.routes import chat, dashboard, materials, quiz, sessions, students, teacher, teacher_quiz
+from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, students, teacher, teacher_quiz
+from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
 
@@ -23,10 +24,61 @@ from app.services import db, faiss_store
 # ──────────────────────────────────────────────────────────────
 # Lifespan
 # ──────────────────────────────────────────────────────────────
+def _ensure_noto_fonts() -> None:
+    """Download Noto TTF fonts at startup for multilingual PDF export."""
+    import urllib.request
+
+    fonts_dir = Path("data/fonts")
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+
+    _GH = "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf"
+    fonts = {
+        # Latin / Greek / Cyrillic (gstatic CDN — confirmed working)
+        "NotoSans-Regular.ttf":          "https://fonts.gstatic.com/s/notosans/v42/o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyD9A99d.ttf",
+        "NotoSans-Bold.ttf":             "https://fonts.gstatic.com/s/notosans/v42/o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyAaBN9d.ttf",
+        # Script-specific (GitHub raw — confirmed real TTF)
+        "NotoSansSinhala-Regular.ttf":    f"{_GH}/NotoSansSinhala/NotoSansSinhala-Regular.ttf",
+        "NotoSansTamil-Regular.ttf":      f"{_GH}/NotoSansTamil/NotoSansTamil-Regular.ttf",
+        "NotoSansArabic-Regular.ttf":     f"{_GH}/NotoSansArabic/NotoSansArabic-Regular.ttf",
+        "NotoSansEthiopic-Regular.ttf":   f"{_GH}/NotoSansEthiopic/NotoSansEthiopic-Regular.ttf",
+        "NotoSansDevanagari-Regular.ttf": f"{_GH}/NotoSansDevanagari/NotoSansDevanagari-Regular.ttf",
+        "NotoSansBengali-Regular.ttf":    f"{_GH}/NotoSansBengali/NotoSansBengali-Regular.ttf",
+        "NotoSansMyanmar-Regular.ttf":    f"{_GH}/NotoSansMyanmar/NotoSansMyanmar-Regular.ttf",
+        "NotoSansThai-Regular.ttf":       f"{_GH}/NotoSansThai/NotoSansThai-Regular.ttf",
+    }
+
+    for filename, url in fonts.items():
+        dest = fonts_dir / filename
+        if dest.exists():
+            continue
+        logger.info("Downloading font {} …", filename)
+        try:
+            urllib.request.urlretrieve(url, str(dest))
+            logger.info("Font saved: {}", dest)
+        except Exception as exc:
+            logger.warning("Could not download {}: {}", filename, exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("OptiLearn starting up…")
+    _ensure_noto_fonts()
     await db.init_db()
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            await client.post(
+                f"{settings.OLLAMA_HOST}/api/generate",
+                json={
+                    "model": settings.OLLAMA_MODEL_FAST,
+                    "prompt": "hello",
+                    "stream": False,
+                    "keep_alive": "60m",
+                },
+            )
+        logger.info("Model preloaded into RAM")
+    except Exception as exc:
+        logger.warning("Model preload failed (Ollama may not be running): {}", exc)
     logger.info("Server ready on http://{}:{}", settings.HOST, settings.PORT)
     yield
     logger.info("OptiLearn shutting down gracefully.")
@@ -59,18 +111,26 @@ app.include_router(dashboard.router)
 app.include_router(teacher.router)
 app.include_router(teacher_quiz.router)
 app.include_router(materials.router)
+app.include_router(feature1.router)
+app.include_router(tts_router)
 
 
 @app.get("/api/health", tags=["system"])
 async def health() -> dict:
-    """System health check — Ollama connectivity, DB, FAISS."""
+    """System health check — Ollama connectivity, DB, FAISS, model availability."""
     import httpx
+    import subprocess
 
     ollama_ok = False
+    e4b_available = False
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{settings.OLLAMA_HOST}/api/tags")
-            ollama_ok = r.status_code == 200
+            if r.status_code == 200:
+                ollama_ok = True
+                tags = r.json()
+                model_names = [m.get("name", "") for m in tags.get("models", [])]
+                e4b_available = settings.OLLAMA_MODEL_DEEP in model_names
     except Exception:
         pass
 
@@ -91,10 +151,12 @@ async def health() -> dict:
 
     return {
         "ollama_ok": ollama_ok,
-        "model_name": settings.OLLAMA_MODEL,
+        "model_name": settings.OLLAMA_MODEL_FAST,
         "db_ok": db_ok,
         "faiss_passages": faiss_passages,
         "use_local_ollama": settings.USE_LOCAL_OLLAMA,
+        "e4b_available": e4b_available,
+        "active_model": settings.OLLAMA_MODEL_FAST,
         "version": "1.0.0",
     }
 

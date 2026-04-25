@@ -16,6 +16,7 @@ import GradesPage from './screens/GradesPage'
 import CalendarPage from './screens/CalendarPage'
 import AnnouncementsPage from './screens/AnnouncementsPage'
 import StudentProgressPage from './screens/StudentProgressPage'
+import TranslateLearn from './screens/TranslateLearn'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,7 @@ export default function App() {
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
               <Route path="progress" element={<StudentProgressPage />} />
+              <Route path="translate-learn" element={<TranslateLearn />} />
             </Route>
           </Routes>
         </BrowserRouter>
