@@ -146,13 +146,21 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                     yield _sse({"type": "tool_done", "tool": nested_tool.tool_name, "result": nested_result})
 
             else:
-                for word in result.split(" "):
-                    yield _sse({"type": "token", "content": word + " "})
+                # Non-streamed response (e.g. Gemini tool path returned a plain string).
+                # Emit the entire text as one token chunk to avoid word-splitting artifacts.
+                if result:
+                    yield _sse({"type": "token", "content": result})
 
             yield _sse({"type": "done"})
 
             await db.increment_message_count(body.session_id)
 
+        except RuntimeError as exc:
+            # RuntimeError is raised by model_client for Ollama-down scenarios
+            # so the user sees a clear, actionable message.
+            msg = str(exc)
+            logger.warning("RuntimeError in chat endpoint: {}", msg)
+            yield _sse({"type": "error", "message": msg})
         except Exception as exc:
             logger.error("Chat endpoint error: {}\n{}", exc, traceback.format_exc())
             msg = str(exc)
@@ -161,7 +169,7 @@ async def chat(body: ChatRequest) -> StreamingResponse:
             elif "401" in msg or "403" in msg or "API_KEY" in msg.upper():
                 friendly = "API key is invalid or missing. Check GEMMA_API_KEY in your .env file."
             elif "ConnectionRefused" in msg or "ConnectError" in msg or "11434" in msg:
-                friendly = "Cannot reach Ollama at localhost:11434. Make sure Ollama is running."
+                friendly = "The local AI model is not running. Please start Ollama and try again."
             else:
                 friendly = f"Something went wrong: {msg}"
             yield _sse({"type": "error", "message": friendly})
