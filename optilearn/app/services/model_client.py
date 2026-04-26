@@ -6,8 +6,13 @@ Routing:
   USE_LOCAL_OLLAMA=false → check internet; if online use Gemini API,
                            if offline fall back to Ollama automatically
 
-Ollama path uses /api/generate (native GGUF format).
-Messages arrays are flattened to a single prompt string before sending.
+Ollama streaming path uses /api/chat (native multi-turn messages format).
+  - System prompt is sent as {"role": "system", "content": "..."}
+  - Student messages and history are sent as-is
+  - Thinking mode is controlled via the options dict
+
+Ollama non-streaming path (used for tool dispatch / quiz generation) still
+uses /api/generate because it needs a flat prompt for structured JSON output.
 
 Gemini path uses google-genai SDK for online fallback.
 """
@@ -25,6 +30,14 @@ from loguru import logger
 
 from app.core.config import settings
 
+
+# ──────────────────────────────────────────────────────────────
+# Friendly error shown to users when Ollama is not reachable
+# ──────────────────────────────────────────────────────────────
+_OLLAMA_DOWN_MSG = (
+    "The local AI model is not running. "
+    "Please start Ollama (run 'ollama serve' in a terminal) and try again."
+)
 
 # ──────────────────────────────────────────────────────────────
 # Connectivity + model selection helpers
@@ -190,7 +203,7 @@ class ModelClient:
             return await self._gemma_complete(messages, tools, image_b64)
         return await self._ollama_complete(messages, image_b64, model_preference, ollama_options)
 
-    # ── Ollama streaming (/api/generate) ──────────────────────
+    # ── Ollama streaming (/api/chat — native multi-turn format) ─
     async def _ollama_stream(
         self,
         messages: list[dict],
@@ -199,12 +212,27 @@ class ModelClient:
         enable_thinking: bool = True,
         extra_options: dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
-        enable_thinking = True
-        model_name = await get_active_model(preferred)
-        system_text, prompt = _messages_to_prompt(messages)
+        """Stream a chat response from Ollama using the /api/chat endpoint.
 
-        if enable_thinking:
-            system_text = "<|think|>\n" + system_text if system_text else "<|think|>"
+        Uses the native multi-turn messages format so the system prompt is
+        preserved as a proper 'system' role message rather than being flattened
+        into a prompt string. This ensures the hidden system prompt reaches the
+        model faithfully.
+
+        Thinking mode: Gemma 4 E2B extended thinking is enabled by default.
+        Thinking tokens (<|channel>thought...</channel|>) are stripped before
+        yielding to the client.
+        """
+        model_name = await get_active_model(preferred)
+
+        # Normalise role names: /api/chat expects 'assistant' not 'model'
+        normalised: list[dict] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            if role == "model":
+                role = "assistant"
+            entry: dict[str, Any] = {"role": role, "content": msg.get("content", "")}
+            normalised.append(entry)
 
         opts: dict[str, Any] = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
         if extra_options:
@@ -212,17 +240,21 @@ class ModelClient:
 
         body: dict[str, Any] = {
             "model": model_name,
-            "prompt": prompt,
-            "system": system_text,
+            "messages": normalised,
             "stream": True,
             "options": opts,
             "keep_alive": "60m",
         }
-        if image_b64:
-            body["images"] = [image_b64]
 
-        url = f"{settings.OLLAMA_HOST}/api/generate"
-        logger.info("Ollama stream → model={} thinking={}", model_name, enable_thinking)
+        # Attach image to the last user message when provided
+        if image_b64:
+            for i in range(len(body["messages"]) - 1, -1, -1):
+                if body["messages"][i]["role"] == "user":
+                    body["messages"][i]["images"] = [image_b64]
+                    break
+
+        url = f"{settings.OLLAMA_HOST}/api/chat"
+        logger.info("Ollama /api/chat stream → model={} thinking={}", model_name, enable_thinking)
 
         try:
             async with httpx.AsyncClient(
@@ -238,24 +270,30 @@ class ModelClient:
                             chunk = json.loads(raw)
                         except json.JSONDecodeError:
                             continue
-                        token = chunk.get("response", "")
+                        # /api/chat response format: chunk["message"]["content"]
+                        token = chunk.get("message", {}).get("content", "")
                         if token:
                             buffer += token
-                            # Strip thinking blocks before yielding
                             if enable_thinking:
                                 clean = _strip_thinking(buffer)
-                                # Only yield the newly added clean portion
-                                yield clean[len(_strip_thinking(buffer[:-len(token)])):]
+                                prev_clean = _strip_thinking(buffer[: -len(token)])
+                                new_portion = clean[len(prev_clean):]
+                                if new_portion:
+                                    yield new_portion
                             else:
                                 yield token
                         if chunk.get("done"):
                             break
-        except httpx.ConnectError:
-            logger.error("Ollama not reachable at {}", settings.OLLAMA_HOST)
+        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError):
+            logger.error("Ollama not reachable at {} (stream)", settings.OLLAMA_HOST)
+            raise RuntimeError(_OLLAMA_DOWN_MSG)
         except Exception as exc:
             logger.error("Ollama stream error: {}", exc)
+            raise
 
     # ── Ollama non-streaming (/api/generate) ──────────────────
+    # Kept on /api/generate for tool dispatch and quiz generation —
+    # these need a flat prompt and structured JSON output, not multi-turn.
     async def _ollama_complete(
         self,
         messages: list[dict],
@@ -283,7 +321,7 @@ class ModelClient:
             body["images"] = [image_b64]
 
         url = f"{settings.OLLAMA_HOST}/api/generate"
-        logger.info("Ollama complete → model={} thinking=True", model_name)
+        logger.info("Ollama /api/generate complete → model={}", model_name)
 
         try:
             async with httpx.AsyncClient(
@@ -293,9 +331,12 @@ class ModelClient:
                 response.raise_for_status()
                 data = response.json()
                 return _strip_thinking(data.get("response", ""))
+        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
+            logger.error("Ollama not reachable at {} (complete): {}", settings.OLLAMA_HOST, exc)
+            raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
         except Exception as exc:
             logger.error("Ollama complete error: {}", exc)
-            return ""
+            raise
 
     # ── Gemini streaming (online fallback) ────────────────────
     def _build_genai_contents(
