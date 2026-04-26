@@ -137,30 +137,27 @@ function Sidebar({ studentId, student, onNavigate }) {
           <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>📖</span>
           Translate &amp; Learn
         </NavLink>
-        <Link
-          to={`/student/${studentId}/progress`}
-          onClick={onNav}
-      <div className="surface-card" style={{ padding: 13, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            background: avatarColor(student?.name || ''),
-            color: '#fff',
-            display: 'grid',
-            placeItems: 'center',
-            fontWeight: 800,
-            fontSize: '1.2rem',
-          }}
-        >
-          {getInitials(student?.name)}
+        <div className="surface-card" style={{ padding: 13, display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              background: avatarColor(student?.name || ''),
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              fontWeight: 800,
+              fontSize: '1.2rem',
+            }}
+          >
+            {getInitials(student?.name)}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student?.name || 'Student'}</div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Grade {student?.grade_level || '-'} • {student?.language?.toUpperCase() || '--'}</div>
+          </div>
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student?.name || 'Student'}</div>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Grade {student?.grade_level || '-'} • {student?.language?.toUpperCase() || '--'}</div>
-        </div>
-      </div>
 
       <div className="tid-banner" role="status" aria-live="polite">
         Calm mode on. You can leave safely any time.
