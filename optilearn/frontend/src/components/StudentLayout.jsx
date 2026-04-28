@@ -12,6 +12,7 @@ import {
   List,
   Megaphone,
   Moon,
+  Radio,
   SignOut,
   Sparkle,
   Student,
@@ -36,6 +37,7 @@ const EXTRA_ITEMS = [
   { suffix: '/progress', label: 'Progress', Icon: Trophy },
   { suffix: '/session', label: 'AI Tutor', Icon: ChatsCircle },
   { suffix: '/translate-learn', label: 'Translate & Learn', Icon: BookOpen },
+  { suffix: '/live-translator', label: 'Live Class', Icon: Radio },
 ]
 
 export function avatarColor(name) {
@@ -185,14 +187,24 @@ export default function StudentLayout() {
   }, [isMobile])
 
   return (
-    <div className="app-shell" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '296px 1fr' }}>
+    <div className="app-shell" style={{
+      display: 'grid',
+      gridTemplateColumns: isMobile ? '1fr' : '296px 1fr',
+      height: isMobile ? 'auto' : '100vh',
+      overflow: isMobile ? 'visible' : 'hidden',
+    }}>
       <a className="quick-exit" href="https://www.google.com" target="_blank" rel="noreferrer" title="Quick exit to a neutral page">
         <DoorOpen size={16} weight="bold" />
         <span>Quick Exit</span>
       </a>
 
       {!isMobile && (
-        <aside style={{ borderRight: '1px solid var(--border)', minHeight: '100vh', position: 'sticky', top: 0 }}>
+        <aside style={{
+          borderRight: '1px solid var(--border)',
+          height: '100vh',
+          minHeight: 0,
+          overflowY: 'auto',
+        }}>
           <Sidebar student={student} studentId={studentId} onNavigate={() => {}} />
         </aside>
       )}
@@ -250,7 +262,14 @@ export default function StudentLayout() {
         </>
       )}
 
-      <main style={{ minHeight: '100vh', padding: isMobile ? '16px 14px 28px' : '24px 24px 34px', overflowX: 'hidden' }}>
+      <main style={{
+        height: isMobile ? 'auto' : '100vh',
+        minHeight: isMobile ? '100vh' : 0,
+        padding: isMobile ? '16px 14px 28px' : '24px 24px 34px',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        overflowY: isMobile ? 'visible' : 'auto',
+      }}>
         <Outlet context={{ student, studentId }} />
       </main>
     </div>

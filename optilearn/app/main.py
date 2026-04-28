@@ -6,6 +6,7 @@ lifespan (DB init on startup).
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -15,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, students, teacher, teacher_quiz
+from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
@@ -64,21 +65,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("OptiLearn starting up…")
     _ensure_noto_fonts()
     await db.init_db()
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            await client.post(
-                f"{settings.OLLAMA_HOST}/api/generate",
-                json={
-                    "model": settings.OLLAMA_MODEL_FAST,
-                    "prompt": "hello",
-                    "stream": False,
-                    "keep_alive": "60m",
-                },
-            )
-        logger.info("Model preloaded into RAM")
-    except Exception as exc:
-        logger.warning("Model preload failed (Ollama may not be running): {}", exc)
+    # Warm live translation models first, then embeddings. Running FAISS model
+    # loading beside ASR made classroom startup painfully slow on teacher laptops.
+    async def _warmup_background_models() -> None:
+        try:
+            await translate_routes.warmup_live_translation_models()
+        except Exception as exc:
+            logger.warning("Live translation warmup skipped: {}", exc)
+        try:
+            await asyncio.to_thread(faiss_store.ensure_embed_model)
+        except Exception as exc:
+            logger.warning("Embedding model warmup skipped: {}", exc)
+
+    asyncio.create_task(_warmup_background_models())
     logger.info("Server ready on http://{}:{}", settings.HOST, settings.PORT)
     yield
     logger.info("OptiLearn shutting down gracefully.")
@@ -113,6 +112,7 @@ app.include_router(teacher_quiz.router)
 app.include_router(materials.router)
 app.include_router(feature1.router)
 app.include_router(tts_router)
+app.include_router(translate_routes.router)
 
 
 @app.get("/api/health", tags=["system"])

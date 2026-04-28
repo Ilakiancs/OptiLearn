@@ -119,6 +119,18 @@ def query(topic: str, grade_level: int, k: int = 3) -> list[dict[str, Any]]:
     return results
 
 
+def ensure_embed_model() -> None:
+    """Load the sentence-transformer embedding model into memory if not already loaded.
+    Call once at startup so notes generation doesn't pay the 70-second cold-start cost.
+    """
+    global _embed_model  # noqa: PLW0603
+    if _embed_model is None:
+        from sentence_transformers import SentenceTransformer
+        logger.info("Warming up embedding model: {}", settings.EMBED_MODEL)
+        _embed_model = SentenceTransformer(settings.EMBED_MODEL)
+        logger.info("Embedding model ready.")
+
+
 def add_passages(passages: list[dict]) -> int:
     """
     Embed and add new passages to the live FAISS index.

@@ -155,6 +155,7 @@ async def init_db() -> None:
         for migration in [
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
             "ALTER TABLE materials ADD COLUMN translated_text TEXT",
+            "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
         ]:
             try:
                 await db.execute(migration)
