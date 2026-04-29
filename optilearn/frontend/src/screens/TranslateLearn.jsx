@@ -20,16 +20,43 @@ const C = {
   danger: '#d93025',
 }
 // -- Section --
+function cleanMarkdownText(text) {
+  return String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^```[a-zA-Z]*\s*$/gm, '')
+    .replace(/^```\s*$/gm, '')
+    .replace(/`/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd()
+}
+
+function renderInlineMarkdown(text) {
+  const cleaned = String(text || '').replace(/_{2}(.+?)_{2}/g, '**$1**')
+  const parts = cleaned.split(/(\*\*[^*]+\*\*)/g)
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2).replace(/\*/g, '')}</strong>
+    }
+    return <span key={i}>{part.replace(/\*/g, '')}</span>
+  })
+}
+
 function renderMarkdown(text, opts = {}) {
   if (!text) return null
   const { fontSize = 15, headingSize = 18 } = opts
-  return text.split('\n').map((line, i) => {
-    if (line.startsWith('## '))
-      return <div key={i} style={{ fontSize: headingSize, fontWeight: 700, paddingBottom: 8, borderBottom: `1px solid ${C.border}`, marginTop: 24, marginBottom: 8, color: C.textPrimary }}>{line.slice(3)}</div>
-    if (line.startsWith('- ') || line.startsWith('* '))
-      return <div key={i} style={{ marginLeft: 24, lineHeight: 1.7, color: C.textPrimary, display: 'flex', gap: 8, fontSize }}><span>*</span><span dangerouslySetInnerHTML={{ __html: line.slice(2).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') }} /></div>
+  return cleanMarkdownText(text).split('\n').map((line, i) => {
+    const trimmed = line.trim()
+    const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/)
+    if (headingMatch)
+      return <div key={i} style={{ fontSize: headingSize, fontWeight: 700, paddingBottom: 8, borderBottom: `1px solid ${C.border}`, marginTop: 24, marginBottom: 8, color: C.textPrimary }}>{renderInlineMarkdown(headingMatch[1])}</div>
+    const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/)
+    if (bulletMatch)
+      return <div key={i} style={{ marginLeft: 18, lineHeight: 1.7, color: C.textPrimary, display: 'flex', gap: 8, fontSize }}><span style={{ color: C.textSecondary }}>•</span><span>{renderInlineMarkdown(bulletMatch[1])}</span></div>
+    const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.+)$/)
+    if (numberedMatch)
+      return <div key={i} style={{ marginLeft: 18, lineHeight: 1.7, color: C.textPrimary, display: 'flex', gap: 8, fontSize }}><span style={{ color: C.textSecondary }}>{numberedMatch[1]}.</span><span>{renderInlineMarkdown(numberedMatch[2])}</span></div>
     if (line.trim() === '') return <div key={i} style={{ height: 10 }} />
-    return <p key={i} style={{ fontSize, lineHeight: 1.7, color: C.textPrimary, margin: '4px 0' }} dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') }} />
+    return <p key={i} style={{ fontSize, lineHeight: 1.7, color: C.textPrimary, margin: '4px 0' }}>{renderInlineMarkdown(trimmed.replace(/^>\s*/, ''))}</p>
   })
 }
 
@@ -156,7 +183,7 @@ export default function TranslateLearn() {
 
   function panelContainerStyle(panel) {
     const area = gridAreaFor(panel)
-    const base = { borderRadius: 12, overflow: 'hidden', position: 'relative', transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)', gridArea: area }
+    const base = { borderRadius: 12, overflow: 'hidden', position: 'relative', transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)', gridArea: area, minHeight: 0, minWidth: 0 }
     return area === 'main'
       ? { ...base, background: C.surface, boxShadow: '0 1px 3px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column' }
       : { ...base, background: C.surfaceAlt, border: `1px solid ${C.border}`, cursor: 'pointer' }
@@ -372,6 +399,8 @@ export default function TranslateLearn() {
   const translatedText = translatedPages[currentPage] || ''
   const pageCount      = material?.page_count || 1
   const langName       = (code) => languages.find(l => l.code === code)?.name || code
+  const detectedSourceLanguage = detectedLang && detectedLang !== 'unknown' ? detectedLang : null
+  const sourceReadLanguage = detectedSourceLanguage || student?.language || 'en'
   const hasQuestions   = tutorHistory.some(e => e.type === 'question')
 // -- Section --
   async function speakText(text, language, panelName) {
@@ -521,7 +550,7 @@ export default function TranslateLearn() {
             {material ? (material.type === 'text' ? 'Text input' : 'Uploaded file') : 'No file'}
           </span>
           {(appState === 'uploading' || appState === 'translating') && <Loader2 size={12} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />}
-          <TTSButton panelName="upload" text={pasteText || material?.preview || ''} language={detectedLang || student?.language || 'en'} small />
+          <TTSButton panelName="upload" text={pasteText || material?.preview || ''} language={sourceReadLanguage} small />
           <Maximize2 size={12} color={C.textSecondary} style={{ flexShrink: 0 }} />
         </div>
         {material ? (
@@ -546,13 +575,26 @@ export default function TranslateLearn() {
 
     return (
       <div style={{ padding: 24, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <BookOpen size={22} color={C.primary} />
           <Globe size={18} color={C.primary} />
           <span style={{ fontSize: 17, fontWeight: 700, color: C.textPrimary }}>Translate and Learn</span>
-          {material && <TTSButton panelName="upload" text={pasteText || material?.preview || ''} language={detectedLang || student?.language || 'en'} />}
+          {material && <TTSButton panelName="upload" text={pasteText || material?.preview || ''} language={sourceReadLanguage} />}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {pasteMode && (
+              <button onClick={() => setPasteMode(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSecondary, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                <ChevronLeft size={14} /> File upload
+              </button>
+            )}
+            {(material || pasteMode || appState !== 'idle') && (
+              <button onClick={handleReset} title="Start over"
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSecondary, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                <RotateCcw size={14} /> Start over
+              </button>
+            )}
           {e4bAvailable && (
-            <div style={{ marginLeft: 'auto', display: 'flex', background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 20, padding: 3, gap: 2 }}>
+            <div style={{ display: 'flex', background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 20, padding: 3, gap: 2 }}>
               {[{ key: 'fast', label: 'Fast', icon: <Zap size={12} /> }, { key: 'deep', label: 'Deep', icon: <Sparkles size={12} /> }].map(({ key, label, icon }) => (
                 <button key={key} onClick={() => setModelPreference(key)}
                   style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px', borderRadius: 16, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: modelPreference === key ? C.primary : 'transparent', color: modelPreference === key ? '#fff' : C.textSecondary, transition: 'all 0.15s' }}>
@@ -561,6 +603,7 @@ export default function TranslateLearn() {
               ))}
             </div>
           )}
+          </div>
         </div>
 
         <div style={{ marginBottom: 16 }}>
@@ -619,9 +662,9 @@ export default function TranslateLearn() {
           </div>
         )}
 
-        {detectedLang && !error && (
+        {detectedSourceLanguage && !error && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 20, padding: '4px 12px', fontSize: 13, marginBottom: 12, color: C.textPrimary }}>
-            <CheckCircle2 size={14} color={C.accentGreen} /> Detected: {langName(detectedLang)}
+            <CheckCircle2 size={14} color={C.accentGreen} /> Detected: {langName(detectedSourceLanguage)}
           </div>
         )}
 
@@ -636,9 +679,7 @@ export default function TranslateLearn() {
               Paste Text
             </button>
           </div>
-        ) : (
-          <button onClick={() => setPasteMode(false)} style={{ background: 'none', border: 'none', color: C.textSecondary, cursor: 'pointer', fontSize: 13 }}>Back to file upload</button>
-        )}
+        ) : null}
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) { createBlobURLForFile(f); handleUpload(f) } }} />
       </div>
     )
@@ -676,7 +717,7 @@ export default function TranslateLearn() {
       <div style={{ padding: 24, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexShrink: 0 }}>
           <Languages size={18} color={C.primary} />
-          <span style={{ fontSize: 14, color: C.textSecondary }}>{langName(detectedLang || 'en')}</span>
+          <span style={{ fontSize: 14, color: C.textSecondary }}>{detectedSourceLanguage ? langName(detectedSourceLanguage) : 'Source'}</span>
           <ArrowRight size={14} color={C.textSecondary} />
           <span style={{ fontSize: 14, fontWeight: 600, color: C.textPrimary }}>{langName(targetLanguage)}</span>
           {appState === 'translating' && <Loader2 size={15} color={C.primary} style={{ animation: 'spin 1s linear infinite', marginLeft: 8 }} />}
@@ -862,16 +903,7 @@ export default function TranslateLearn() {
   }
 // -- Section --
   return (
-    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gridTemplateAreas: '"topLeft main" "bottomLeft main"', height: 'calc(100vh - 1px)', gap: 10, padding: 12, boxSizing: 'border-box', background: C.surfaceAlt }}>
-
-      {/* Fixed Reset button - viewport-level, never overlaps panel content */}
-      <button onClick={handleReset} title="Start over"
-        style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 100, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textSecondary, fontSize: 13, cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.12)' }}
-        onMouseEnter={e => e.currentTarget.style.background = C.hover}
-        onMouseLeave={e => e.currentTarget.style.background = C.surface}>
-        <RotateCcw size={14} /> Reset
-      </button>
-
+    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateAreas: '"topLeft main" "bottomLeft main"', height: '100%', minHeight: 0, overflow: 'hidden', gap: 10, padding: 12, boxSizing: 'border-box', background: C.surfaceAlt }}>
       {/* Upload panel */}
       <div style={panelContainerStyle('upload')} onClick={gridAreaFor('upload') !== 'main' ? () => setMainPanel('upload') : undefined}>
         {renderUploadPanel()}

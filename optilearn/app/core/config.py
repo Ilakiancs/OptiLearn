@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     # Embeddings
     EMBED_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    HF_LOCAL_FILES_ONLY: bool = True
 
     # Image processing
     IMAGE_MAX_PX: int = 1024

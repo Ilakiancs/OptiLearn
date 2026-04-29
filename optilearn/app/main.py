@@ -154,6 +154,7 @@ async def health() -> dict:
         "model_name": settings.OLLAMA_MODEL_FAST,
         "db_ok": db_ok,
         "faiss_passages": faiss_passages,
+        "embedding": faiss_store.get_embed_status(),
         "use_local_ollama": settings.USE_LOCAL_OLLAMA,
         "e4b_available": e4b_available,
         "active_model": settings.OLLAMA_MODEL_FAST,

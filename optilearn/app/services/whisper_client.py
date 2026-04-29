@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import tempfile
 import wave
 import uuid
@@ -27,6 +28,28 @@ _asr_primed = False
 _TARGET_SAMPLE_RATE = 16000
 
 
+def _offline_env() -> None:
+    """Tell Hugging Face libraries not to use the network in classroom mode."""
+    if settings.HF_LOCAL_FILES_ONLY:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
+def _resolve_hf_asr_model() -> str:
+    """Prefer local Whisper folders while still allowing a fully cached HF id."""
+    configured = Path(settings.WHISPER_HF_MODEL).expanduser()
+    if configured.exists():
+        return str(configured)
+
+    leaf = settings.WHISPER_HF_MODEL.rsplit("/", 1)[-1]
+    slug = settings.WHISPER_HF_MODEL.replace("/", "-")
+    for name in (leaf, slug):
+        candidate = Path("models") / "whisper" / name
+        if candidate.exists():
+            return str(candidate)
+    return settings.WHISPER_HF_MODEL
+
+
 def get_transcriber_status() -> dict:
     """Return readiness information for the live translation UI."""
     whisper_binary = Path(settings.WHISPER_BINARY)
@@ -43,7 +66,7 @@ def get_transcriber_status() -> dict:
         "ready": _asr_pipeline is not None and _asr_primed,
         "loading": _asr_loading,
         "backend": _asr_backend or "transformers",
-        "model": settings.WHISPER_HF_MODEL,
+        "model": _resolve_hf_asr_model(),
         "error": _asr_error,
     }
 
@@ -127,12 +150,24 @@ async def _get_asr_pipeline():
             return _asr_pipeline
 
         def load_pipeline():
-            from transformers import pipeline
+            from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
-            logger.info("Loading fallback Whisper ASR model: {}", settings.WHISPER_HF_MODEL)
+            _offline_env()
+            model_ref = _resolve_hf_asr_model()
+            logger.info("Loading fallback Whisper ASR model: {}", model_ref)
+            model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                model_ref,
+                local_files_only=settings.HF_LOCAL_FILES_ONLY,
+            )
+            processor = AutoProcessor.from_pretrained(
+                model_ref,
+                local_files_only=settings.HF_LOCAL_FILES_ONLY,
+            )
             return pipeline(
                 "automatic-speech-recognition",
-                model=settings.WHISPER_HF_MODEL,
+                model=model,
+                tokenizer=processor.tokenizer,
+                feature_extractor=processor.feature_extractor,
                 device=-1,
             )
 
@@ -144,7 +179,10 @@ async def _get_asr_pipeline():
             logger.info("Fallback Whisper ASR model ready")
             return _asr_pipeline
         except Exception as exc:
-            _asr_error = repr(exc)
+            _asr_error = (
+                f"{exc!r}. Put Whisper in ./models/whisper/ or set WHISPER_HF_MODEL "
+                "to a local folder."
+            )
             logger.error("Fallback Whisper ASR model load error: {!r}", exc)
             raise
         finally:
