@@ -1,5 +1,0 @@
-PHASE 0 COMPLETE — Renamed polytutor/ → optilearn/, updated Modelfile (gemma3→gemma4, polytutor→optilearn), config defaults, .env.example, main.py title/logs, scripts, frontend strings, package.json, sw.js cache name, SETUP.md, TEST.md
-PHASE 1 COMPLETE — Added messages, class_notes, materials, teacher_quizzes tables + DB helpers (get_teacher_students, get_heatmap_data, get_student_progress, create_material, CRUD for teacher_quizzes)
-PHASE 2 COMPLETE — faiss_store.add_passages() implemented, persists updated index to disk
-PHASE 3 COMPLETE — New routes: /api/health, /api/teacher/{students,heatmap,alerts,report}, /api/materials/{upload,list}, /api/teacher/quiz CRUD, /api/students/{id}/progress + /report SSE; generate_quiz tool now merges teacher quizzes; PyMuPDF + reportlab added to requirements.txt
-PHASE 4 COMPLETE — App.jsx wired with StudentProgress, MaterialUpload, TeacherQuizBuilder routes; frontend builds clean (94 modules, 266 KB)

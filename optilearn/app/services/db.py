@@ -155,6 +155,7 @@ async def init_db() -> None:
         for migration in [
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
             "ALTER TABLE materials ADD COLUMN translated_text TEXT",
+            "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
         ]:
             try:
                 await db.execute(migration)
@@ -686,12 +687,16 @@ async def get_student_with_profile(student_id: str) -> dict[str, Any] | None:
     return student
 
 
-async def update_material_translation(material_id: str, translated_text: str) -> None:
-    """Persist the completed translation text and mark faiss_indexed=1."""
+async def update_material_translation(
+    material_id: str,
+    translated_text: str,
+    faiss_indexed: bool = True,
+) -> None:
+    """Persist the completed translation text and record whether vector indexing ran."""
     async with _get_db() as db:
         await db.execute(
-            "UPDATE materials SET translated_text = ?, faiss_indexed = 1 WHERE id = ?",
-            (translated_text, material_id),
+            "UPDATE materials SET translated_text = ?, faiss_indexed = ? WHERE id = ?",
+            (translated_text, 1 if faiss_indexed else 0, material_id),
         )
         await db.commit()
 

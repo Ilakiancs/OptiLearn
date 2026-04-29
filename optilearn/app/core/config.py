@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     # Embeddings
     EMBED_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    HF_LOCAL_FILES_ONLY: bool = True
 
     # Image processing
     IMAGE_MAX_PX: int = 1024
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     # Whisper / TTS (Phase 2–3, not used yet)
     WHISPER_BINARY: str = "./bin/whisper"
     WHISPER_MODEL: str = "./data/whisper-models/ggml-base.bin"
+    WHISPER_HF_MODEL: str = "openai/whisper-tiny"
     PIPER_BINARY: str = "./bin/piper"
     VOICES_DIR: str = "./data/voices"
 

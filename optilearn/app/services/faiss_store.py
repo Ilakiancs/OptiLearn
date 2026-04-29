@@ -23,6 +23,71 @@ from app.core.config import settings
 _index: Any | None = None
 _meta: list[dict] | None = None
 _embed_model: Any | None = None
+_embed_error = ""
+_embed_resolved_model = ""
+
+
+def _offline_env() -> None:
+    """Tell Hugging Face libraries not to use the network in classroom mode."""
+    if settings.HF_LOCAL_FILES_ONLY:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+
+def _resolve_model_ref(model_ref: str, group: str) -> str:
+    """Prefer explicit local folders while still allowing a fully cached HF id."""
+    path = os.path.expanduser(model_ref)
+    if os.path.exists(path):
+        return path
+
+    leaf = model_ref.rsplit("/", 1)[-1]
+    slug = model_ref.replace("/", "-")
+    for name in (leaf, slug):
+        candidate = os.path.join(".", "models", group, name)
+        if os.path.exists(candidate):
+            return candidate
+    return model_ref
+
+
+def _load_embed_model() -> Any | None:
+    """Load the embedding model without contacting Hugging Face."""
+    global _embed_error, _embed_model, _embed_resolved_model  # noqa: PLW0603
+
+    if _embed_model is not None:
+        return _embed_model
+
+    _offline_env()
+    _embed_resolved_model = _resolve_model_ref(settings.EMBED_MODEL, "embeddings")
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        logger.info("Loading embedding model: {}", _embed_resolved_model)
+        _embed_model = SentenceTransformer(
+            _embed_resolved_model,
+            local_files_only=settings.HF_LOCAL_FILES_ONLY,
+        )
+        _embed_error = ""
+        logger.info("Embedding model ready.")
+        return _embed_model
+    except Exception as exc:
+        _embed_error = (
+            f"{exc!r}. Put the embedding model in ./models/embeddings/ or set "
+            "EMBED_MODEL to a local folder."
+        )
+        logger.warning("Embedding model unavailable; vector indexing disabled: {}", _embed_error)
+        return None
+
+
+def get_embed_status() -> dict[str, Any]:
+    """Return embedding readiness without triggering a model load."""
+    resolved = _embed_resolved_model or _resolve_model_ref(settings.EMBED_MODEL, "embeddings")
+    return {
+        "ready": _embed_model is not None,
+        "model": settings.EMBED_MODEL,
+        "resolved_model": resolved,
+        "local_files_only": settings.HF_LOCAL_FILES_ONLY,
+        "error": _embed_error,
+    }
 
 
 def _load() -> bool:
@@ -60,9 +125,9 @@ def _load() -> bool:
 
     logger.info("Loaded {} passages from metadata.", len(_meta))
 
-    from sentence_transformers import SentenceTransformer
-    logger.info("Loading embedding model: {}", settings.EMBED_MODEL)
-    _embed_model = SentenceTransformer(settings.EMBED_MODEL)
+    _embed_model = _load_embed_model()
+    if _embed_model is None:
+        return False
 
     return True
 
@@ -119,6 +184,15 @@ def query(topic: str, grade_level: int, k: int = 3) -> list[dict[str, Any]]:
     return results
 
 
+def ensure_embed_model() -> None:
+    """Load the sentence-transformer embedding model into memory if not already loaded.
+    Call once at startup so notes generation doesn't pay the 70-second cold-start cost.
+    """
+    global _embed_model  # noqa: PLW0603
+    if _embed_model is None:
+        _load_embed_model()
+
+
 def add_passages(passages: list[dict]) -> int:
     """
     Embed and add new passages to the live FAISS index.
@@ -133,8 +207,10 @@ def add_passages(passages: list[dict]) -> int:
         return 0
 
     if _embed_model is None:
-        from sentence_transformers import SentenceTransformer
-        _embed_model = SentenceTransformer(settings.EMBED_MODEL)
+        _embed_model = _load_embed_model()
+        if _embed_model is None:
+            logger.warning("Skipping FAISS indexing because the embedding model is unavailable.")
+            return 0
 
     texts = [p["text"] for p in passages]
     import numpy as np

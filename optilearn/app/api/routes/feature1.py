@@ -428,6 +428,65 @@ LANGUAGES = [
 
 _LANG_NAME = {lang["code"]: lang["name"] for lang in LANGUAGES}
 
+_SCRIPT_LANGUAGE_RANGES = [
+    ("si", 0x0D80, 0x0DFF),
+    ("ta", 0x0B80, 0x0BFF),
+    ("ar", 0x0600, 0x06FF),
+    ("he", 0x0590, 0x05FF),
+    ("hi", 0x0900, 0x097F),
+    ("bn", 0x0980, 0x09FF),
+    ("pa", 0x0A00, 0x0A7F),
+    ("gu", 0x0A80, 0x0AFF),
+    ("th", 0x0E00, 0x0E7F),
+    ("lo", 0x0E80, 0x0EFF),
+    ("my", 0x1000, 0x109F),
+    ("am", 0x1200, 0x137F),
+    ("km", 0x1780, 0x17FF),
+    ("ko", 0xAC00, 0xD7AF),
+    ("zh", 0x4E00, 0x9FFF),
+    ("ru", 0x0400, 0x04FF),
+    ("el", 0x0370, 0x03FF),
+]
+
+
+def _detect_material_language(text: str) -> tuple[str, float]:
+    """Detect source language, using script ranges before probabilistic guesses."""
+    sample = (text or "").strip()
+    if not sample:
+        return "unknown", 0.0
+
+    visible_chars = [ch for ch in sample if not ch.isspace()]
+    if not visible_chars:
+        return "unknown", 0.0
+
+    counts: dict[str, int] = {}
+    for ch in visible_chars[:3000]:
+        code = ord(ch)
+        for lang, start, end in _SCRIPT_LANGUAGE_RANGES:
+            if start <= code <= end:
+                counts[lang] = counts.get(lang, 0) + 1
+                break
+
+    if counts:
+        lang, count = max(counts.items(), key=lambda item: item[1])
+        confidence = round(count / max(1, sum(counts.values())), 3)
+        if count >= 2:
+            return lang, confidence
+
+    try:
+        from langdetect import detect_langs
+
+        results = detect_langs(sample[:1000])
+        if results:
+            detected = results[0].lang.split("-")[0].lower()
+            return detected, round(results[0].prob, 3)
+    except Exception:
+        pass
+
+    if re.search(r"[A-Za-z]", sample):
+        return "en", 0.6
+    return "unknown", 0.0
+
 _TRANSLATE_PROMPT = """\
 Translate the following educational content into {target_language}.
 The reader is a student in grade {grade_level}, age {age}.
@@ -547,8 +606,9 @@ async def _persist_translated_material(
 ) -> None:
     try:
         chunks = _chunk_text(full_text)
+        indexed_count = 0
         if chunks:
-            await asyncio.to_thread(
+            indexed_count = await asyncio.to_thread(
                 faiss_store.add_passages,
                 [
                     {
@@ -560,7 +620,11 @@ async def _persist_translated_material(
                     for c in chunks
                 ],
             )
-        await db.update_material_translation(material_id, full_text)
+        await db.update_material_translation(
+            material_id,
+            full_text,
+            faiss_indexed=indexed_count > 0,
+        )
         _translation_cache[f"db_lang_{material_id}"] = target_language
     except Exception as exc:
         logger.error("Persist translated material error: {}\n{}", exc, traceback.format_exc())
@@ -656,18 +720,8 @@ async def upload_material(
         preview = text_input[:500]
         pages = [{"page": 1, "text": text_input}]
 
-    detected_language = "en"
-    detected_confidence = 0.0
-    try:
-        from langdetect import detect_langs
-        source_text = pages[0].get("text", "") or ""
-        if source_text.strip():
-            results = detect_langs(source_text[:1000])
-            if results:
-                detected_language = results[0].lang
-                detected_confidence = round(results[0].prob, 3)
-    except Exception:
-        pass
+    source_text = "\n".join(page.get("text", "") or "" for page in pages)
+    detected_language, detected_confidence = _detect_material_language(source_text)
 
     material = await db.create_material(
         title=filename,

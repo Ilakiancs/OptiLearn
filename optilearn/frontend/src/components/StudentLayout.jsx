@@ -12,6 +12,7 @@ import {
   List,
   Megaphone,
   Moon,
+  Radio,
   SignOut,
   Sparkle,
   Student,
@@ -35,6 +36,8 @@ const NAV_ITEMS = [
 const EXTRA_ITEMS = [
   { suffix: '/progress', label: 'Progress', Icon: Trophy },
   { suffix: '/session', label: 'AI Tutor', Icon: ChatsCircle },
+  { suffix: '/translate-learn', label: 'Translate & Learn', Icon: BookOpen },
+  { suffix: '/live-translator', label: 'Live Class', Icon: Radio },
 ]
 
 export function avatarColor(name) {
@@ -105,59 +108,27 @@ function Sidebar({ studentId, student, onNavigate }) {
         </div>
       </Link>
 
-        <div style={{ padding: '10px 16px 4px', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-hint)', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 6 }}>
-          Tools
-        </div>
-        <Link
-          to={`/session/${studentId}`}
-          onClick={onNav}
+      <div className="surface-card" style={{ padding: 13, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div
           style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '9px 12px', margin: '1px 8px',
-            borderRadius: 'var(--radius-md)', textDecoration: 'none',
-            color: 'var(--color-text-muted)', fontSize: '0.88rem',
+            width: 48,
+            height: 48,
+            borderRadius: 12,
+            background: avatarColor(student?.name || ''),
+            color: '#fff',
+            display: 'grid',
+            placeItems: 'center',
+            fontWeight: 800,
+            fontSize: '1.2rem',
           }}
         >
-          <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>🤖</span>
-          AI Tutor
-        </Link>
-        <NavLink
-          to={`/student/${studentId}/translate-learn`}
-          onClick={onNav}
-          style={({ isActive }) => ({
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '9px 12px', margin: '1px 8px',
-            borderRadius: 'var(--radius-md)', textDecoration: 'none',
-            background: isActive ? 'var(--color-primary)' : 'transparent',
-            color: isActive ? '#fff' : 'var(--color-text-muted)',
-            fontWeight: isActive ? 600 : 400,
-            fontSize: '0.88rem', transition: 'all 0.12s',
-          })}
-        >
-          <span style={{ fontSize: '1rem', width: 22, textAlign: 'center', flexShrink: 0 }}>📖</span>
-          Translate &amp; Learn
-        </NavLink>
-        <div className="surface-card" style={{ padding: 13, display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: avatarColor(student?.name || ''),
-              color: '#fff',
-              display: 'grid',
-              placeItems: 'center',
-              fontWeight: 800,
-              fontSize: '1.2rem',
-            }}
-          >
-            {getInitials(student?.name)}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student?.name || 'Student'}</div>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Grade {student?.grade_level || '-'} • {student?.language?.toUpperCase() || '--'}</div>
-          </div>
+          {getInitials(student?.name)}
         </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{student?.name || 'Student'}</div>
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Grade {student?.grade_level || '-'} - {student?.language?.toUpperCase() || '--'}</div>
+        </div>
+      </div>
 
       <div className="tid-banner" role="status" aria-live="polite">
         Calm mode on. You can leave safely any time.
@@ -216,14 +187,24 @@ export default function StudentLayout() {
   }, [isMobile])
 
   return (
-    <div className="app-shell" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '296px 1fr' }}>
+    <div className="app-shell" style={{
+      display: 'grid',
+      gridTemplateColumns: isMobile ? '1fr' : '296px 1fr',
+      height: isMobile ? 'auto' : '100vh',
+      overflow: isMobile ? 'visible' : 'hidden',
+    }}>
       <a className="quick-exit" href="https://www.google.com" target="_blank" rel="noreferrer" title="Quick exit to a neutral page">
         <DoorOpen size={16} weight="bold" />
         <span>Quick Exit</span>
       </a>
 
       {!isMobile && (
-        <aside style={{ borderRight: '1px solid var(--border)', minHeight: '100vh', position: 'sticky', top: 0 }}>
+        <aside style={{
+          borderRight: '1px solid var(--border)',
+          height: '100vh',
+          minHeight: 0,
+          overflowY: 'auto',
+        }}>
           <Sidebar student={student} studentId={studentId} onNavigate={() => {}} />
         </aside>
       )}
@@ -281,9 +262,18 @@ export default function StudentLayout() {
         </>
       )}
 
-      <main style={{ minHeight: '100vh', padding: isMobile ? '16px 14px 28px' : '24px 24px 34px', overflowX: 'hidden' }}>
+      <main style={{
+        height: isMobile ? 'auto' : '100vh',
+        minHeight: isMobile ? '100vh' : 0,
+        padding: isMobile ? '16px 14px 28px' : '24px 24px 34px',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        overflowY: isMobile ? 'visible' : 'auto',
+      }}>
         <Outlet context={{ student, studentId }} />
       </main>
     </div>
   )
 }
+
+
