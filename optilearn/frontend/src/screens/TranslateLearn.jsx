@@ -4,6 +4,7 @@ import {
   BookOpen, Globe, Languages, Sparkles, Search, ArrowRight,
   ChevronLeft, ChevronRight, Maximize2, Zap, Loader2, CheckCircle2,
   Upload, FileText, RotateCcw, AlertCircle, Volume2, StopCircle, Download,
+  Clock3,
 } from 'lucide-react'
 import { feature1 } from '../api/client'
 // -- Section --
@@ -100,6 +101,9 @@ export default function TranslateLearn() {
   const [fileType, setFileType]                       = useState(null) // "pdf" | "image" | "text"
   const [playingPanel, setPlayingPanel]               = useState(null) // "upload"|"translate"|"explain"|null
   const [isDownloadingPdf, setIsDownloadingPdf]       = useState(false)
+  const [pastSessions, setPastSessions]               = useState([])
+  const [sessionsLoading, setSessionsLoading]         = useState(false)
+  const [openingSession, setOpeningSession]           = useState(null)
   const audioCtxRef                                   = useRef(null)
   const playingPanelRef                               = useRef(null)
 
@@ -118,6 +122,9 @@ export default function TranslateLearn() {
     fetch('/api/health').then(r => r.json()).then(d => setE4bAvailable(!!d.e4b_available)).catch(() => {})
   }, [])
   useEffect(() => {
+    if (studentId) loadPastSessions()
+  }, [studentId])
+  useEffect(() => {
     const clear = () => setTooltipPos(null)
     window.addEventListener('scroll', clear)
     return () => window.removeEventListener('scroll', clear)
@@ -134,6 +141,79 @@ export default function TranslateLearn() {
     }
   }, [fileObjectURL])
 // -- Section --
+  async function loadPastSessions() {
+    if (!studentId) return
+    setSessionsLoading(true)
+    try {
+      const data = await feature1.getSessions(studentId)
+      setPastSessions(data.sessions || [])
+    } catch (_) {
+      setPastSessions([])
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  async function openSavedSession(session) {
+    const materialId = session?.material_id
+    if (!materialId || openingSession) return
+    setOpeningSession(materialId)
+    setError(null)
+    isCancelledRef.current = true
+    activeTranslationRef.current = null
+    activeExplanationRef.current = null
+    uploadInFlightRef.current = false
+    stopAudio()
+    setPlayingPanel(null)
+    setIsStreaming(false)
+
+    try {
+      const data = await feature1.getSession(studentId, materialId)
+      if (fileObjectURL) {
+        URL.revokeObjectURL(fileObjectURL)
+        setFileObjectURL(null)
+      }
+      const restoredLanguage = data.target_language || targetLanguage
+      const restoredType = data.type || 'text'
+      const restoredHistory = []
+      if (data.tutor_summary?.trim()) {
+        restoredHistory.push({ type: 'summary', content: data.tutor_summary, isStreaming: false })
+      }
+      ;(data.tutor_history || []).forEach(entry => {
+        if ((entry.type === 'question' || entry.type === 'answer') && entry.content) {
+          restoredHistory.push({ type: entry.type, content: entry.content, isStreaming: false })
+        }
+      })
+
+      setMaterial({
+        material_id: data.material_id,
+        type: restoredType,
+        page_count: data.page_count || 1,
+        preview: data.preview || data.translated_preview || '',
+      })
+      setFileType(restoredType)
+      setPasteMode(false)
+      setPasteText(restoredType === 'text' ? (data.preview || '') : '')
+      setTargetLanguage(restoredLanguage)
+      setDetectedLang(data.detected_language || data.source_language || null)
+      setTranslatedPages({ 1: data.translated_text || '' })
+      setCurrentPage(1)
+      setTranslationProgress({ current: data.page_count || 1, total: data.page_count || 1 })
+      setTutorHistory(restoredHistory)
+      setSuggestedQs([])
+      setHighlightedText(null)
+      setTooltipPos(null)
+      setSearchQuery('')
+      setAppState('translated')
+      setMainPanel('translate')
+    } catch (err) {
+      setError(err.message || 'Saved session could not be opened.')
+    } finally {
+      isCancelledRef.current = false
+      setOpeningSession(null)
+    }
+  }
+
   function stopAudio() {
     if (audioCtxRef.current) {
       try { audioCtxRef.current.close() } catch (_) {}
@@ -258,6 +338,7 @@ export default function TranslateLearn() {
           if (hasContent) {
             setAppState('translated')
             setMainPanel('translate')
+            setTimeout(loadPastSessions, 900)
             startExplanation(mat, lang)
           } else {
             setError(prev => prev || 'Translation returned no content. The input may contain text the AI could not process - please check your input and try again.')
@@ -306,6 +387,7 @@ export default function TranslateLearn() {
             return next
           })
           setIsStreaming(false)
+          loadPastSessions()
           try {
             const res = await feature1.ask({ material_id: mat.material_id, student_id: studentId, question: '', language: lang, format: 'json', model_preference: modelPreference })
             if (!isCancelledRef.current) setSuggestedQs(res.questions || [])
@@ -402,6 +484,19 @@ export default function TranslateLearn() {
   const detectedSourceLanguage = detectedLang && detectedLang !== 'unknown' ? detectedLang : null
   const sourceReadLanguage = detectedSourceLanguage || student?.language || 'en'
   const hasQuestions   = tutorHistory.some(e => e.type === 'question')
+
+  function sessionDateLabel(value) {
+    if (!value) return 'Saved'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return 'Saved'
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  function sessionPreview(session) {
+    return (session.translated_preview || session.tutor_preview || session.preview || 'Translated learning material')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
 // -- Section --
   async function speakText(text, language, panelName) {
     if (playingPanelRef.current === panelName) {
@@ -665,6 +760,35 @@ export default function TranslateLearn() {
         {detectedSourceLanguage && !error && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 20, padding: '4px 12px', fontSize: 13, marginBottom: 12, color: C.textPrimary }}>
             <CheckCircle2 size={14} color={C.accentGreen} /> Detected: {langName(detectedSourceLanguage)}
+          </div>
+        )}
+
+        {!material && !pasteMode && (sessionsLoading || pastSessions.length > 0) && (
+          <div style={{ flexShrink: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 10px', borderBottom: `1px solid ${C.border}` }}>
+              <Clock3 size={14} color={C.primary} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, flex: 1 }}>Recent translations</span>
+              {sessionsLoading && <Loader2 size={13} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />}
+            </div>
+            <div style={{ maxHeight: 132, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pastSessions.slice(0, 6).map(session => {
+                const loadingThis = openingSession === session.material_id
+                return (
+                  <button key={session.material_id} onClick={() => openSavedSession(session)} disabled={!!openingSession}
+                    style={{ textAlign: 'left', border: `1px solid ${C.border}`, background: C.surfaceAlt, borderRadius: 8, padding: '8px 10px', cursor: openingSession ? 'default' : 'pointer', color: C.textPrimary, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {sessionDateLabel(session.updated_at || session.created_at)} - {langName(session.target_language || targetLanguage)}
+                      </span>
+                      <span style={{ display: 'block', fontSize: 12, color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                        {sessionPreview(session)}
+                      </span>
+                    </span>
+                    {loadingThis ? <Loader2 size={14} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={14} color={C.primary} />}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
 

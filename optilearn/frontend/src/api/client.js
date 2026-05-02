@@ -175,6 +175,12 @@ export const feature1 = {
         return res.json()
       })
   },
+  getSessions(studentId) {
+    return request(`/api/feature1/sessions/${encodeURIComponent(studentId)}`)
+  },
+  getSession(studentId, materialId) {
+    return request(`/api/feature1/sessions/${encodeURIComponent(studentId)}/${encodeURIComponent(materialId)}`)
+  },
   translateStream(body, onEvent, onDone) {
     return streamSSE(`${BASE}/api/feature1/translate`, body, onEvent, onDone)
   },

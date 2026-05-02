@@ -95,8 +95,17 @@ CREATE TABLE IF NOT EXISTS materials (
     uploaded_by   TEXT,
     student_id    TEXT,
     translated_text TEXT,
+    target_language TEXT,
+    source_language TEXT,
+    detected_confidence REAL DEFAULT 0,
+    material_type TEXT,
+    page_count INTEGER DEFAULT 1,
+    preview TEXT,
+    tutor_summary TEXT,
+    tutor_history TEXT DEFAULT '[]',
     faiss_indexed INTEGER DEFAULT 0,
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS teacher_quizzes (
@@ -110,6 +119,7 @@ CREATE TABLE IF NOT EXISTS teacher_quizzes (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session   ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_materials_subject  ON materials(subject);
+CREATE INDEX IF NOT EXISTS idx_materials_student  ON materials(student_id);
 CREATE INDEX IF NOT EXISTS idx_tquiz_assigned     ON teacher_quizzes(assigned_to);
 """
 
@@ -155,6 +165,15 @@ async def init_db() -> None:
         for migration in [
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
             "ALTER TABLE materials ADD COLUMN translated_text TEXT",
+            "ALTER TABLE materials ADD COLUMN target_language TEXT",
+            "ALTER TABLE materials ADD COLUMN source_language TEXT",
+            "ALTER TABLE materials ADD COLUMN detected_confidence REAL DEFAULT 0",
+            "ALTER TABLE materials ADD COLUMN material_type TEXT",
+            "ALTER TABLE materials ADD COLUMN page_count INTEGER DEFAULT 1",
+            "ALTER TABLE materials ADD COLUMN preview TEXT",
+            "ALTER TABLE materials ADD COLUMN tutor_summary TEXT",
+            "ALTER TABLE materials ADD COLUMN tutor_history TEXT DEFAULT '[]'",
+            "ALTER TABLE materials ADD COLUMN updated_at TEXT",
             "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
         ]:
             try:
@@ -657,15 +676,43 @@ async def create_material(
     file_path: str,
     uploaded_by: str | None = None,
     student_id: str | None = None,
+    target_language: str | None = None,
+    source_language: str | None = None,
+    detected_confidence: float | None = None,
+    material_type: str | None = None,
+    page_count: int | None = None,
+    preview: str | None = None,
     faiss_indexed: bool = False,
 ) -> dict[str, Any]:
     """Insert a materials row and return it."""
     mat_id = str(uuid.uuid4())[:16].replace("-", "")
+    now = datetime.utcnow().isoformat()
     async with _get_db() as db:
         await db.execute(
-            """INSERT INTO materials (id, title, subject, file_path, uploaded_by, student_id, faiss_indexed)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (mat_id, title, subject, file_path, uploaded_by, student_id, 1 if faiss_indexed else 0),
+            """
+            INSERT INTO materials (
+                id, title, subject, file_path, uploaded_by, student_id,
+                target_language, source_language, detected_confidence,
+                material_type, page_count, preview, faiss_indexed, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                mat_id,
+                title,
+                subject,
+                file_path,
+                uploaded_by,
+                student_id,
+                target_language,
+                source_language,
+                detected_confidence or 0,
+                material_type,
+                page_count or 1,
+                preview,
+                1 if faiss_indexed else 0,
+                now,
+            ),
         )
         await db.commit()
         cursor = await db.execute("SELECT * FROM materials WHERE id = ?", (mat_id,))
@@ -691,12 +738,79 @@ async def update_material_translation(
     material_id: str,
     translated_text: str,
     faiss_indexed: bool = True,
+    target_language: str | None = None,
 ) -> None:
     """Persist the completed translation text and record whether vector indexing ran."""
+    now = datetime.utcnow().isoformat()
     async with _get_db() as db:
         await db.execute(
-            "UPDATE materials SET translated_text = ?, faiss_indexed = ? WHERE id = ?",
-            (translated_text, 1 if faiss_indexed else 0, material_id),
+            """
+            UPDATE materials
+            SET translated_text = ?,
+                faiss_indexed = ?,
+                target_language = COALESCE(?, target_language),
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (translated_text, 1 if faiss_indexed else 0, target_language, now, material_id),
+        )
+        await db.commit()
+
+
+async def update_material_tutor_summary(
+    material_id: str,
+    tutor_summary: str,
+) -> None:
+    """Persist the AI tutor overview generated for a Feature 1 material."""
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            """
+            UPDATE materials
+            SET tutor_summary = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (tutor_summary, now, material_id),
+        )
+        await db.commit()
+
+
+async def append_material_tutor_history(
+    material_id: str,
+    question: str,
+    answer: str,
+) -> None:
+    """Append one persisted tutor Q&A pair for a Feature 1 material."""
+    import json as _json
+
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT tutor_history FROM materials WHERE id = ?",
+            (material_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return
+        try:
+            history = _json.loads(row["tutor_history"] or "[]")
+            if not isinstance(history, list):
+                history = []
+        except (_json.JSONDecodeError, TypeError):
+            history = []
+        history.extend(
+            [
+                {"type": "question", "content": question},
+                {"type": "answer", "content": answer},
+            ]
+        )
+        await db.execute(
+            """
+            UPDATE materials
+            SET tutor_history = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (_json.dumps(history, ensure_ascii=False), now, material_id),
         )
         await db.commit()
 
@@ -808,6 +922,55 @@ async def get_material_by_id(material_id: str) -> dict[str, Any] | None:
     """Return a single material record by id."""
     async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM materials WHERE id = ?", (material_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def get_feature1_sessions(student_id: str) -> list[dict[str, Any]]:
+    """Return saved Translate & Learn sessions for one student, newest first."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT
+                id,
+                title,
+                subject,
+                student_id,
+                target_language,
+                source_language,
+                detected_confidence,
+                material_type,
+                page_count,
+                preview,
+                substr(translated_text, 1, 320) AS translated_preview,
+                substr(tutor_summary, 1, 320) AS tutor_preview,
+                faiss_indexed,
+                created_at,
+                updated_at
+            FROM materials
+            WHERE student_id = ?
+              AND translated_text IS NOT NULL
+              AND trim(translated_text) != ''
+            ORDER BY COALESCE(updated_at, created_at) DESC
+            """,
+            (student_id,),
+        )
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_feature1_session(student_id: str, material_id: str) -> dict[str, Any] | None:
+    """Return one saved Translate & Learn session for one student."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT *
+            FROM materials
+            WHERE id = ?
+              AND student_id = ?
+            """,
+            (material_id, student_id),
+        )
         row = await cursor.fetchone()
     return _row_to_dict(row) if row else None
 
