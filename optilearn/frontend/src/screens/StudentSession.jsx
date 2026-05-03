@@ -1,32 +1,168 @@
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getStudent, startSession, uploadImage, submitQuiz } from '../api/client'
-import { useSSE } from '../hooks/useSSE'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import {
+  Camera,
+  CaretRight,
+  ChatCircleText,
+  ClockCounterClockwise,
+  PaperPlaneTilt,
+  Paperclip,
+  Plus,
+  Sparkle,
+  Translate,
+  WarningCircle,
+  X,
+} from '@phosphor-icons/react'
+import {
+  feature1,
+  getChatSessions,
+  getSessionMessages,
+  getStudent,
+  startSession,
+  submitQuiz,
+  uploadImage,
+} from '../api/client'
 import ChatMessage from '../components/ChatMessage'
-import QuizCard from '../components/QuizCard'
 import MasteryBadge from '../components/MasteryBadge'
-import { ArrowLeft, Camera, PaperPlaneTilt, Paperclip, X } from '@phosphor-icons/react'
+import QuizCard from '../components/QuizCard'
+import Spinner from '../components/Spinner'
+import { useSSE } from '../hooks/useSSE'
 
 const TOOL_LABELS = {
-  detect_language: 'Detecting language...',
+  detect_language: 'Checking language...',
   retrieve_curriculum: 'Looking up curriculum...',
-  generate_quiz: 'Generating quiz...',
+  generate_quiz: 'Preparing a quick check...',
   update_progress: 'Saving progress...',
 }
 
 function encouragement(score) {
-  if (score === 1) return 'Perfect! You\'ve got this.'
+  if (score === 1) return "Perfect! You've got this."
   if (score >= 0.75) return 'Great work, keep it up!'
-  if (score >= 0.5) return 'Good effort. Let\'s keep practicing.'
-  return 'Let\'s go over this again together.'
+  if (score >= 0.5) return "Good effort. Let's keep practicing."
+  return "Let's look at this again together."
 }
+
+function sessionDateLabel(value) {
+  if (!value) return 'Saved chat'
+  try {
+    return new Date(value).toLocaleString()
+  } catch (_) {
+    return value
+  }
+}
+
+function previewText(value) {
+  return String(value || 'AI Tutor conversation')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+}
+
+const css = `
+@keyframes spin { to { transform: rotate(360deg); } }
+.tutor-workspace {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(248px, 312px);
+  gap: 14px;
+}
+.tutor-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tutor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tutor-select {
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+  outline: none;
+}
+.tutor-icon-button {
+  min-width: 42px;
+  min-height: 42px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.tutor-input {
+  flex: 1;
+  min-height: 44px;
+  max-height: 116px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+}
+.tutor-send {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.tutor-send:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.saved-chat {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.saved-chat:hover {
+  border-color: var(--accent);
+}
+@media (max-width: 1100px) {
+  .tutor-workspace {
+    height: auto;
+    grid-template-columns: 1fr;
+  }
+  .tutor-panel {
+    min-height: 560px;
+  }
+}
+`
 
 export default function StudentSession() {
   const { studentId } = useParams()
+  const outlet = useOutletContext() || {}
   const navigate = useNavigate()
-  const { connect, disconnect, isConnected } = useSSE()
+  const { connect, disconnect } = useSSE()
 
-  const [student, setStudent] = useState(null)
+  const [student, setStudent] = useState(outlet.student || null)
   const [sessionId, setSessionId] = useState(null)
   const [messages, setMessages] = useState([])
   const [currentTopic, setCurrentTopic] = useState(null)
@@ -40,11 +176,62 @@ export default function StudentSession() {
   const [activeToolNotice, setActiveToolNotice] = useState(null)
   const [inputText, setInputText] = useState('')
   const [pendingAnswer, setPendingAnswer] = useState(null)
+  const [languages, setLanguages] = useState([])
+  const [conversationLanguage, setConversationLanguage] = useState('en')
+  const [savedChats, setSavedChats] = useState([])
+  const [savedChatsLoading, setSavedChatsLoading] = useState(false)
+  const [openingChatId, setOpeningChatId] = useState(null)
+  const [uiMessage, setUiMessage] = useState('')
 
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
-  const textAreaRef = useRef(null)
   const initialized = useRef(false)
+
+  useEffect(() => {
+    if (outlet.student) {
+      setStudent(outlet.student)
+      if (outlet.student.language) setConversationLanguage(outlet.student.language)
+    }
+  }, [outlet.student])
+
+  useEffect(() => {
+    feature1.getLanguages().then(setLanguages).catch(() => {})
+  }, [])
+
+  async function loadSavedChats() {
+    if (!studentId) return
+    setSavedChatsLoading(true)
+    try {
+      const data = await getChatSessions(studentId)
+      setSavedChats(data.sessions || [])
+    } catch (_) {
+      setSavedChats([])
+    } finally {
+      setSavedChatsLoading(false)
+    }
+  }
+
+  async function startFreshChat(studentRecord = student) {
+    disconnect()
+    setIsThinking(false)
+    setActiveToolNotice(null)
+    const sess = await startSession(studentId)
+    setSessionId(sess.id)
+    setMode('chat')
+    setQuizData(null)
+    setQuizResult(null)
+    setQuizAnswers([])
+    setQuizIndex(0)
+    setCurrentTopic(null)
+    setUiMessage('')
+    setMessages([
+      {
+        role: 'assistant',
+        content: `Hi ${studentRecord?.name || 'there'}! What would you like to learn today?`,
+        isStreaming: false,
+      },
+    ])
+  }
 
   useEffect(() => {
     if (initialized.current) return
@@ -52,19 +239,16 @@ export default function StudentSession() {
 
     async function init() {
       try {
-        const s = await getStudent(studentId)
+        const s = outlet.student || await getStudent(studentId)
         setStudent(s)
-        const sess = await startSession(studentId)
-        setSessionId(sess.id)
-        // Show local welcome — no API call on load
-        setMessages([{
-          role: 'assistant',
-          content: `Hi ${s.name}! What would you like to learn today?`,
-          isStreaming: false,
-        }])
+        setConversationLanguage(s.language || 'en')
+        await startFreshChat(s)
+        await loadSavedChats()
       } catch (err) {
         if (err.message?.includes('404') || err.message?.includes('not found')) {
           navigate('/')
+        } else {
+          setUiMessage(err.message || 'The tutor is still getting ready.')
         }
       }
     }
@@ -87,9 +271,7 @@ export default function StudentSession() {
     setMessages(prev => {
       const copy = [...prev]
       const last = copy[copy.length - 1]
-      if (last?.role === 'assistant') {
-        copy[copy.length - 1] = { ...last, content: last.content + token }
-      }
+      if (last?.role === 'assistant') copy[copy.length - 1] = { ...last, content: last.content + token }
       return copy
     })
   }
@@ -98,9 +280,7 @@ export default function StudentSession() {
     setMessages(prev => {
       const copy = [...prev]
       const last = copy[copy.length - 1]
-      if (last?.role === 'assistant') {
-        copy[copy.length - 1] = { ...last, isStreaming: false }
-      }
+      if (last?.role === 'assistant') copy[copy.length - 1] = { ...last, isStreaming: false }
       return copy
     })
   }
@@ -113,9 +293,17 @@ export default function StudentSession() {
     appendAssistantMessage()
     setIsThinking(true)
     setActiveToolNotice(null)
+    setUiMessage('')
 
     connect(
-      { student_id: studentId, session_id: sid, message: text, image_b64: img || null },
+      {
+        student_id: studentId,
+        session_id: sid,
+        message: text,
+        image_b64: img || null,
+        language: conversationLanguage,
+        model_preference: 'fast',
+      },
       {
         onToken(content) {
           updateLastAssistant(content)
@@ -126,7 +314,6 @@ export default function StudentSession() {
         onToolDone(tool, result) {
           setActiveToolNotice(null)
           if (tool === 'retrieve_curriculum' && result?.[0]?.passage) {
-            // Extract topic hint from result source
             const src = result[0]?.source?.replace('.txt', '').replace(/_/g, ' ')
             if (src) setCurrentTopic(src)
           }
@@ -141,6 +328,7 @@ export default function StudentSession() {
           setIsThinking(false)
           setActiveToolNotice(null)
           finalizeLastAssistant()
+          loadSavedChats()
         },
         onError(message) {
           setIsThinking(false)
@@ -148,7 +336,7 @@ export default function StudentSession() {
           finalizeLastAssistant()
           setMessages(prev => [
             ...prev,
-            { role: 'assistant', content: `Something went wrong: ${message}`, isStreaming: false },
+            { role: 'assistant', content: `Something got in the way: ${message}`, isStreaming: false },
           ])
         },
       }
@@ -174,13 +362,36 @@ export default function StudentSession() {
   async function handleImageSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
+    setUiMessage('')
     try {
       const { image_b64 } = await uploadImage(file)
       setImageB64(image_b64)
     } catch (err) {
-      console.error('Image upload failed:', err.message)
+      setUiMessage(err.message || 'The image could not be attached.')
     }
     e.target.value = ''
+  }
+
+  async function openSavedChat(chat) {
+    if (!chat?.id || openingChatId) return
+    disconnect()
+    setOpeningChatId(chat.id)
+    setUiMessage('')
+    setIsThinking(false)
+    setActiveToolNotice(null)
+    try {
+      const data = await getSessionMessages(chat.id, studentId)
+      const restored = (data.messages || [])
+        .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+        .map(msg => ({ role: msg.role, content: msg.content || '', isStreaming: false }))
+      setSessionId(chat.id)
+      setMode('chat')
+      setMessages(restored.length ? restored : [{ role: 'assistant', content: 'This saved chat is ready to continue.', isStreaming: false }])
+    } catch (err) {
+      setUiMessage(err.message || 'This saved chat could not be opened.')
+    } finally {
+      setOpeningChatId(null)
+    }
   }
 
   function handleQuizAnswer(answer) {
@@ -202,7 +413,6 @@ export default function StudentSession() {
       if (quizIndex + 1 < quizData.questions.length) {
         setQuizIndex(i => i + 1)
       } else {
-        // Last question — auto-submit
         try {
           const result = await submitQuiz({
             student_id: studentId,
@@ -212,7 +422,7 @@ export default function StudentSession() {
           })
           setQuizResult(result)
           setMode('result')
-        } catch (err) {
+        } catch (_) {
           setMode('chat')
         }
       }
@@ -228,94 +438,103 @@ export default function StudentSession() {
     setPendingAnswer(null)
   }
 
+  const languageOptions = languages.length
+    ? languages
+    : [{ code: conversationLanguage || 'en', name: (conversationLanguage || 'en').toUpperCase(), flag: '' }]
+  const languageName = languageOptions.find(lang => lang.code === conversationLanguage)?.name || conversationLanguage.toUpperCase()
   const topMastery = student?.topic_mastery?.[0]
 
-  // ── CHAT MODE ──────────────────────────────────────────────
-  if (mode === 'chat') {
+  function renderChatPanel() {
     return (
-      <div style={{
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--color-bg)',
-        color: 'var(--color-text)',
-      }}>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-        {/* Header */}
-        <header style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid var(--color-border)',
-          background: 'var(--color-surface)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          flexShrink: 0,
-        }}>
-          <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            <ArrowLeft size={22} weight="bold" />
-          </Link>
-          <span style={{ fontWeight: 700, fontSize: '1.05rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {student?.name || '...'}
+      <section className="surface-card tutor-panel">
+        <div className="tutor-toolbar">
+          <span className="icon-only" aria-hidden style={{ width: 42, height: 42, borderRadius: 14 }}>
+            <Sparkle size={21} weight="duotone" />
           </span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: '1.08rem' }}>AI Tutor</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+              Gemma 4 E2B · {languageName}
+            </div>
+          </div>
           {currentTopic && <MasteryBadge level={topMastery?.level} />}
-        </header>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.86rem' }}>
+            <Translate size={18} weight="duotone" />
+            <select
+              className="tutor-select"
+              value={conversationLanguage}
+              onChange={e => setConversationLanguage(e.target.value)}
+              disabled={isThinking}
+            >
+              {languageOptions.map(lang => (
+                <option key={lang.code} value={lang.code}>{lang.flag} {lang.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
 
-        {/* Tool notice */}
         {activeToolNotice && (
           <div style={{
-            background: 'var(--color-surface-2)',
-            borderBottom: '1px solid var(--color-border)',
-            padding: '6px 16px',
-            fontSize: '0.82rem',
-            color: 'var(--color-text-muted)',
-            flexShrink: 0,
+            padding: '8px 16px',
+            borderBottom: '1px solid var(--border)',
+            color: 'var(--text-muted)',
+            background: 'var(--surface-soft)',
+            fontSize: '0.84rem',
           }}>
             {activeToolNotice}
           </div>
         )}
 
-        {/* Message thread */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px' }}>
+        {uiMessage && (
+          <div style={{
+            margin: '12px 16px 0',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'flex-start',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            background: 'var(--accent-soft)',
+            color: 'var(--text)',
+            padding: '10px 12px',
+            fontSize: '0.9rem',
+          }}>
+            <WarningCircle size={18} weight="duotone" />
+            <span>{uiMessage}</span>
+          </div>
+        )}
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 12px' }}>
           {messages.map((msg, i) => (
             <ChatMessage key={i} role={msg.role} content={msg.content} isStreaming={msg.isStreaming} />
           ))}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Image preview */}
         {imageB64 && (
           <div style={{
             padding: '8px 16px',
-            background: 'var(--color-surface)',
-            borderTop: '1px solid var(--color-border)',
+            borderTop: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
-            gap: '10px',
-            flexShrink: 0,
+            gap: 10,
+            background: 'var(--surface-soft)',
           }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Paperclip size={18} weight="bold" />Image attached</span>
-            <button
-              onClick={() => setImageB64(null)}
-              style={{
-                background: 'none', border: 'none', color: 'var(--color-danger)',
-                cursor: 'pointer', fontSize: '1rem', padding: '4px 8px', minHeight: 44,
-              }}
-            >
-              <X size={20} weight="bold" />
+            <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
+              <Paperclip size={18} weight="bold" /> Image attached
+            </span>
+            <button type="button" className="tutor-icon-button" onClick={() => setImageB64(null)} aria-label="Remove image">
+              <X size={18} weight="bold" />
             </button>
           </div>
         )}
 
-        {/* Input area */}
         <div style={{
-          padding: '12px 12px',
-          borderTop: '1px solid var(--color-border)',
-          background: 'var(--color-surface)',
+          padding: 12,
+          borderTop: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'flex-end',
-          gap: '8px',
-          flexShrink: 0,
+          gap: 8,
+          background: 'var(--surface)',
         }}>
           <input
             type="file"
@@ -325,109 +544,89 @@ export default function StudentSession() {
             onChange={handleImageSelect}
             style={{ display: 'none' }}
           />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              minWidth: 44, minHeight: 44, background: 'none',
-              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)',
-              color: 'var(--color-text-muted)', fontSize: '1.2rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-            title="Attach photo"
-          >
-            <Camera size={22} weight="bold" />
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="tutor-icon-button" title="Attach photo">
+            <Camera size={22} weight="duotone" />
           </button>
-
           <textarea
-            ref={textAreaRef}
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Type a message..."
-            style={{
-              flex: 1,
-              padding: '10px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-surface-2)',
-              color: 'var(--color-text)',
-              fontSize: '1rem',
-              resize: 'none',
-              maxHeight: '100px',
-              overflowY: 'auto',
-              lineHeight: 1.5,
-              minHeight: '44px',
-            }}
+            placeholder="Ask anything..."
+            className="tutor-input"
           />
-
-          <button
-            onClick={handleSend}
-            disabled={isThinking || !inputText.trim()}
-            style={{
-              minWidth: 44, minHeight: 44,
-              background: isThinking || !inputText.trim() ? 'var(--color-primary-dim)' : 'var(--color-primary)',
-              border: 'none', borderRadius: 'var(--radius-md)',
-              color: '#fff', fontSize: '1.1rem', cursor: isThinking ? 'default' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <PaperPlaneTilt size={22} weight="bold" />
+          <button type="button" onClick={handleSend} disabled={isThinking || !inputText.trim()} className="tutor-send" aria-label="Send">
+            {isThinking ? <Spinner size={22} color="#fff" /> : <PaperPlaneTilt size={22} weight="bold" />}
           </button>
         </div>
-      </div>
+      </section>
     )
   }
 
-  // ── QUIZ MODE ──────────────────────────────────────────────
+  function renderSavedChats() {
+    return (
+      <aside className="surface-card tutor-panel" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <ClockCounterClockwise size={20} weight="duotone" color="var(--accent)" />
+          <div style={{ fontWeight: 800, flex: 1 }}>Saved Chats</div>
+          {savedChatsLoading && <Spinner size={18} color="var(--accent)" />}
+        </div>
+        <button
+          type="button"
+          className="pill-button primary"
+          onClick={() => startFreshChat(student).catch(err => setUiMessage(err.message || 'A new chat could not be opened yet.'))}
+          style={{ width: '100%', justifyContent: 'center', marginBottom: 12 }}
+        >
+          <Plus size={18} weight="bold" />
+          <span>New Chat</span>
+        </button>
+        <div style={{ display: 'grid', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 2 }}>
+          {!savedChatsLoading && savedChats.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5, padding: 8 }}>
+              Saved tutor chats will appear here after your first message.
+            </div>
+          )}
+          {savedChats.map(chat => (
+            <button key={chat.id} type="button" className="saved-chat" onClick={() => openSavedChat(chat)} disabled={!!openingChatId}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ChatCircleText size={18} weight="duotone" color="var(--accent)" />
+                <span style={{ fontWeight: 700, fontSize: '0.86rem', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {sessionDateLabel(chat.last_message_at || chat.started_at)}
+                </span>
+                {openingChatId === chat.id ? (
+                  <Spinner size={16} color="var(--accent)" />
+                ) : (
+                  <CaretRight size={16} weight="bold" color="var(--text-muted)" />
+                )}
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: 1.45, marginTop: 6 }}>
+                {previewText(chat.preview)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </aside>
+    )
+  }
+
   if (mode === 'quiz' && quizData) {
     const q = quizData.questions[quizIndex]
     const total = quizData.questions.length
 
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'var(--color-bg)',
-        color: 'var(--color-text)',
-        padding: '0 0 40px',
-      }}>
-        <header style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid var(--color-border)',
-          background: 'var(--color-surface)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-        }}>
-          <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            <ArrowLeft size={22} weight="bold" />
-          </Link>
-          <span style={{ fontWeight: 700, fontSize: '1.05rem', flex: 1 }}>Quick check</span>
-          {currentTopic && (
-            <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{currentTopic}</span>
-          )}
-        </header>
-
-        <div style={{ maxWidth: '560px', margin: '0 auto', padding: '32px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-              {quizIndex + 1} of {total}
-            </span>
-            <div style={{
-              height: '4px', flex: 1, margin: '0 12px',
-              background: 'var(--color-border)', borderRadius: 2, overflow: 'hidden',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${((quizIndex + 1) / total) * 100}%`,
-                background: 'var(--color-primary)',
-                transition: 'width 0.3s',
-              }} />
+      <div className="tutor-workspace">
+        <style>{css}</style>
+        <section className="surface-card tutor-panel" style={{ padding: 22 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '1.08rem' }}>Quick check</div>
+              {currentTopic && <div style={{ color: 'var(--text-muted)', fontSize: '0.86rem' }}>{currentTopic}</div>}
             </div>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.86rem' }}>{quizIndex + 1} of {total}</span>
           </div>
-
+          <div style={{ height: 6, background: 'var(--surface-soft)', border: '1px solid var(--border)', borderRadius: 999, overflow: 'hidden', marginBottom: 24 }}>
+            <div style={{ height: '100%', width: `${((quizIndex + 1) / total) * 100}%`, background: 'var(--accent)' }} />
+          </div>
           <QuizCard
             question={q.question}
             options={q.options}
@@ -436,126 +635,54 @@ export default function StudentSession() {
             selectedAnswer={pendingAnswer?.answer}
             correctAnswer={pendingAnswer?.correctAnswer}
           />
-        </div>
+        </section>
+        {renderSavedChats()}
       </div>
     )
   }
 
-  // ── RESULT MODE ────────────────────────────────────────────
   if (mode === 'result' && quizResult) {
     const correct = Math.round(quizResult.score * (quizData?.questions?.length || 1))
     const total = quizData?.questions?.length || 1
     const levelChanged = quizResult.new_level !== (quizResult.previous_level || quizResult.new_level)
 
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'var(--color-bg)',
-        color: 'var(--color-text)',
-      }}>
-        <header style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid var(--color-border)',
-          background: 'var(--color-surface)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-        }}>
-          <Link to={`/student/${studentId}`} style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '1.2rem', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center' }}>
-            <ArrowLeft size={22} weight="bold" />
-          </Link>
-          <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Results</span>
-        </header>
-
-        <div style={{ maxWidth: '480px', margin: '0 auto', padding: '40px 16px', textAlign: 'center' }}>
-          <div style={{
-            fontSize: '3rem',
-            fontWeight: 800,
-            color: quizResult.score >= 0.75 ? 'var(--color-success)' : 'var(--color-warning)',
-            marginBottom: '8px',
-          }}>
+      <div className="tutor-workspace">
+        <style>{css}</style>
+        <section className="surface-card tutor-panel" style={{ padding: 24, alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
             {correct} / {total}
           </div>
-          <p style={{ fontSize: '1rem', color: 'var(--color-text-muted)', marginBottom: '24px' }}>correct</p>
-
+          <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>completed</p>
           {levelChanged && (
-            <div style={{
-              background: '#14532d',
-              color: '#4ade80',
-              borderRadius: 'var(--radius-md)',
-              padding: '12px 20px',
-              marginBottom: '20px',
-              fontWeight: 600,
-            }}>
+            <div style={{ background: 'var(--accent-soft)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 20px', marginBottom: 20, fontWeight: 700 }}>
               You reached {quizResult.new_level.charAt(0).toUpperCase() + quizResult.new_level.slice(1)}!
             </div>
           )}
-
-          {/* Mastery bar */}
-          <div style={{ marginBottom: '24px' }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between',
-              fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 6,
-            }}>
+          <div style={{ width: '100%', maxWidth: 420, marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.86rem', marginBottom: 6 }}>
               <span>Mastery: {currentTopic || 'topic'}</span>
               <span>{Math.round(quizResult.mastery * 100)}%</span>
             </div>
-            <div style={{
-              height: '10px', background: 'var(--color-border)',
-              borderRadius: 'var(--radius-sm)', overflow: 'hidden',
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${quizResult.mastery * 100}%`,
-                background: quizResult.mastery >= 0.75 ? 'var(--color-success)' : quizResult.mastery >= 0.45 ? 'var(--color-warning)' : 'var(--color-danger)',
-                transition: 'width 0.6s',
-              }} />
+            <div style={{ height: 10, background: 'var(--surface-soft)', border: '1px solid var(--border)', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${quizResult.mastery * 100}%`, background: 'var(--accent)' }} />
             </div>
           </div>
-
-          <p style={{
-            fontSize: '1.1rem',
-            color: 'var(--color-text)',
-            marginBottom: '32px',
-            fontStyle: 'italic',
-          }}>
-            {encouragement(quizResult.score)}
-          </p>
-
-          <button
-            onClick={handleKeepLearning}
-            style={{
-              width: '100%',
-              padding: '14px',
-              minHeight: '44px',
-              background: 'var(--color-primary)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '1rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
+          <p style={{ fontSize: '1.05rem', marginBottom: 28 }}>{encouragement(quizResult.score)}</p>
+          <button type="button" onClick={handleKeepLearning} className="pill-button primary" style={{ minWidth: 180, justifyContent: 'center' }}>
             Keep learning
           </button>
-        </div>
+        </section>
+        {renderSavedChats()}
       </div>
     )
   }
 
-  // Loading / transitional state
   return (
-    <div style={{
-      minHeight: '100vh', background: 'var(--color-bg)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{
-        width: 32, height: 32, border: '3px solid var(--color-border)',
-        borderTopColor: 'var(--color-primary)', borderRadius: '50%',
-        animation: 'spin 0.7s linear infinite',
-      }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div className="tutor-workspace">
+      <style>{css}</style>
+      {renderChatPanel()}
+      {renderSavedChats()}
     </div>
   )
 }

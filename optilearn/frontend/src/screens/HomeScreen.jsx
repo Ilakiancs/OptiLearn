@@ -15,6 +15,7 @@ import { createStudent, listStudents } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { avatarColor, getInitials } from '../components/StudentLayout'
+import NetworkStatusPill from '../components/NetworkStatusPill'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -141,14 +142,17 @@ export default function HomeScreen() {
       </a>
 
       <header className="surface-card" style={{ padding: 12, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="icon-only">
-            <Student size={20} weight="duotone" />
-          </span>
-          <div>
-            <div style={{ fontWeight: 800 }}>OptiLearn</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>Icon-guided learning</div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span className="icon-only">
+              <Student size={20} weight="duotone" />
+            </span>
+            <div>
+              <div style={{ fontWeight: 800 }}>OptiLearn</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>Accessible Education</div>
+            </div>
           </div>
+          <NetworkStatusPill variant="inline" dropdownAlign="left" />
         </div>
 
         <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

@@ -3,12 +3,13 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getStudentProgress } from '../api/client'
 import MasteryBadge from '../components/MasteryBadge'
+import Spinner from '../components/Spinner'
 
 const BASE = window.location.origin
 
 const MASTERY_COLORS = {
   red:   { bar: '#E24B4A', bg: '#3a1a1a' },
-  amber: { bar: '#EF9F27', bg: '#3a2a0a' },
+  amber: { bar: 'var(--color-warning)', bg: 'var(--color-surface-2)' },
   green: { bar: '#639922', bg: '#1a2e0a' },
   grey:  { bar: '#AAAAAA', bg: '#2a2a2a' },
 }
@@ -53,21 +54,30 @@ function ScoreSparkline({ quizzes, topic }) {
   const relevant = quizzes.filter(q => q.topic === topic).slice(0, 10).reverse()
   if (relevant.length === 0) return <span style={{ color: 'var(--color-text-hint)', fontSize: '0.8rem' }}>No data</span>
 
-  const W = 120, H = 32
-  const pts = relevant.map((q, i) => {
-    const x = (i / Math.max(relevant.length - 1, 1)) * W
-    const y = H - q.score * H
+  const W = 180, H = 46
+  const PAD = 6
+  const scoreValue = (raw) => {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return 0
+    return Math.max(0, Math.min(1, n > 1 ? n / 100 : n))
+  }
+  const points = relevant.map((q, i) => {
+    const x = PAD + (i / Math.max(relevant.length - 1, 1)) * (W - PAD * 2)
+    const y = PAD + (1 - scoreValue(q.score)) * (H - PAD * 2)
+    return { x, y, score: scoreValue(q.score) }
+  })
+  const pts = points.map(({ x, y }) => {
     return `${x},${y}`
   }).join(' ')
 
   return (
-    <svg width={W} height={H} style={{ display: 'block' }}>
-      <polyline points={pts} fill="none" stroke="var(--color-primary)" strokeWidth="2" />
-      {relevant.map((q, i) => {
-        const x = (i / Math.max(relevant.length - 1, 1)) * W
-        const y = H - q.score * H
-        return <circle key={i} cx={x} cy={y} r={3} fill={q.score >= 0.75 ? '#639922' : q.score >= 0.4 ? '#EF9F27' : '#E24B4A'} />
-      })}
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', maxWidth: '100%' }}>
+      <rect x="0" y="0" width={W} height={H} rx="10" fill="var(--color-surface-2)" />
+      <line x1={PAD} x2={W - PAD} y1={H / 2} y2={H / 2} stroke="var(--color-border)" strokeWidth="1" />
+      {points.length > 1 && <polyline points={pts} fill="none" stroke="var(--color-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+      {points.map(({ x, y, score }, i) => (
+        <circle key={i} cx={x} cy={y} r={4} fill={score >= 0.75 ? 'var(--color-success)' : score >= 0.4 ? 'var(--color-primary)' : 'var(--color-danger)'} />
+      ))}
     </svg>
   )
 }
@@ -137,8 +147,7 @@ export default function StudentProgress() {
 
   if (isLoading) return (
     <div style={{ minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 32, height: 32, border: '3px solid var(--color-border)', borderTopColor: 'var(--color-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <Spinner size={32} />
     </div>
   )
 
@@ -276,7 +285,7 @@ export default function StudentProgress() {
               minHeight: 80,
             }}>
               {reportText}
-              {streaming && <span style={{ opacity: 0.5, animation: 'spin 1s linear infinite', display: 'inline-block', marginLeft: 4 }}>▋</span>}
+              {streaming && <span style={{ display: 'inline-flex', marginLeft: 8, verticalAlign: 'middle' }}><Spinner size={14} /></span>}
             </div>
           )}
         </section>

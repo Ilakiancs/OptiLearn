@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, FileText, PencilSimpleLine, XCircle } from '@phosphor-icons/react'
 import { getMaterialsBySubject, getQuizzesBySubject, getMaterialFileUrl, submitQuiz } from '../api/client'
+import Spinner from '../components/Spinner'
 
 // ── File type helpers ──────────────────────────────────────────
 function fileExt(filePath) {
@@ -249,19 +250,13 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
   if (submitting) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 64 }}>
-        <div style={{
-          width: 32, height: 32, border: '3px solid var(--color-border)',
-          borderTopColor: 'var(--color-primary)', borderRadius: '50%',
-          animation: 'spin 0.7s linear infinite',
-        }} />
+        <Spinner size={32} />
       </div>
     )
   }
 
   return (
     <div style={{ padding: '24px 16px', maxWidth: 560, margin: '0 auto' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
       {/* Progress bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>

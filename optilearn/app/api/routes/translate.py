@@ -32,8 +32,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store
-from app.services.model_client import model_client, should_use_gemini
+from app.services.model_client import MODEL_SWITCH_TOKEN, get_network_status, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
     transcribe_chunk,
@@ -52,11 +53,12 @@ _live_warmup_task: asyncio.Task | None = None
 
 
 def _translation_model_status() -> dict:
-    if not settings.USE_LOCAL_OLLAMA:
+    key = (settings.GEMMA_26B_API_KEY or "").strip()
+    if not settings.USE_LOCAL_OLLAMA and key and not key.startswith("<"):
         return {
             "ready": True,
             "loading": False,
-            "model": settings.GEMINI_MODEL,
+            "model": settings.GEMMA_26B_MODEL,
             "error": "",
         }
     return {
@@ -86,7 +88,8 @@ def _live_translation_status() -> dict:
 
 async def warmup_translation_model() -> dict:
     global _translation_model_error, _translation_model_loading, _translation_model_ready  # noqa: PLW0603
-    if not settings.USE_LOCAL_OLLAMA:
+    status = await get_network_status()
+    if status["use_26b"]:
         _translation_model_ready = True
         return _translation_model_status()
 
@@ -253,12 +256,10 @@ async def transcribe_and_translate_audio(
     """Return (original_text, translated_text). Both empty if audio is not understood."""
     if not audio_bytes:
         return "", ""
-    if await should_use_gemini():
-        return await _gemini_audio_chunk(audio_bytes, target_language, grade_level, age)
     original = await transcribe_chunk(audio_bytes, hint_language)
     if not original:
         return "", ""
-    translated = await _ollama_translate_text(original, target_language, grade_level, age)
+    translated, _ = await _translate_text(original, target_language, grade_level, age)
     return original, translated or original
 
 
@@ -322,25 +323,99 @@ async def _ollama_translate_text(
     grade_level: int,
     age: int,
 ) -> str:
+    translated, _ = await _translate_text(transcript, target_language, grade_level, age)
+    return translated
+
+
+async def _translate_text(
+    transcript: str,
+    target_language: str,
+    grade_level: int,
+    age: int,
+) -> tuple[str, bool]:
     if not transcript.strip():
-        return ""
+        return "", False
     try:
         for num_predict in (768, 1280):
-            translation = await _call_ollama_translation(
-                transcript,
-                target_language,
-                grade_level,
-                age,
-                num_predict=num_predict,
+            lang_display = _lang_name(target_language)
+            prompt = _TRANSLATE_TEXT_PROMPT.format(
+                lang=lang_display,
+                grade=grade_level,
+                age=age,
+                glossary=_translation_glossary(target_language),
+                transcript=transcript,
             )
+            parts: list[str] = []
+            switched = False
+            async for token in route_generate_with_fallback(
+                prompt,
+                "TRANSLATION",
+                system_prompt=f"{OPTILEARN_26B_SYSTEM_PROMPT}\n\n{_TRANSLATE_SYSTEM_PROMPT}",
+                enable_thinking=False,
+                ollama_options={
+                    "temperature": 0.15,
+                    "top_p": 0.85,
+                    "top_k": 32,
+                    "num_ctx": 2048,
+                    "num_predict": num_predict,
+                },
+            ):
+                if token == MODEL_SWITCH_TOKEN:
+                    switched = True
+                    parts = []
+                    continue
+                parts.append(token)
+            translation = _clean_model_text("".join(parts))
             if translation:
-                logger.info("Translated transcript: original={!r} translated={!r}", transcript[:50], translation[:50])
-                return translation
-        logger.error("Ollama returned empty translation after retry for transcript={!r}", transcript[:120])
-        return ""
+                logger.info(
+                    "Translated transcript: original={!r} translated={!r}",
+                    transcript[:50],
+                    translation[:50],
+                )
+                return translation, switched
+        logger.error(
+            "Translation returned empty after retry for transcript={!r}",
+            transcript[:120],
+        )
+        return "", False
     except Exception as exc:
-        logger.error("Ollama text translation error: {!r}", exc)
-        return ""
+        logger.error("Text translation error: {!r}", exc)
+        return "", False
+
+
+async def _translate_text_sse(
+    transcript: str,
+    target_language: str,
+    grade_level: int,
+    age: int,
+) -> AsyncGenerator[tuple[str, str], None]:
+    if not transcript.strip():
+        return
+    lang_display = _lang_name(target_language)
+    prompt = _TRANSLATE_TEXT_PROMPT.format(
+        lang=lang_display,
+        grade=grade_level,
+        age=age,
+        glossary=_translation_glossary(target_language),
+        transcript=transcript,
+    )
+    async for token in route_generate_with_fallback(
+        prompt,
+        "TRANSLATION",
+        system_prompt=f"{OPTILEARN_26B_SYSTEM_PROMPT}\n\n{_TRANSLATE_SYSTEM_PROMPT}",
+        enable_thinking=False,
+        ollama_options={
+            "temperature": 0.15,
+            "top_p": 0.85,
+            "top_k": 32,
+            "num_ctx": 2048,
+            "num_predict": 1280,
+        },
+    ):
+        if token == MODEL_SWITCH_TOKEN:
+            yield "model_switch", ""
+        else:
+            yield "token", token
 
 
 def _sort_chunks(chunks: list[dict]) -> list[dict]:
@@ -438,28 +513,27 @@ Use supportive wording and avoid discouraging labels.
 
 
 async def _ollama_generate_notes(prompt: str, num_ctx: int) -> str:
-    body = {
-        "model": settings.OLLAMA_MODEL_FAST,
-        "prompt": prompt,
-        "system": _NOTES_SYSTEM_PROMPT,
-        "stream": False,
-        "options": {
-            "temperature": 0.35,
-            "top_p": 0.9,
-            "num_ctx": num_ctx,
-            "num_predict": 1400,
-        },
-        "keep_alive": "60m",
-    }
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=5.0)
-        ) as client:
-            r = await client.post(f"{settings.OLLAMA_HOST}/api/generate", json=body)
-            r.raise_for_status()
-            return _clean_model_text(r.json().get("response", ""))
+        parts: list[str] = []
+        async for token in route_generate_with_fallback(
+            prompt,
+            "TRANSLATION",
+            system_prompt=f"{OPTILEARN_26B_SYSTEM_PROMPT}\n\n{_NOTES_SYSTEM_PROMPT}",
+            enable_thinking=False,
+            ollama_options={
+                "temperature": 0.35,
+                "top_p": 0.9,
+                "num_ctx": num_ctx,
+                "num_predict": 1400,
+            },
+        ):
+            if token == MODEL_SWITCH_TOKEN:
+                parts = []
+                continue
+            parts.append(token)
+        return _clean_model_text("".join(parts))
     except Exception as exc:
-        logger.error("Ollama notes generation error: {}", exc)
+        logger.error("Notes generation model error: {}", exc)
         return ""
 
 
@@ -541,16 +615,7 @@ async def _generate_notes(
         )
 
         num_ctx = 8192
-        if await should_use_gemini():
-            result = await model_client.complete_with_tools(
-                messages=[{"role": "user", "content": prompt}],
-                tools=[],
-                image_b64=None,
-                model_preference="fast",
-            )
-            notes = result if isinstance(result, str) else ""
-        else:
-            notes = await _ollama_generate_notes(prompt, num_ctx)
+        notes = await _ollama_generate_notes(prompt, num_ctx)
 
         if not notes.strip():
             logger.warning("generate_notes: using fallback notes for session {}", session_id)
@@ -659,7 +724,7 @@ async def translate_text_chunk(body: TextChunkRequest) -> dict:
     student = await db.get_student(body.student_id) or {}
     grade = int(student.get("grade_level") or 1)
     age = int(student.get("age") or 10)
-    translated = await _ollama_translate_text(original, body.target_language, grade, age)
+    translated, model_switched = await _translate_text(original, body.target_language, grade, age)
     if not translated:
         translated = original
 
@@ -670,6 +735,7 @@ async def translate_text_chunk(body: TextChunkRequest) -> dict:
         "translated": translated,
         "timestamp": body.timestamp or datetime.utcnow().strftime("%H:%M"),
         "detected_language": body.detected_language or "en",
+        "model_switched": model_switched,
     }
 
 
@@ -783,7 +849,18 @@ async def translate_finalize(body: FinalizeRequest) -> StreamingResponse:
 
         for index, group in enumerate(groups):
             original = group["text"].strip()
-            translated = await _ollama_translate_text(original, body.target_language, grade, age)
+            translated_parts: list[str] = []
+            async for event_type, value in _translate_text_sse(original, body.target_language, grade, age):
+                if event_type == "model_switch":
+                    translated_parts = []
+                    yield _sse({
+                        "type": "model_switch",
+                        "message": "Connection interrupted. Switching to local model.",
+                        "color": "#EF9F27",
+                    })
+                    continue
+                translated_parts.append(value)
+            translated = _clean_model_text("".join(translated_parts))
 
             if not translated and len(group["chunks"]) > 1:
                 parts = []
@@ -791,7 +868,7 @@ async def translate_finalize(body: FinalizeRequest) -> StreamingResponse:
                     source_text = (source_chunk.get("original") or "").strip()
                     if not source_text:
                         continue
-                    part = await _ollama_translate_text(source_text, body.target_language, grade, age)
+                    part, _ = await _translate_text(source_text, body.target_language, grade, age)
                     parts.append(part or source_text)
                 translated = "\n".join(parts).strip()
 

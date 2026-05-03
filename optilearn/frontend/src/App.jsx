@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from './context/AuthContext'
 import HomeScreen from './screens/HomeScreen'
@@ -28,6 +28,11 @@ const queryClient = new QueryClient({
   },
 })
 
+function LegacySessionRedirect() {
+  const { studentId } = useParams()
+  return <Navigate to={`/student/${studentId}/session`} replace />
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -35,7 +40,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<HomeScreen />} />
-            <Route path="/session/:studentId" element={<StudentSession />} />
+            <Route path="/session/:studentId" element={<LegacySessionRedirect />} />
             <Route path="/teacher" element={<TeacherDashboard />} />
             <Route path="/teacher/student/:studentId" element={<StudentProgress />} />
             <Route path="/teacher/materials" element={<MaterialUpload />} />
@@ -50,7 +55,7 @@ export default function App() {
               <Route path="grades" element={<GradesPage />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="announcements" element={<AnnouncementsPage />} />
-              <Route path="progress" element={<StudentProgressPage />} />
+              <Route path="session" element={<StudentSession />} />
               <Route path="translate-learn" element={<TranslateLearn />} />
               <Route path="live-translator" element={<LiveTranslator />} />
             </Route>

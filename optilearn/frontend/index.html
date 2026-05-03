@@ -12,8 +12,16 @@
     <script type="module" src="/src/main.jsx"></script>
     <script>
       const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-      if ('serviceWorker' in navigator && !isLocalhost) {
-        navigator.serviceWorker.register('/sw.js')
+      if ('serviceWorker' in navigator) {
+        if (isLocalhost) {
+          navigator.serviceWorker.getRegistrations()
+            .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+            .then(() => ('caches' in window ? caches.keys() : []))
+            .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+            .catch(() => {})
+        } else {
+          navigator.serviceWorker.register('/sw.js')
+        }
       }
     </script>
   </body>

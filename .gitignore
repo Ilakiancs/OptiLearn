@@ -16,6 +16,7 @@ AGENTS.md
 CLAUDE*.md
 CC_*.md
 OPTILEARN_STATE.md
+OPTILEARN_TECHNICAL.md
 build_state.txt
 **/build_state.txt
 **/C*build_state.txt
@@ -45,6 +46,7 @@ optilearn/data/*.sqlite*
 optilearn/data/*.index
 optilearn/data/curriculum.index
 optilearn/data/curriculum_meta.json
+optilearn/data/user_settings.json
 optilearn/data/materials/
 optilearn/data/voices/
 optilearn/data/whisper-models/

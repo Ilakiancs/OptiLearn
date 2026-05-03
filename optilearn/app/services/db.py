@@ -6,7 +6,7 @@ Call init_db() from FastAPI's lifespan startup hook.
 """
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator
 
 import aiosqlite
@@ -121,6 +121,23 @@ CREATE INDEX IF NOT EXISTS idx_messages_session   ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_materials_subject  ON materials(subject);
 CREATE INDEX IF NOT EXISTS idx_materials_student  ON materials(student_id);
 CREATE INDEX IF NOT EXISTS idx_tquiz_assigned     ON teacher_quizzes(assigned_to);
+
+CREATE TABLE IF NOT EXISTS scheduled_classes (
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    title       TEXT NOT NULL,
+    subject     TEXT,
+    description TEXT,
+    start_datetime TEXT NOT NULL,
+    end_datetime   TEXT NOT NULL,
+    created_by  TEXT,
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS teacher_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -175,6 +192,8 @@ async def init_db() -> None:
             "ALTER TABLE materials ADD COLUMN tutor_history TEXT DEFAULT '[]'",
             "ALTER TABLE materials ADD COLUMN updated_at TEXT",
             "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
+            "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language', 'en')",
+            "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language_name', 'English')",
         ]:
             try:
                 await db.execute(migration)
@@ -221,8 +240,8 @@ async def get_student(student_id: str) -> dict[str, Any] | None:
 
 
 async def update_last_active(student_id: str) -> None:
-    """Update the last_active timestamp of a student to now."""
-    now = datetime.utcnow().isoformat()
+    """Update the last_active timestamp of a student to now (UTC, with Z suffix)."""
+    now = datetime.utcnow().isoformat() + "Z"
     async with _get_db() as db:
         await db.execute(
             "UPDATE students SET last_active = ? WHERE id = ?",
@@ -271,6 +290,100 @@ async def increment_message_count(session_id: str) -> None:
             (session_id,),
         )
         await db.commit()
+
+
+async def add_message(
+    session_id: str,
+    role: str,
+    content: str | None,
+    tool_name: str | None = None,
+) -> dict[str, Any]:
+    """Persist one chat message for a tutoring session."""
+    message_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO messages (id, session_id, role, content, tool_name, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (message_id, session_id, role, content or "", tool_name, now),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def get_session_messages(session_id: str) -> list[dict[str, Any]]:
+    """Return all saved messages for one tutoring session in display order."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT id, session_id, role, content, tool_name, timestamp
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY timestamp ASC, id ASC
+            """,
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_student_chat_sessions(student_id: str) -> list[dict[str, Any]]:
+    """Return saved AI Tutor sessions for one student, newest first."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT
+                s.id,
+                s.student_id,
+                s.started_at,
+                s.ended_at,
+                s.message_count,
+                (
+                    SELECT m.content
+                    FROM messages m
+                    WHERE m.session_id = s.id
+                      AND m.role IN ('user', 'assistant')
+                      AND trim(COALESCE(m.content, '')) != ''
+                    ORDER BY m.timestamp DESC, m.id DESC
+                    LIMIT 1
+                ) AS preview,
+                (
+                    SELECT m.timestamp
+                    FROM messages m
+                    WHERE m.session_id = s.id
+                    ORDER BY m.timestamp DESC, m.id DESC
+                    LIMIT 1
+                ) AS last_message_at
+            FROM sessions s
+            WHERE s.student_id = ?
+              AND EXISTS (
+                  SELECT 1
+                  FROM messages m
+                  WHERE m.session_id = s.id
+                    AND m.role IN ('user', 'assistant')
+              )
+            ORDER BY COALESCE(last_message_at, s.started_at) DESC
+            LIMIT 30
+            """,
+            (student_id,),
+        )
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_session_for_student(session_id: str, student_id: str) -> dict[str, Any] | None:
+    """Return a session only when it belongs to the given student."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM sessions WHERE id = ? AND student_id = ?",
+            (session_id, student_id),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
 
 
 async def record_quiz_result(
@@ -535,15 +648,17 @@ async def get_teacher_students() -> list[dict[str, Any]]:
 
             alerts: list[str] = []
 
-            # inactive_3_days: last_active set and older than 3 days
-            if student.get("last_active"):
-                from datetime import timedelta
+            # inactive_3_days: NULL last_active OR last_active older than 3 days
+            last_active_str = student.get("last_active")
+            if last_active_str is None:
+                alerts.append("inactive_3_days")
+            else:
                 try:
-                    last = datetime.fromisoformat(student["last_active"])
+                    last = datetime.fromisoformat(last_active_str)
                     if (datetime.utcnow() - last) > timedelta(days=3):
                         alerts.append("inactive_3_days")
                 except ValueError:
-                    pass
+                    alerts.append("inactive_3_days")
 
             # stuck_on_topic: any topic with mastery < 0.40 and >= 3 quiz_results
             for m in mastery_list:
@@ -815,10 +930,15 @@ async def append_material_tutor_history(
         await db.commit()
 
 
-async def get_all_materials() -> list[dict[str, Any]]:
-    """Return all materials ordered by created_at desc."""
+async def get_all_materials(teacher_only: bool = False) -> list[dict[str, Any]]:
+    """Return materials ordered by created_at desc. teacher_only=True filters to student_id IS NULL."""
     async with _get_db() as db:
-        cursor = await db.execute("SELECT * FROM materials ORDER BY created_at DESC")
+        if teacher_only:
+            cursor = await db.execute(
+                "SELECT * FROM materials WHERE student_id IS NULL ORDER BY created_at DESC"
+            )
+        else:
+            cursor = await db.execute("SELECT * FROM materials ORDER BY created_at DESC")
         rows = await cursor.fetchall()
     return [_row_to_dict(r) for r in rows]
 
@@ -905,13 +1025,15 @@ async def get_teacher_quizzes_for_student(student_id: str) -> list[dict[str, Any
 
 
 async def get_subjects() -> list[str]:
-    """Return all distinct non-null subjects across materials and teacher_quizzes."""
+    """Return all distinct non-null subjects from teacher materials and teacher_quizzes."""
     async with _get_db() as db:
         cursor = await db.execute("""
             SELECT DISTINCT subject FROM (
-                SELECT subject FROM materials WHERE subject IS NOT NULL AND subject != ''
+                SELECT subject FROM materials
+                  WHERE subject IS NOT NULL AND subject != '' AND student_id IS NULL
                 UNION
-                SELECT subject FROM teacher_quizzes WHERE subject IS NOT NULL AND subject != ''
+                SELECT subject FROM teacher_quizzes
+                  WHERE subject IS NOT NULL AND subject != ''
             ) ORDER BY subject
         """)
         rows = await cursor.fetchall()
@@ -1008,6 +1130,89 @@ async def get_teacher_quizzes_by_subject(subject: str, student_id: str) -> list[
                 continue
         result.append(d)
     return result
+
+
+async def create_scheduled_class(
+    title: str,
+    subject: str | None,
+    description: str | None,
+    start_datetime: str,
+    end_datetime: str,
+    created_by: str | None = None,
+) -> dict[str, Any]:
+    class_id = str(uuid.uuid4())[:16].replace("-", "")
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            """INSERT INTO scheduled_classes
+               (id, title, subject, description, start_datetime, end_datetime, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (class_id, title, subject, description, start_datetime, end_datetime, created_by, now),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM scheduled_classes WHERE id = ?", (class_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def get_all_scheduled_classes() -> list[dict[str, Any]]:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM scheduled_classes ORDER BY start_datetime ASC"
+        )
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_scheduled_class(class_id: str) -> dict[str, Any] | None:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM scheduled_classes WHERE id = ?", (class_id,)
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def update_scheduled_class(class_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    allowed = {"title", "subject", "description", "start_datetime", "end_datetime"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return await get_scheduled_class(class_id)
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [class_id]
+    async with _get_db() as db:
+        await db.execute(
+            f"UPDATE scheduled_classes SET {set_clause} WHERE id = ?", values
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT * FROM scheduled_classes WHERE id = ?", (class_id,)
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def delete_scheduled_class(class_id: str) -> None:
+    async with _get_db() as db:
+        await db.execute("DELETE FROM scheduled_classes WHERE id = ?", (class_id,))
+        await db.commit()
+
+
+async def get_teacher_settings() -> dict[str, str]:
+    async with _get_db() as db:
+        cursor = await db.execute("SELECT key, value FROM teacher_settings")
+        rows = await cursor.fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+async def update_teacher_setting(key: str, value: str) -> None:
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO teacher_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, value, now),
+        )
+        await db.commit()
 
 
 # ──────────────────────────────────────────────────────────────

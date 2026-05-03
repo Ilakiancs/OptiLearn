@@ -105,10 +105,22 @@ async def chat(body: ChatRequest) -> StreamingResponse:
             await db.update_last_active(body.student_id)
 
             mastery = await db.get_student_mastery(body.student_id)
-            system_prompt = build_system_prompt(student, mastery)
+            selected_language = body.language or student.get("language") or "en"
+            system_prompt = build_system_prompt(student, mastery, selected_language)
+            model_preference = body.model_preference or "fast"
+            saved_history = await db.get_session_messages(body.session_id)
+            recent_history = [
+                {"role": msg["role"], "content": msg.get("content") or ""}
+                for msg in saved_history
+                if msg.get("role") in {"user", "assistant"} and (msg.get("content") or "").strip()
+            ][-12:]
+
+            await db.add_message(body.session_id, "user", body.message)
+            assistant_parts: list[str] = []
 
             messages: list[dict] = [
                 {"role": "system", "content": system_prompt},
+                *recent_history,
                 {"role": "user", "content": body.message},
             ]
 
@@ -116,12 +128,20 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                 messages=messages,
                 tools=TOOL_SCHEMAS,
                 image_b64=body.image_b64,
+                model_preference=model_preference,
+                force_local=True,  # FUTURE: replace with fine-tuned model
             )
 
             if isinstance(result, ToolCallEvent):
                 yield _sse({"type": "tool_start", "tool": result.tool_name})
 
                 tool_result = await _dispatch_tool(result.tool_name, result.arguments)
+                await db.add_message(
+                    body.session_id,
+                    "tool",
+                    json.dumps(tool_result, ensure_ascii=False),
+                    tool_name=result.tool_name,
+                )
 
                 yield _sse({"type": "tool_done", "tool": result.tool_name, "result": tool_result})
 
@@ -138,21 +158,34 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                         messages=messages,
                         tools=TOOL_SCHEMAS,
                         image_b64=None,
+                        model_preference=model_preference,
+                        force_local=True,  # FUTURE: replace with fine-tuned model
                     ):
+                        assistant_parts.append(token)
                         yield _sse({"type": "token", "content": token})
                 except ToolCallEvent as nested_tool:
                     yield _sse({"type": "tool_start", "tool": nested_tool.tool_name})
                     nested_result = await _dispatch_tool(nested_tool.tool_name, nested_tool.arguments)
+                    await db.add_message(
+                        body.session_id,
+                        "tool",
+                        json.dumps(nested_result, ensure_ascii=False),
+                        tool_name=nested_tool.tool_name,
+                    )
                     yield _sse({"type": "tool_done", "tool": nested_tool.tool_name, "result": nested_result})
 
             else:
                 # Non-streamed response (e.g. Gemini tool path returned a plain string).
                 # Emit the entire text as one token chunk to avoid word-splitting artifacts.
                 if result:
+                    assistant_parts.append(result)
                     yield _sse({"type": "token", "content": result})
 
             yield _sse({"type": "done"})
 
+            assistant_text = "".join(assistant_parts).strip()
+            if assistant_text:
+                await db.add_message(body.session_id, "assistant", assistant_text)
             await db.increment_message_count(body.session_id)
 
         except RuntimeError as exc:

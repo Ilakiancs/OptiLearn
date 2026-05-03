@@ -23,6 +23,7 @@ import {
 import { getStudent } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import NetworkStatusPill from './NetworkStatusPill'
 
 const NAV_ITEMS = [
   { to: '', label: 'Home', Icon: House, end: true, key: 'home' },
@@ -34,7 +35,6 @@ const NAV_ITEMS = [
 ]
 
 const EXTRA_ITEMS = [
-  { suffix: '/progress', label: 'Progress', Icon: Trophy },
   { suffix: '/session', label: 'AI Tutor', Icon: ChatsCircle },
   { suffix: '/translate-learn', label: 'Translate & Learn', Icon: BookOpen },
   { suffix: '/live-translator', label: 'Live Class', Icon: Radio },
@@ -103,7 +103,7 @@ function Sidebar({ studentId, student, onNavigate }) {
           </span>
           <div>
             <div style={{ fontWeight: 800, letterSpacing: '0.02em' }}>OptiLearn</div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Visual learning mode</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Accessible Education</div>
           </div>
         </div>
       </Link>
@@ -130,8 +130,8 @@ function Sidebar({ studentId, student, onNavigate }) {
         </div>
       </div>
 
-      <div className="tid-banner" role="status" aria-live="polite">
-        Calm mode on. You can leave safely any time.
+      <div role="status" aria-live="polite">
+        <NetworkStatusPill variant="inline" fullWidth dropdownAlign="left" />
       </div>
 
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 10 }} aria-label="Student navigation">
@@ -139,10 +139,9 @@ function Sidebar({ studentId, student, onNavigate }) {
           <NavButton key={key} to={route} end={end} label={label} Icon={Icon} onClick={onNavigate} />
         ))}
 
-        {EXTRA_ITEMS.map(({ suffix, label, Icon }) => {
-          const to = suffix === '/session' ? `/session/${studentId}` : `/student/${studentId}${suffix}`
-          return <NavButton key={suffix} to={to} label={label} Icon={Icon} onClick={onNavigate} />
-        })}
+        {EXTRA_ITEMS.map(({ suffix, label, Icon }) => (
+          <NavButton key={suffix} to={`/student/${studentId}${suffix}`} label={label} Icon={Icon} onClick={onNavigate} />
+        ))}
       </nav>
 
       <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
@@ -199,7 +198,7 @@ export default function StudentLayout() {
       </a>
 
       {!isMobile && (
-        <aside style={{
+        <aside className="student-sidebar-scroll" style={{
           borderRight: '1px solid var(--border)',
           height: '100vh',
           minHeight: 0,
@@ -244,13 +243,16 @@ export default function StudentLayout() {
 
           {menuOpen && (
             <aside
+              className="student-sidebar-scroll"
               style={{
                 position: 'fixed',
                 zIndex: 40,
                 inset: '0 auto 0 0',
                 width: 274,
+                height: '100vh',
                 background: 'var(--bg)',
                 borderRight: '1px solid var(--border)',
+                overflowY: 'auto',
               }}
             >
               <button className="icon-only" style={{ margin: 14 }} onClick={() => setMenuOpen(false)} aria-label="Close menu">

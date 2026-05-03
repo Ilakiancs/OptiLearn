@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { uploadMaterial, listMaterials } from '../api/client'
 import { Link } from 'react-router-dom'
 import { FileText } from '@phosphor-icons/react'
+import SubjectComboInput from '../components/SubjectComboInput'
+import Spinner from '../components/Spinner'
 
 const ALLOWED = ['.pdf', '.txt', '.png', '.jpg', '.jpeg', '.webp']
 
@@ -81,6 +83,7 @@ export default function MaterialUpload() {
     e.preventDefault()
     if (!selectedFile) { setError('Please select a file.'); return }
     if (!title.trim()) { setError('Title is required.'); return }
+    if (!subject.trim()) { setError('Subject is required. Choose an existing subject or press Add to confirm a new one.'); return }
     setError('')
     setUploadProgress('Uploading…')
     mutation.mutate({ file: selectedFile, title: title.trim(), subject: subject.trim() || undefined })
@@ -156,8 +159,8 @@ export default function MaterialUpload() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Subject (optional)</label>
-              <input style={inputStyle} value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Mathematics" />
+              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Subject *</label>
+              <SubjectComboInput value={subject} onChange={setSubject} required error={error.startsWith('Subject') ? error : ''} />
             </div>
 
             {error && <p style={{ color: 'var(--color-danger)', margin: 0, fontSize: '0.9rem' }}>{error}</p>}
@@ -184,7 +187,7 @@ export default function MaterialUpload() {
         <section style={card}>
           <h2 style={sectionHead}>Uploaded Materials</h2>
           {isLoading ? (
-            <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner /></div>
           ) : !materials?.length ? (
             <p style={{ color: 'var(--color-text-hint)' }}>No materials uploaded yet.</p>
           ) : (

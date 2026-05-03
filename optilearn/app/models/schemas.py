@@ -26,6 +26,8 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     image_b64: str | None = None
+    language: str | None = None
+    model_preference: str = "fast"
 
 
 class QuizAnswer(BaseModel):
@@ -43,3 +45,11 @@ class SubmitQuizRequest(BaseModel):
     session_id: str | None = None
     topic: str
     answers: list[QuizAnswer]
+
+
+class TeacherChatRequest(BaseModel):
+    """Request body for POST /api/teacher/chat."""
+
+    message: str
+    history: list[dict] = Field(default_factory=list)
+    model_preference: str = "fast"

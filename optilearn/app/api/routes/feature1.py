@@ -28,8 +28,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store
-from app.services.model_client import model_client
+from app.services.model_client import MODEL_SWITCH_TOKEN, model_client, route_generate, route_generate_with_fallback
 
 router = APIRouter(prefix="/api/feature1", tags=["feature1"])
 
@@ -625,6 +626,14 @@ async def _sse_stream_with_keepalive(
                 continue
             if item is _DONE:
                 break
+            if item == MODEL_SWITCH_TOKEN:
+                yield _sse({
+                    "type": "model_switch",
+                    "page": page_num,
+                    "message": "Connection interrupted. Switching to local model.",
+                    "color": "#EF9F27",
+                })
+                continue
             yield _sse({"type": "token", "page": page_num, "content": item})
     finally:
         task.cancel()
@@ -893,11 +902,13 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                         prompt = _TRANSLATE_IMAGE_PROMPT.format(
                             target_language=lang_name, grade_level=grade, age=age
                         )
-                        messages = [{"role": "user", "content": prompt}]
                         page_buf = ""
-                        gen = model_client.stream_chat(
-                            messages=messages, tools=[], image_b64=image_b64,
-                            model_preference=body.model_preference, enable_thinking=True,
+                        gen = route_generate_with_fallback(
+                            prompt,
+                            "TRANSLATION",
+                            system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+                            enable_thinking=True,
+                            image_b64=image_b64,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
@@ -914,11 +925,12 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                         prompt = _TRANSLATE_PROMPT.format(
                             target_language=lang_name, grade_level=grade, age=age, content=content
                         )
-                        messages = [{"role": "user", "content": prompt}]
                         page_buf = ""
-                        gen = model_client.stream_chat(
-                            messages=messages, tools=[], image_b64=None,
-                            model_preference=body.model_preference, enable_thinking=True,
+                        gen = route_generate_with_fallback(
+                            prompt,
+                            "TRANSLATION",
+                            system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+                            enable_thinking=True,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
@@ -996,11 +1008,12 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            messages = [{"role": "user", "content": prompt}]
             summary_chunks: list[str] = []
-            gen = model_client.stream_chat(
-                messages=messages, tools=[], image_b64=None,
-                model_preference=body.model_preference, enable_thinking=True,
+            # FUTURE: replace with fine-tuned model
+            gen = route_generate(
+                prompt,
+                "TUTOR",
+                enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, summary_chunks.append):
@@ -1060,6 +1073,7 @@ async def ask_question(body: AskRequest):
             messages=messages, tools=[], image_b64=None,
             model_preference=body.model_preference,
             ollama_options={"num_ctx": 8192},
+            force_local=True,  # FUTURE: replace with fine-tuned model
         )
         text = result if isinstance(result, str) else ""
         try:
@@ -1082,11 +1096,12 @@ async def ask_question(body: AskRequest):
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            messages = [{"role": "user", "content": prompt}]
             answer_chunks: list[str] = []
-            gen = model_client.stream_chat(
-                messages=messages, tools=[], image_b64=None,
-                model_preference=body.model_preference, enable_thinking=True,
+            # FUTURE: replace with fine-tuned model
+            gen = route_generate(
+                prompt,
+                "TUTOR",
+                enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, answer_chunks.append):
