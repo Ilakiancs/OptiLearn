@@ -14,7 +14,7 @@ import {
   X,
   XCircle,
 } from '@phosphor-icons/react'
-import { getMaterialsBySubject, getQuizzesBySubject, getMaterialFileUrl, submitQuiz } from '../api/client'
+import { getMaterialsBySubject, getQuizzesBySubject, getMaterialFileUrl, submitQuiz, getStudentProgress } from '../api/client'
 
 function fileExt(path) {
   return (path || '').split('.').pop().toLowerCase()
@@ -82,7 +82,7 @@ function MaterialViewer({ material, onClose }) {
   )
 }
 
-function QuizFlow({ quiz, studentId, onDone }) {
+export function QuizFlow({ quiz, studentId, onDone }) {
   const [idx, setIdx] = useState(0)
   const [sel, setSel] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
@@ -229,6 +229,11 @@ export default function CoursePage() {
 
   const { data: materials = [], isLoading: matLoad } = useQuery({ queryKey: ['materials', decoded], queryFn: () => getMaterialsBySubject(decoded) })
   const { data: quizzes = [], isLoading: quizLoad } = useQuery({ queryKey: ['subject-quizzes', decoded, studentId], queryFn: () => getQuizzesBySubject(decoded, studentId) })
+  const { data: progress } = useQuery({ queryKey: ['student-progress', studentId], queryFn: () => getStudentProgress(studentId) })
+
+  const subjectMastery = (progress?.mastery_by_topic || []).filter(
+    m => m.topic?.toLowerCase().includes(decoded.toLowerCase()) || decoded.toLowerCase().includes(m.topic?.toLowerCase())
+  )
 
   function relTime(iso) {
     if (!iso) return ''
@@ -247,9 +252,30 @@ export default function CoursePage() {
           <BookOpenText size={22} weight="duotone" />
           <h1 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0 }}>{decoded}</h1>
         </div>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.88rem', margin: 0 }}>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.88rem', margin: '0 0 12px' }}>
           {materials.length} material{materials.length !== 1 ? 's' : ''} and {quizzes.length} quiz{quizzes.length !== 1 ? 'zes' : ''}
         </p>
+        {subjectMastery.length > 0 ? (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {subjectMastery.map(m => {
+              const pct = Math.round(m.mastery * 100)
+              const bar = m.mastery < 0.40 ? '#E24B4A' : m.mastery < 0.75 ? '#EF9F27' : '#639922'
+              return (
+                <div key={m.topic}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: 3 }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>{m.topic}</span>
+                    <span style={{ fontWeight: 600, color: bar }}>{pct}%</span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--color-border)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: bar, borderRadius: 3, transition: 'width 0.4s' }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.82rem', color: 'var(--color-text-hint)' }}>No activity yet for this subject.</div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>

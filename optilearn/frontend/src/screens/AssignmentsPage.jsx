@@ -1,25 +1,39 @@
 import { useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle, ClipboardText, FunnelSimple, ListChecks, Timer } from '@phosphor-icons/react'
+import { CheckCircle, ClipboardText, FunnelSimple, ListChecks, Play, Timer, X } from '@phosphor-icons/react'
 import { getStudentProgress, listTeacherQuizzes } from '../api/client'
+import { QuizFlow } from './CoursePage'
+import Spinner from '../components/Spinner'
 
-function QuizTile({ quiz, completed, score }) {
+function QuizTile({ quiz, completed, score, onStart }) {
   return (
-    <article className="surface-card" style={{ padding: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 10 }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="icon-only" style={{ width: 34, height: 34 }}>
-            {completed ? <CheckCircle size={18} weight="duotone" /> : <ClipboardText size={18} weight="duotone" />}
-          </span>
-          <div>
-            <div style={{ fontWeight: 700 }}>{quiz.title}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{quiz.subject || 'General'} • {quiz.question_count} questions</div>
-          </div>
+    <article className="surface-card" style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+      <span className="icon-only" style={{ width: 34, height: 34, flexShrink: 0 }}>
+        {completed ? <CheckCircle size={18} weight="duotone" /> : <ClipboardText size={18} weight="duotone" />}
+      </span>
+      <div style={{ flex: 1, minWidth: 140 }}>
+        <div style={{ fontWeight: 700 }}>{quiz.title}</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+          {quiz.subject || 'General'} · {quiz.question_count ?? (quiz.questions?.length ?? 0)} questions
         </div>
-        <div style={{ fontSize: '0.78rem', color: completed ? 'var(--success)' : 'var(--warning)', fontWeight: 700 }}>
-          {completed ? `${score}%` : 'Pending'}
-        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        {completed && (
+          <span style={{ fontSize: '0.82rem', color: 'var(--success)', fontWeight: 700 }}>{score}%</span>
+        )}
+        <button
+          onClick={onStart}
+          style={{
+            padding: '9px 18px', background: 'var(--color-primary)', color: '#fff',
+            border: 'none', borderRadius: 'var(--radius-md)', fontWeight: 600,
+            cursor: 'pointer', fontSize: '0.88rem',
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          <Play size={14} />
+          <span>{completed ? 'Retake' : 'Start'}</span>
+        </button>
       </div>
     </article>
   )
@@ -28,6 +42,7 @@ function QuizTile({ quiz, completed, score }) {
 export default function AssignmentsPage() {
   const { studentId } = useOutletContext()
   const [filter, setFilter] = useState('all')
+  const [activeQuiz, setActiveQuiz] = useState(null)
 
   const { data: quizzes = [], isLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes })
   const { data: progress } = useQuery({ queryKey: ['student-progress', studentId], queryFn: () => getStudentProgress(studentId) })
@@ -49,6 +64,25 @@ export default function AssignmentsPage() {
     if (filter === 'pending') return !item.completed
     return true
   })
+
+  if (activeQuiz) {
+    return (
+      <section style={{ display: 'grid', gap: 12 }}>
+        <div className="surface-card" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              onClick={() => setActiveQuiz(null)}
+              style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 'var(--radius-md)', padding: '6px 12px', cursor: 'pointer', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <X size={14} /> Back
+            </button>
+            <span style={{ fontWeight: 700 }}>{activeQuiz.title}</span>
+          </div>
+          <QuizFlow quiz={activeQuiz} studentId={studentId} onDone={() => setActiveQuiz(null)} />
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section style={{ display: 'grid', gap: 12 }}>
@@ -84,7 +118,9 @@ export default function AssignmentsPage() {
       </div>
 
       {isLoading ? (
-        <div className="surface-card" style={{ padding: 16, color: 'var(--text-muted)' }}>Loading assignments…</div>
+        <div className="surface-card" style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
+          <Spinner />
+        </div>
       ) : visible.length === 0 ? (
         <div className="surface-card" style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
           <Timer size={30} weight="duotone" />
@@ -93,7 +129,7 @@ export default function AssignmentsPage() {
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
           {visible.map(({ quiz, completed, score }) => (
-            <QuizTile key={quiz.id} quiz={quiz} completed={completed} score={score} />
+            <QuizTile key={quiz.id} quiz={quiz} completed={completed} score={score} onStart={() => setActiveQuiz(quiz)} />
           ))}
         </div>
       )}

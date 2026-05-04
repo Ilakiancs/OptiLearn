@@ -146,8 +146,11 @@ async def get_material_file(material_id: str) -> FileResponse:
 
 
 @router.get("")
-async def list_materials(subject: str | None = None) -> list[dict]:
-    """Return materials. Pass ?subject=X to filter by subject."""
+async def list_materials(subject: str | None = None, teacher_only: bool = False) -> list[dict]:
+    """Return materials. ?subject=X to filter by subject, ?teacher_only=true for student_id IS NULL."""
     if subject:
-        return await db.get_materials_by_subject(subject)
-    return await db.get_all_materials()
+        mats = await db.get_materials_by_subject(subject)
+        if teacher_only:
+            mats = [m for m in mats if m.get("student_id") is None]
+        return mats
+    return await db.get_all_materials(teacher_only=teacher_only)

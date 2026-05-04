@@ -1,23 +1,41 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
-  BookOpen, Globe, Languages, Sparkles, Search, ArrowRight,
-  ChevronLeft, ChevronRight, Maximize2, Zap, Loader2, CheckCircle2,
-  Upload, FileText, RotateCcw, AlertCircle, Volume2, StopCircle, Download,
-} from 'lucide-react'
+  ArrowClockwise as RotateCcw,
+  ArrowRight,
+  ArrowsOutSimple as Maximize2,
+  BookOpen,
+  CaretLeft as ChevronLeft,
+  CaretRight as ChevronRight,
+  CheckCircle as CheckCircle2,
+  Clock as Clock3,
+  DownloadSimple as Download,
+  FileText,
+  Globe,
+  Lightning as Zap,
+  MagnifyingGlass as Search,
+  SpeakerHigh as Volume2,
+  Sparkle as Sparkles,
+  StopCircle,
+  Translate as Languages,
+  UploadSimple as Upload,
+  WarningCircle as AlertCircle,
+} from '@phosphor-icons/react'
 import { feature1 } from '../api/client'
+import Spinner from '../components/Spinner'
 // -- Section --
 const C = {
-  primary: '#1a73e8',
-  primaryLight: '#e8f0fe',
-  surface: '#ffffff',
-  surfaceAlt: '#f8f9fa',
-  border: '#dadce0',
-  textPrimary: '#202124',
-  textSecondary: '#5f6368',
-  accentGreen: '#639922',
-  hover: '#f1f3f4',
-  danger: '#d93025',
+  primary: 'var(--accent)',
+  primaryLight: 'var(--accent-soft)',
+  surface: 'var(--surface)',
+  surfaceAlt: 'var(--surface-soft)',
+  border: 'var(--border)',
+  textPrimary: 'var(--text)',
+  textSecondary: 'var(--text-muted)',
+  accentGreen: 'var(--success)',
+  hover: 'var(--bg-soft)',
+  danger: 'var(--accent)',
+  warningSurface: 'var(--accent-soft)',
 }
 // -- Section --
 function cleanMarkdownText(text) {
@@ -64,7 +82,7 @@ function SkeletonLines() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 0' }}>
       {['100%', '85%', '95%', '60%'].map((w, i) => (
-        <div key={i} style={{ height: i % 2 === 0 ? 16 : 12, width: w, background: '#e0e0e0', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite alternate' }} />
+        <div key={i} style={{ height: i % 2 === 0 ? 16 : 12, width: w, background: C.border, borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite alternate' }} />
       ))}
       <style>{`@keyframes pulse{from{opacity:.4}to{opacity:1}} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}`}</style>
     </div>
@@ -100,6 +118,9 @@ export default function TranslateLearn() {
   const [fileType, setFileType]                       = useState(null) // "pdf" | "image" | "text"
   const [playingPanel, setPlayingPanel]               = useState(null) // "upload"|"translate"|"explain"|null
   const [isDownloadingPdf, setIsDownloadingPdf]       = useState(false)
+  const [pastSessions, setPastSessions]               = useState([])
+  const [sessionsLoading, setSessionsLoading]         = useState(false)
+  const [openingSession, setOpeningSession]           = useState(null)
   const audioCtxRef                                   = useRef(null)
   const playingPanelRef                               = useRef(null)
 
@@ -118,6 +139,9 @@ export default function TranslateLearn() {
     fetch('/api/health').then(r => r.json()).then(d => setE4bAvailable(!!d.e4b_available)).catch(() => {})
   }, [])
   useEffect(() => {
+    if (studentId) loadPastSessions()
+  }, [studentId])
+  useEffect(() => {
     const clear = () => setTooltipPos(null)
     window.addEventListener('scroll', clear)
     return () => window.removeEventListener('scroll', clear)
@@ -134,6 +158,79 @@ export default function TranslateLearn() {
     }
   }, [fileObjectURL])
 // -- Section --
+  async function loadPastSessions() {
+    if (!studentId) return
+    setSessionsLoading(true)
+    try {
+      const data = await feature1.getSessions(studentId)
+      setPastSessions(data.sessions || [])
+    } catch (_) {
+      setPastSessions([])
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  async function openSavedSession(session) {
+    const materialId = session?.material_id
+    if (!materialId || openingSession) return
+    setOpeningSession(materialId)
+    setError(null)
+    isCancelledRef.current = true
+    activeTranslationRef.current = null
+    activeExplanationRef.current = null
+    uploadInFlightRef.current = false
+    stopAudio()
+    setPlayingPanel(null)
+    setIsStreaming(false)
+
+    try {
+      const data = await feature1.getSession(studentId, materialId)
+      if (fileObjectURL) {
+        URL.revokeObjectURL(fileObjectURL)
+        setFileObjectURL(null)
+      }
+      const restoredLanguage = data.target_language || targetLanguage
+      const restoredType = data.type || 'text'
+      const restoredHistory = []
+      if (data.tutor_summary?.trim()) {
+        restoredHistory.push({ type: 'summary', content: data.tutor_summary, isStreaming: false })
+      }
+      ;(data.tutor_history || []).forEach(entry => {
+        if ((entry.type === 'question' || entry.type === 'answer') && entry.content) {
+          restoredHistory.push({ type: entry.type, content: entry.content, isStreaming: false })
+        }
+      })
+
+      setMaterial({
+        material_id: data.material_id,
+        type: restoredType,
+        page_count: data.page_count || 1,
+        preview: data.preview || data.translated_preview || '',
+      })
+      setFileType(restoredType)
+      setPasteMode(false)
+      setPasteText(restoredType === 'text' ? (data.preview || '') : '')
+      setTargetLanguage(restoredLanguage)
+      setDetectedLang(data.detected_language || data.source_language || null)
+      setTranslatedPages({ 1: data.translated_text || '' })
+      setCurrentPage(1)
+      setTranslationProgress({ current: data.page_count || 1, total: data.page_count || 1 })
+      setTutorHistory(restoredHistory)
+      setSuggestedQs([])
+      setHighlightedText(null)
+      setTooltipPos(null)
+      setSearchQuery('')
+      setAppState('translated')
+      setMainPanel('translate')
+    } catch (err) {
+      setError(err.message || 'Saved session could not be opened.')
+    } finally {
+      isCancelledRef.current = false
+      setOpeningSession(null)
+    }
+  }
+
   function stopAudio() {
     if (audioCtxRef.current) {
       try { audioCtxRef.current.close() } catch (_) {}
@@ -241,6 +338,10 @@ export default function TranslateLearn() {
           if (event.type === 'token') {
             hasContent = true
             setTranslatedPages(prev => ({ ...prev, [event.page]: (prev[event.page] || '') + event.content }))
+          } else if (event.type === 'model_switch') {
+            if (event.page) {
+              setTranslatedPages(prev => ({ ...prev, [event.page]: '' }))
+            }
           } else if (event.type === 'page_complete') {
             if (typeof event.full_text === 'string') {
               hasContent = hasContent || event.full_text.trim().length > 0
@@ -258,6 +359,7 @@ export default function TranslateLearn() {
           if (hasContent) {
             setAppState('translated')
             setMainPanel('translate')
+            setTimeout(loadPastSessions, 900)
             startExplanation(mat, lang)
           } else {
             setError(prev => prev || 'Translation returned no content. The input may contain text the AI could not process - please check your input and try again.')
@@ -306,6 +408,7 @@ export default function TranslateLearn() {
             return next
           })
           setIsStreaming(false)
+          loadPastSessions()
           try {
             const res = await feature1.ask({ material_id: mat.material_id, student_id: studentId, question: '', language: lang, format: 'json', model_preference: modelPreference })
             if (!isCancelledRef.current) setSuggestedQs(res.questions || [])
@@ -402,6 +505,19 @@ export default function TranslateLearn() {
   const detectedSourceLanguage = detectedLang && detectedLang !== 'unknown' ? detectedLang : null
   const sourceReadLanguage = detectedSourceLanguage || student?.language || 'en'
   const hasQuestions   = tutorHistory.some(e => e.type === 'question')
+
+  function sessionDateLabel(value) {
+    if (!value) return 'Saved'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return 'Saved'
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  function sessionPreview(session) {
+    return (session.translated_preview || session.tutor_preview || session.preview || 'Translated learning material')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
 // -- Section --
   async function speakText(text, language, panelName) {
     if (playingPanelRef.current === panelName) {
@@ -549,7 +665,7 @@ export default function TranslateLearn() {
           <span style={{ fontSize: 11, fontWeight: 600, color: C.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {material ? (material.type === 'text' ? 'Text input' : 'Uploaded file') : 'No file'}
           </span>
-          {(appState === 'uploading' || appState === 'translating') && <Loader2 size={12} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />}
+          {(appState === 'uploading' || appState === 'translating') && <Spinner size={12} color={C.primary} />}
           <TTSButton panelName="upload" text={pasteText || material?.preview || ''} language={sourceReadLanguage} small />
           <Maximize2 size={12} color={C.textSecondary} style={{ flexShrink: 0 }} />
         </div>
@@ -567,7 +683,7 @@ export default function TranslateLearn() {
           )
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 11, color: '#aaaaaa' }}>No file uploaded yet</span>
+            <span style={{ fontSize: 11, color: C.textSecondary }}>No file uploaded yet</span>
           </div>
         )}
       </div>
@@ -615,7 +731,7 @@ export default function TranslateLearn() {
         </div>
 
         {error && (
-          <div style={{ display: 'flex', gap: 8, background: '#fce8e6', border: '1px solid #f28b82', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: C.danger, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 8, background: C.warningSurface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: C.textPrimary, alignItems: 'flex-start' }}>
             <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>{error}</span>
           </div>
@@ -631,7 +747,7 @@ export default function TranslateLearn() {
             style={{ flex: 1, border: `2px ${isDragging ? 'solid' : 'dashed'} ${isDragging ? C.primary : C.border}`, background: isDragging ? C.primaryLight : C.surfaceAlt, borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, transition: 'all 0.15s', marginBottom: 14, minHeight: 140 }}>
             {appState === 'uploading' || appState === 'translating' ? (
               <>
-                <Loader2 size={36} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />
+                <Spinner size={36} color={C.primary} />
                 <span style={{ fontSize: 14, color: C.textSecondary }}>
                   {appState === 'uploading'
                     ? 'Uploading...'
@@ -668,6 +784,35 @@ export default function TranslateLearn() {
           </div>
         )}
 
+        {!material && !pasteMode && (sessionsLoading || pastSessions.length > 0) && (
+          <div style={{ flexShrink: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 10px', borderBottom: `1px solid ${C.border}` }}>
+              <Clock3 size={14} color={C.primary} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, flex: 1 }}>Recent translations</span>
+              {sessionsLoading && <Spinner size={13} color={C.primary} />}
+            </div>
+            <div style={{ maxHeight: 132, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pastSessions.slice(0, 6).map(session => {
+                const loadingThis = openingSession === session.material_id
+                return (
+                  <button key={session.material_id} onClick={() => openSavedSession(session)} disabled={!!openingSession}
+                    style={{ textAlign: 'left', border: `1px solid ${C.border}`, background: C.surfaceAlt, borderRadius: 8, padding: '8px 10px', cursor: openingSession ? 'default' : 'pointer', color: C.textPrimary, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {sessionDateLabel(session.updated_at || session.created_at)} - {langName(session.target_language || targetLanguage)}
+                      </span>
+                      <span style={{ display: 'block', fontSize: 12, color: C.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                        {sessionPreview(session)}
+                      </span>
+                    </span>
+                    {loadingThis ? <Spinner size={14} color={C.primary} /> : <ArrowRight size={14} color={C.primary} />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {!pasteMode ? (
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={() => fileInputRef.current?.click()} disabled={appState === 'uploading' || appState === 'translating'}
@@ -694,9 +839,9 @@ export default function TranslateLearn() {
           <Languages size={13} color={C.primary} />
           <span style={{ fontSize: 11, fontWeight: 600, color: C.textPrimary, flex: 1 }}>Translation</span>
           {pageCount > 1 && <span style={{ fontSize: 10, background: C.primaryLight, color: C.primary, borderRadius: 10, padding: '1px 5px' }}>{currentPage}/{pageCount}</span>}
-          {appState === 'translating' && <Loader2 size={12} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />}
+          {appState === 'translating' && <Spinner size={12} color={C.primary} />}
           <TTSButton panelName="translate" text={translatedText} language={targetLanguage} small />
-          {translatedText && <button onClick={e => { e.stopPropagation(); downloadTranslation() }} disabled={isDownloadingPdf} title={isDownloadingPdf ? 'Preparing PDF' : 'Save PDF'} style={{ background: 'transparent', border: 'none', cursor: isDownloadingPdf ? 'default' : 'pointer', color: isDownloadingPdf ? C.primary : C.textSecondary, padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0, opacity: isDownloadingPdf ? 0.8 : 1 }}>{isDownloadingPdf ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}</button>}
+          {translatedText && <button onClick={e => { e.stopPropagation(); downloadTranslation() }} disabled={isDownloadingPdf} title={isDownloadingPdf ? 'Preparing PDF' : 'Save PDF'} style={{ background: 'transparent', border: 'none', cursor: isDownloadingPdf ? 'default' : 'pointer', color: isDownloadingPdf ? C.primary : C.textSecondary, padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0, opacity: isDownloadingPdf ? 0.8 : 1 }}>{isDownloadingPdf ? <Spinner size={14} color={C.primary} /> : <Download size={14} />}</button>}
           <Maximize2 size={12} color={C.textSecondary} style={{ flexShrink: 0 }} />
         </div>
         {translatedText ? (
@@ -705,7 +850,7 @@ export default function TranslateLearn() {
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8 }}>
-            <span style={{ fontSize: 11, color: '#aaaaaa', textAlign: 'center' }}>
+            <span style={{ fontSize: 11, color: C.textSecondary, textAlign: 'center' }}>
               {appState === 'translating' ? 'Translating...' : 'Translation will appear here'}
             </span>
           </div>
@@ -720,12 +865,12 @@ export default function TranslateLearn() {
           <span style={{ fontSize: 14, color: C.textSecondary }}>{detectedSourceLanguage ? langName(detectedSourceLanguage) : 'Source'}</span>
           <ArrowRight size={14} color={C.textSecondary} />
           <span style={{ fontSize: 14, fontWeight: 600, color: C.textPrimary }}>{langName(targetLanguage)}</span>
-          {appState === 'translating' && <Loader2 size={15} color={C.primary} style={{ animation: 'spin 1s linear infinite', marginLeft: 8 }} />}
+          {appState === 'translating' && <Spinner size={15} color={C.primary} />}
           <TTSButton panelName="translate" text={translatedText} language={targetLanguage} />
           {translatedText && (
             <button onClick={downloadTranslation} disabled={isDownloadingPdf} title={isDownloadingPdf ? 'Preparing PDF' : 'Save PDF'}
               style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, padding: '4px 10px', fontSize: 13, color: isDownloadingPdf ? C.primary : C.textSecondary, cursor: isDownloadingPdf ? 'default' : 'pointer', opacity: isDownloadingPdf ? 0.8 : 1 }}>
-              {isDownloadingPdf ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} {isDownloadingPdf ? 'Preparing' : 'Save PDF'}
+              {isDownloadingPdf ? <Spinner size={14} color={C.primary} /> : <Download size={14} />} {isDownloadingPdf ? 'Preparing' : 'Save PDF'}
             </button>
           )}
         </div>
@@ -776,7 +921,7 @@ export default function TranslateLearn() {
         <div style={{ padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
           <Sparkles size={13} color={C.primary} />
           <span style={{ fontSize: 11, fontWeight: 600, color: C.textPrimary, flex: 1 }}>AI Tutor</span>
-          {anyStreaming && <Loader2 size={12} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />}
+          {anyStreaming && <Spinner size={12} color={C.primary} />}
           <TTSButton panelName="explain" text={[...tutorHistory].reverse().find(e => e.type === 'summary' || e.type === 'answer')?.content || ''} language={targetLanguage} small />
           <Maximize2 size={12} color={C.textSecondary} style={{ flexShrink: 0 }} />
         </div>
@@ -791,7 +936,7 @@ export default function TranslateLearn() {
                 </div>
               )
               if (entry.type === 'question') return (
-                <div key={i} style={{ background: '#ebebeb', borderRadius: 8, padding: '8px 12px', margin: '4px 8px', fontSize: 12, color: C.textPrimary, fontWeight: 500 }}>
+                <div key={i} style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', margin: '4px 8px', fontSize: 12, color: C.textPrimary, fontWeight: 500 }}>
                   {entry.content}
                 </div>
               )
@@ -806,7 +951,7 @@ export default function TranslateLearn() {
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8 }}>
-            <span style={{ fontSize: 11, color: '#aaaaaa', textAlign: 'center' }}>AI Tutor will explain your material here</span>
+            <span style={{ fontSize: 11, color: C.textSecondary, textAlign: 'center' }}>AI Tutor will explain your material here</span>
           </div>
         )}
 
@@ -856,18 +1001,18 @@ export default function TranslateLearn() {
               if (entry.type === 'summary') return (
                 <div key={i} style={{ padding: 16 }}>
                   {isStreaming && !entry.content ? <SkeletonLines /> : renderMarkdown(entry.content)}
-                  {entry.isStreaming && entry.content && <span style={{ borderRight: '2px solid #1a73e8', animation: 'blink 1s step-end infinite' }}>&nbsp;</span>}
+                  {entry.isStreaming && entry.content && <span style={{ borderRight: `2px solid ${C.primary}`, animation: 'blink 1s step-end infinite' }}>&nbsp;</span>}
                 </div>
               )
               if (entry.type === 'question') return (
-                <div key={i} style={{ background: '#ebebeb', borderRadius: 10, padding: '12px 16px', fontSize: 14, color: C.textPrimary, fontWeight: 500, margin: '8px 0' }}>
+                <div key={i} style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontSize: 14, color: C.textPrimary, fontWeight: 500, margin: '8px 0' }}>
                   {entry.content}
                 </div>
               )
               if (entry.type === 'answer') return (
                 <div key={i} style={{ background: C.surfaceAlt, borderRadius: 10, padding: '12px 16px', fontSize: 14, color: C.textPrimary, lineHeight: 1.7, margin: '8px 0' }}>
                   {entry.isStreaming && !entry.content ? <SkeletonLines /> : renderMarkdown(entry.content)}
-                  {entry.isStreaming && entry.content && <span style={{ borderRight: '2px solid #1a73e8', animation: 'blink 1s step-end infinite' }}>&nbsp;</span>}
+                  {entry.isStreaming && entry.content && <span style={{ borderRight: `2px solid ${C.primary}`, animation: 'blink 1s step-end infinite' }}>&nbsp;</span>}
                 </div>
               )
               return null

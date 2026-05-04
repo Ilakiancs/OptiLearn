@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createTeacherQuiz, listTeacherQuizzes, listStudents } from '../api/client'
 import { Link } from 'react-router-dom'
+import SubjectComboInput from '../components/SubjectComboInput'
 
 const BLANK_QUESTION = { question: '', options: ['', '', '', ''], correct_answer: '', explanation: '' }
 
@@ -159,6 +160,7 @@ export default function TeacherQuizBuilder() {
   function handleSubmit(e) {
     e.preventDefault()
     if (!title.trim()) { setError('Title is required.'); return }
+    if (!subject.trim()) { setError('Subject is required. Choose an existing subject or press Add to confirm a new one.'); return }
 
     const valid = questions.filter(q => q.question.trim() && q.correct_answer && q.options.filter(o => o.trim()).length >= 2)
     if (valid.length === 0) {
@@ -216,8 +218,8 @@ export default function TeacherQuizBuilder() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Subject</label>
-                <input style={inputStyle} value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Mathematics" />
+                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Subject *</label>
+                <SubjectComboInput value={subject} onChange={setSubject} required error={error.startsWith('Subject') ? error : ''} />
               </div>
 
               <div>

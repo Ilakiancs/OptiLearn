@@ -37,6 +37,14 @@ export function startSession(studentId) {
   })
 }
 
+export function getChatSessions(studentId) {
+  return request(`/api/sessions/student/${encodeURIComponent(studentId)}/chats`)
+}
+
+export function getSessionMessages(sessionId, studentId) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/messages?student_id=${encodeURIComponent(studentId)}`)
+}
+
 export function uploadImage(file) {
   const form = new FormData()
   form.append('file', file)
@@ -75,6 +83,18 @@ export function getHealth() {
   return request('/api/health')
 }
 
+export function getNetworkMode() {
+  return request('/api/settings/network-mode')
+}
+
+export function setNetworkMode(mode) {
+  return request('/api/settings/network-mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  })
+}
+
 export function uploadMaterial({ file, title, subject }) {
   const form = new FormData()
   form.append('file', file)
@@ -84,7 +104,7 @@ export function uploadMaterial({ file, title, subject }) {
 }
 
 export function listMaterials() {
-  return request('/api/materials')
+  return request('/api/materials?teacher_only=true')
 }
 
 export function createTeacherQuiz(body) {
@@ -109,7 +129,7 @@ export function getSubjects() {
 }
 
 export function getMaterialsBySubject(subject) {
-  return request(`/api/materials?subject=${encodeURIComponent(subject)}`)
+  return request(`/api/materials?subject=${encodeURIComponent(subject)}&teacher_only=true`)
 }
 
 export function getMaterialFileUrl(materialId) {
@@ -118,6 +138,31 @@ export function getMaterialFileUrl(materialId) {
 
 export function getQuizzesBySubject(subject, studentId) {
   return request(`/api/teacher/quiz?subject=${encodeURIComponent(subject)}&student_id=${encodeURIComponent(studentId)}`)
+}
+
+// ── Schedule ────────────────────────────────────────────────────
+export function getTeacherSchedule() {
+  return request('/api/teacher/schedule')
+}
+export function createScheduledClass(body) {
+  return request('/api/teacher/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+export function updateScheduledClass(id, body) {
+  return request(`/api/teacher/schedule/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+export function deleteScheduledClass(id) {
+  return request(`/api/teacher/schedule/${id}`, { method: 'DELETE' })
+}
+export function getStudentSchedule() {
+  return request('/api/student/schedule')
+}
+
+// ── Teacher settings ─────────────────────────────────────────────
+export function getTeacherSettings() {
+  return request('/api/teacher/settings')
+}
+export function updateTeacherSettings(body) {
+  return request('/api/teacher/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 }
 
 // ── SSE streaming helper ────────────────────────────────────────
@@ -146,6 +191,9 @@ export async function streamSSE(url, body, onEvent, onDone) {
       if (line.startsWith('data: ')) {
         try {
           const event = JSON.parse(line.slice(6))
+          if (event.type === 'model_switch') {
+            window.dispatchEvent(new CustomEvent('optilearn:model-switch', { detail: event }))
+          }
           onEvent(event)
           if (event.type === 'done') {
             completed = true
@@ -157,6 +205,10 @@ export async function streamSSE(url, body, onEvent, onDone) {
       }
     }
   }
+}
+
+export function teacherChat(body, onEvent, onDone) {
+  return streamSSE(`${BASE}/api/teacher/chat`, body, onEvent, onDone)
 }
 
 // ── Feature 1 — Language-Adaptive AI Tutor ─────────────────────
@@ -174,6 +226,12 @@ export const feature1 = {
         }
         return res.json()
       })
+  },
+  getSessions(studentId) {
+    return request(`/api/feature1/sessions/${encodeURIComponent(studentId)}`)
+  },
+  getSession(studentId, materialId) {
+    return request(`/api/feature1/sessions/${encodeURIComponent(studentId)}/${encodeURIComponent(materialId)}`)
   },
   translateStream(body, onEvent, onDone) {
     return streamSSE(`${BASE}/api/feature1/translate`, body, onEvent, onDone)

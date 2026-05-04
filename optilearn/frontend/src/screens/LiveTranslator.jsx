@@ -1,21 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom'
 import {
-  CheckCircle2, Download, FileText, Languages, Loader2,
-  Mic, Sparkles, StopCircle, Volume2,
-} from 'lucide-react'
+  CheckCircle as CheckCircle2,
+  DownloadSimple as Download,
+  FileText,
+  Microphone as Mic,
+  SpeakerHigh as Volume2,
+  Sparkle as Sparkles,
+  StopCircle,
+  Translate as Languages,
+} from '@phosphor-icons/react'
+import Spinner from '../components/Spinner'
 
 const C = {
-  primary: '#1a73e8',
-  primaryLight: '#e8f0fe',
-  surface: '#ffffff',
-  surfaceAlt: '#f8f9fa',
-  border: '#dadce0',
-  textPrimary: '#202124',
-  textSecondary: '#5f6368',
-  danger: '#1a73e8',
-  dangerLight: '#e8f0fe',
-  green: '#1e8e3e',
+  primary: 'var(--accent)',
+  primaryLight: 'var(--accent-soft)',
+  surface: 'var(--surface)',
+  surfaceAlt: 'var(--surface-soft)',
+  border: 'var(--border)',
+  textPrimary: 'var(--text)',
+  textSecondary: 'var(--text-muted)',
+  danger: 'var(--accent)',
+  dangerLight: 'var(--accent-soft)',
+  green: 'var(--success)',
 }
 
 const LIVE_AUDIO_SAMPLE_RATE = 16000
@@ -90,19 +97,8 @@ function renderMarkdown(text) {
 // ── Pulsing dot indicator ──────────────────────────────────────
 function TypingDots() {
   return (
-    <div style={{ display: 'flex', gap: 5, padding: '8px 0', alignItems: 'center' }}>
-      <style>{`
-        @keyframes dotBounce { 0%,80%,100%{transform:scale(0.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
-      `}</style>
-      {[0, 1, 2].map(i => (
-        <div
-          key={i}
-          style={{
-            width: 8, height: 8, borderRadius: '50%', background: C.primary,
-            animation: `dotBounce 1.2s ${i * 0.2}s ease-in-out infinite`,
-          }}
-        />
-      ))}
+    <div style={{ display: 'flex', padding: '8px 0', alignItems: 'center' }}>
+      <Spinner size={18} color={C.primary} />
     </div>
   )
 }
@@ -674,6 +670,15 @@ export default function LiveTranslator() {
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const translatedChunk = await response.json()
+      if (translatedChunk.model_switched) {
+        window.dispatchEvent(new CustomEvent('optilearn:model-switch', {
+          detail: {
+            type: 'model_switch',
+            message: 'Connection interrupted. Switching to local model.',
+            color: '#EF9F27',
+          },
+        }))
+      }
       setChunkAt(translatedChunk.index, translatedChunk)
       scrollPanelsToChunk(translatedChunk.index)
     } catch (err) {
@@ -835,6 +840,8 @@ export default function LiveTranslator() {
     flex: '1 1 auto',
     display: 'grid',
     gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+    gridTemplateRows: 'minmax(0, 1fr)',
+    alignItems: 'stretch',
     gap: 10,
     padding: '10px 10px 0',
     minHeight: 0,
@@ -843,6 +850,10 @@ export default function LiveTranslator() {
   const panelStyle = {
     minWidth: 0,
     minHeight: 0,
+    height: '100%',
+    maxHeight: '100%',
+    alignSelf: 'stretch',
+    boxSizing: 'border-box',
     background: C.surface,
     border: `1px solid ${C.border}`,
     borderRadius: 8,
@@ -863,11 +874,9 @@ export default function LiveTranslator() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 72px)', padding: 24 }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         <div style={{ textAlign: 'center', maxWidth: 420 }}>
-          <Loader2
-            size={54}
-            color={C.primary}
-            style={{ animation: 'spin 1s linear infinite', marginBottom: 18 }}
-          />
+          <div style={{ display: 'inline-flex', marginBottom: 18 }}>
+            <Spinner size={54} color={C.primary} />
+          </div>
           <div style={{ fontSize: 20, fontWeight: 700, color: C.textPrimary, marginBottom: 8 }}>
             Preparing live translation
           </div>
@@ -894,7 +903,7 @@ export default function LiveTranslator() {
               justifyContent: 'center', margin: '0 auto 20px', cursor: 'pointer',
               transition: 'all 0.2s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#d2e3fc'; e.currentTarget.style.transform = 'scale(1.05)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = C.primaryLight; e.currentTarget.style.transform = 'scale(1.05)' }}
             onMouseLeave={e => { e.currentTarget.style.background = C.primaryLight; e.currentTarget.style.transform = 'scale(1)' }}
           >
             <Mic size={80} color={C.primary} />
@@ -1015,7 +1024,6 @@ export default function LiveTranslator() {
         <style>{`
           @keyframes spin{to{transform:rotate(360deg)}}
           @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
-          @keyframes dotBounce{0%,80%,100%{transform:scale(0.6);opacity:.4}40%{transform:scale(1);opacity:1}}
         `}</style>
 
         {/* Two-panel split */}
@@ -1119,7 +1127,7 @@ export default function LiveTranslator() {
           {/* Recording indicator */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {isFinalizing ? (
-              <Loader2 size={14} color={C.primary} style={{ animation: 'spin 1s linear infinite' }} />
+              <Spinner size={14} color={C.primary} />
             ) : (
               <div style={{
                 width: 10, height: 10, borderRadius: '50%', background: C.primary,
@@ -1163,7 +1171,9 @@ export default function LiveTranslator() {
       <div style={{ ...featureShellStyle, alignItems: 'center', justifyContent: 'center' }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         <div style={{ textAlign: 'center' }}>
-          <Loader2 size={40} color={C.primary} style={{ animation: 'spin 1s linear infinite', marginBottom: 16 }} />
+          <div style={{ display: 'inline-flex', marginBottom: 16 }}>
+            <Spinner size={40} color={C.primary} />
+          </div>
           <div style={{ fontSize: 16, color: C.textSecondary }}>Generating your study notes…</div>
         </div>
       </div>
@@ -1178,7 +1188,7 @@ export default function LiveTranslator() {
 
     return (
       <div style={featureShellStyle}>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes dotBounce{0%,80%,100%{transform:scale(0.6);opacity:.4}40%{transform:scale(1);opacity:1}}`}</style>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
         {/* Two-panel split */}
         <div style={splitPanelsStyle}>
@@ -1202,7 +1212,7 @@ export default function LiveTranslator() {
                 }}
               >
                 {isDownloadingNotes
-                  ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                  ? <Spinner size={16} color={C.primary} />
                   : <Download size={16} />}
               </button>
             </div>
@@ -1265,7 +1275,7 @@ export default function LiveTranslator() {
                 }}
               >
                 {isDownloadingTranscript
-                  ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                  ? <Spinner size={16} color={C.primary} />
                   : <Download size={16} />}
               </button>
             </div>
@@ -1276,7 +1286,7 @@ export default function LiveTranslator() {
                   {transcriptText}
                 </div>
               ) : (
-                <div style={{ color: '#aaa', fontSize: 13 }}>No translated transcript available.</div>
+                <div style={{ color: C.textSecondary, fontSize: 13 }}>No translated transcript available.</div>
               )}
             </div>
           </div>

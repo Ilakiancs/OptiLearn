@@ -234,6 +234,32 @@ h3 svg {
   font-size: 0.82rem;
 }
 
+.student-sidebar-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-primary-dim) transparent;
+}
+
+.student-sidebar-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.student-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.student-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-primary-dim);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.student-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+  background-clip: padding-box;
+}
+
 @media (max-width: 900px) {
   .quick-exit {
     right: 10px;

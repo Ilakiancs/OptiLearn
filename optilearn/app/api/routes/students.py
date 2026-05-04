@@ -11,11 +11,20 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
+from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.models.schemas import CreateStudentRequest
 from app.services import db
-from app.services.model_client import model_client
+from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
 
 router = APIRouter(prefix="/api/students", tags=["students"])
+schedule_router = APIRouter(prefix="/api/student", tags=["student"])
+
+
+@schedule_router.get("/schedule")
+async def student_get_schedule() -> list[dict]:
+    """Read-only: return all scheduled classes for student calendar view."""
+    return await db.get_all_scheduled_classes()
+
 
 _PROGRESS_REPORT_PROMPT = """\
 Generate a 3-paragraph progress report for teacher use.
@@ -86,8 +95,19 @@ async def get_student_report(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            messages = [{"role": "user", "content": prompt}]
-            async for token in model_client.stream_chat(messages=messages, tools=[], image_b64=None):
+            async for token in route_generate_with_fallback(
+                prompt,
+                "ADMIN",
+                system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+                enable_thinking=False,
+            ):
+                if token == MODEL_SWITCH_TOKEN:
+                    yield _sse({
+                        "type": "model_switch",
+                        "message": "Connection interrupted. Switching to local model.",
+                        "color": "#EF9F27",
+                    })
+                    continue
                 yield _sse({"type": "token", "content": token})
             yield _sse({"type": "done"})
         except Exception as exc:

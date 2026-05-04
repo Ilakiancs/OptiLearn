@@ -28,8 +28,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store
-from app.services.model_client import model_client
+from app.services.model_client import MODEL_SWITCH_TOKEN, model_client, route_generate, route_generate_with_fallback
 
 router = APIRouter(prefix="/api/feature1", tags=["feature1"])
 
@@ -548,6 +549,39 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+def _parse_tutor_history(raw: str | None) -> list[dict]:
+    try:
+        parsed = json.loads(raw or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _feature1_session_payload(material: dict, include_full: bool = False) -> dict:
+    payload = {
+        "material_id": material.get("id"),
+        "title": material.get("title") or "Learning material",
+        "subject": material.get("subject"),
+        "student_id": material.get("student_id"),
+        "target_language": material.get("target_language"),
+        "source_language": material.get("source_language"),
+        "detected_language": material.get("source_language"),
+        "detected_confidence": material.get("detected_confidence") or 0,
+        "type": material.get("material_type") or "text",
+        "page_count": material.get("page_count") or 1,
+        "preview": material.get("preview") or "",
+        "translated_preview": material.get("translated_preview") or "",
+        "tutor_preview": material.get("tutor_preview") or "",
+        "created_at": material.get("created_at"),
+        "updated_at": material.get("updated_at") or material.get("created_at"),
+    }
+    if include_full:
+        payload["translated_text"] = material.get("translated_text") or ""
+        payload["tutor_summary"] = material.get("tutor_summary") or ""
+        payload["tutor_history"] = _parse_tutor_history(material.get("tutor_history"))
+    return payload
+
+
 def _chunk_text(text: str, chunk_words: int = 200, overlap_words: int = 50) -> list[str]:
     words = text.split()
     chunks: list[str] = []
@@ -561,7 +595,9 @@ def _chunk_text(text: str, chunk_words: int = 200, overlap_words: int = 50) -> l
 
 
 async def _sse_stream_with_keepalive(
-    gen: AsyncGenerator[str, None], page_num: int
+    gen: AsyncGenerator[str, None],
+    page_num: int,
+    on_token=None,
 ) -> AsyncGenerator[str, None]:
     """Wrap a token generator with SSE keepalive every 8s.
 
@@ -574,6 +610,8 @@ async def _sse_stream_with_keepalive(
     async def _producer() -> None:
         try:
             async for token in gen:
+                if on_token is not None:
+                    on_token(token)
                 await queue.put(token)
         finally:
             await queue.put(_DONE)
@@ -588,6 +626,14 @@ async def _sse_stream_with_keepalive(
                 continue
             if item is _DONE:
                 break
+            if item == MODEL_SWITCH_TOKEN:
+                yield _sse({
+                    "type": "model_switch",
+                    "page": page_num,
+                    "message": "Connection interrupted. Switching to local model.",
+                    "color": "#EF9F27",
+                })
+                continue
             yield _sse({"type": "token", "page": page_num, "content": item})
     finally:
         task.cancel()
@@ -624,6 +670,7 @@ async def _persist_translated_material(
             material_id,
             full_text,
             faiss_indexed=indexed_count > 0,
+            target_language=target_language,
         )
         _translation_cache[f"db_lang_{material_id}"] = target_language
     except Exception as exc:
@@ -636,6 +683,26 @@ async def _persist_translated_material(
 @router.get("/languages")
 async def get_languages() -> list[dict]:
     return LANGUAGES
+
+
+@router.get("/sessions/{student_id}")
+async def list_saved_sessions(student_id: str) -> dict:
+    student = await db.get_student(student_id)
+    if student is None:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    sessions = await db.get_feature1_sessions(student_id)
+    return {"sessions": [_feature1_session_payload(s) for s in sessions]}
+
+
+@router.get("/sessions/{student_id}/{material_id}")
+async def get_saved_session(student_id: str, material_id: str) -> dict:
+    student = await db.get_student(student_id)
+    if student is None:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    material = await db.get_feature1_session(student_id, material_id)
+    if material is None:
+        raise HTTPException(status_code=404, detail="Saved session not found.")
+    return _feature1_session_payload(material, include_full=True)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -728,6 +795,12 @@ async def upload_material(
         subject=subject,
         file_path=file_path_str,
         student_id=student_id,
+        target_language=target_language,
+        source_language=detected_language,
+        detected_confidence=detected_confidence,
+        material_type=mat_type,
+        page_count=page_count,
+        preview=preview[:1000] if isinstance(preview, str) else "",
     )
     mat_db_id = material["id"]
 
@@ -799,7 +872,7 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                     yield _sse({"type": "done", "total_pages": 1})
                     return
 
-                material_lang = _translation_cache.get(f"db_lang_{body.material_id}")
+                material_lang = _translation_cache.get(f"db_lang_{body.material_id}") or material.get("target_language")
                 if (
                     material_lang == body.target_language
                     and material.get("translated_text")
@@ -829,11 +902,13 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                         prompt = _TRANSLATE_IMAGE_PROMPT.format(
                             target_language=lang_name, grade_level=grade, age=age
                         )
-                        messages = [{"role": "user", "content": prompt}]
                         page_buf = ""
-                        gen = model_client.stream_chat(
-                            messages=messages, tools=[], image_b64=image_b64,
-                            model_preference=body.model_preference, enable_thinking=True,
+                        gen = route_generate_with_fallback(
+                            prompt,
+                            "TRANSLATION",
+                            system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+                            enable_thinking=True,
+                            image_b64=image_b64,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
@@ -850,11 +925,12 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                         prompt = _TRANSLATE_PROMPT.format(
                             target_language=lang_name, grade_level=grade, age=age, content=content
                         )
-                        messages = [{"role": "user", "content": prompt}]
                         page_buf = ""
-                        gen = model_client.stream_chat(
-                            messages=messages, tools=[], image_b64=None,
-                            model_preference=body.model_preference, enable_thinking=True,
+                        gen = route_generate_with_fallback(
+                            prompt,
+                            "TRANSLATION",
+                            system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+                            enable_thinking=True,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
@@ -932,14 +1008,19 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            messages = [{"role": "user", "content": prompt}]
-            gen = model_client.stream_chat(
-                messages=messages, tools=[], image_b64=None,
-                model_preference=body.model_preference, enable_thinking=True,
+            summary_chunks: list[str] = []
+            # FUTURE: replace with fine-tuned model
+            gen = route_generate(
+                prompt,
+                "TUTOR",
+                enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
             )
-            async for sse_event in _sse_stream_with_keepalive(gen, 1):
+            async for sse_event in _sse_stream_with_keepalive(gen, 1, summary_chunks.append):
                 yield sse_event
+            summary_text = "".join(summary_chunks).strip()
+            if summary_text:
+                await db.update_material_tutor_summary(body.material_id, summary_text)
             yield _sse({"type": "done", "total_pages": 1})
         except Exception as exc:
             logger.error("Explain stream error: {}\n{}", exc, traceback.format_exc())
@@ -992,6 +1073,7 @@ async def ask_question(body: AskRequest):
             messages=messages, tools=[], image_b64=None,
             model_preference=body.model_preference,
             ollama_options={"num_ctx": 8192},
+            force_local=True,  # FUTURE: replace with fine-tuned model
         )
         text = result if isinstance(result, str) else ""
         try:
@@ -1014,14 +1096,23 @@ async def ask_question(body: AskRequest):
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            messages = [{"role": "user", "content": prompt}]
-            gen = model_client.stream_chat(
-                messages=messages, tools=[], image_b64=None,
-                model_preference=body.model_preference, enable_thinking=True,
+            answer_chunks: list[str] = []
+            # FUTURE: replace with fine-tuned model
+            gen = route_generate(
+                prompt,
+                "TUTOR",
+                enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
             )
-            async for sse_event in _sse_stream_with_keepalive(gen, 1):
+            async for sse_event in _sse_stream_with_keepalive(gen, 1, answer_chunks.append):
                 yield sse_event
+            answer_text = "".join(answer_chunks).strip()
+            if answer_text:
+                await db.append_material_tutor_history(
+                    body.material_id,
+                    body.question,
+                    answer_text,
+                )
             yield _sse({"type": "done", "total_pages": 1})
         except Exception as exc:
             logger.error("Ask stream error: {}\n{}", exc, traceback.format_exc())

@@ -16,10 +16,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
+from app.services.model_client import get_network_mode, get_network_status, load_user_network_settings
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """Serve the app shell without browser caching stale frontend builds."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if path in {"", ".", "index.html", "sw.js"} or path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
 
 # ──────────────────────────────────────────────────────────────
@@ -63,6 +76,7 @@ def _ensure_noto_fonts() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("OptiLearn starting up…")
+    load_user_network_settings()
     _ensure_noto_fonts()
     await db.init_db()
     # Warm live translation models first, then embeddings. Running FAISS model
@@ -103,6 +117,7 @@ app.add_middleware(
 
 # ── Routers ────────────────────────────────────────────────────
 app.include_router(students.router)
+app.include_router(students.schedule_router)
 app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(quiz.router)
@@ -113,6 +128,7 @@ app.include_router(materials.router)
 app.include_router(feature1.router)
 app.include_router(tts_router)
 app.include_router(translate_routes.router)
+app.include_router(settings_routes.router)
 
 
 @app.get("/api/health", tags=["system"])
@@ -149,22 +165,32 @@ async def health() -> dict:
     except Exception:
         pass
 
+    network_status = await get_network_status()
+
     return {
         "ollama_ok": ollama_ok,
         "model_name": settings.OLLAMA_MODEL_FAST,
         "db_ok": db_ok,
         "faiss_passages": faiss_passages,
         "embedding": faiss_store.get_embed_status(),
-        "use_local_ollama": settings.USE_LOCAL_OLLAMA,
+        "use_local_ollama": not network_status["use_26b"],
         "e4b_available": e4b_available,
         "active_model": settings.OLLAMA_MODEL_FAST,
+        "network": {
+            **network_status,
+            "mode": get_network_mode(),
+            "26b_api_configured": bool(
+                (settings.GEMMA_26B_API_KEY or "").strip()
+                and not settings.GEMMA_26B_API_KEY.strip().startswith("<")
+            ),
+        },
         "version": "1.0.0",
     }
 
 # ── Frontend static build ──────────────────────────────────────
 _frontend_path = Path(settings.FRONTEND_DIST)
 if _frontend_path.exists() and _frontend_path.is_dir():
-    app.mount("/", StaticFiles(directory=str(_frontend_path), html=True), name="frontend")
+    app.mount("/", NoCacheStaticFiles(directory=str(_frontend_path), html=True), name="frontend")
     logger.info("Frontend mounted from {}", _frontend_path)
 else:
     logger.warning(

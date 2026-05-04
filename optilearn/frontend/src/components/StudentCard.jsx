@@ -1,4 +1,5 @@
 import MasteryBadge from './MasteryBadge'
+import Spinner from './Spinner'
 
 function relativeTime(isoString) {
   if (!isoString) return null
@@ -40,13 +41,7 @@ export default function StudentCard({ student, onSelect, isLoading }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 1,
         }}>
-          <div style={{
-            width: '24px', height: '24px',
-            border: '3px solid var(--color-border)',
-            borderTopColor: 'var(--color-primary)',
-            borderRadius: '50%',
-            animation: 'spin 0.7s linear infinite',
-          }} />
+          <Spinner size={24} />
         </div>
       )}
 
