@@ -4,15 +4,20 @@ app/services/db.py — SQLite schema initialisation and async helper functions.
 All database operations use aiosqlite. The schema uses WAL mode and foreign keys.
 Call init_db() from FastAPI's lifespan startup hook.
 """
+import json
+import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import aiosqlite
+import bcrypt
 from loguru import logger
 
 from app.core.config import settings
+from app.core.grades import age_for_grade, normalize_grade_level
 
 
 # ──────────────────────────────────────────────────────────────
@@ -27,9 +32,35 @@ CREATE TABLE IF NOT EXISTS students (
     name        TEXT NOT NULL,
     age         INTEGER,
     language    TEXT DEFAULT 'en',
-    grade_level INTEGER DEFAULT 1,
+    grade_level TEXT DEFAULT '7th',
+    username    TEXT,
+    password_hash TEXT,
+    pin_visible TEXT,
+    is_registered INTEGER DEFAULT 0,
     created_at  TEXT DEFAULT (datetime('now')),
     last_active TEXT
+);
+
+CREATE TABLE IF NOT EXISTS teachers (
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    username    TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    is_admin   INTEGER DEFAULT 0,
+    original_password_hash TEXT,
+    initial_password TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_login TEXT,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS teacher_sessions (
+    token      TEXT PRIMARY KEY,
+    teacher_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (teacher_id) REFERENCES teachers(id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -114,6 +145,7 @@ CREATE TABLE IF NOT EXISTS teacher_quizzes (
     subject     TEXT,
     questions   TEXT NOT NULL,
     assigned_to TEXT DEFAULT 'all',
+    created_by  TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
@@ -121,6 +153,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_session   ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_materials_subject  ON materials(subject);
 CREATE INDEX IF NOT EXISTS idx_materials_student  ON materials(student_id);
 CREATE INDEX IF NOT EXISTS idx_tquiz_assigned     ON teacher_quizzes(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_teacher_sessions_teacher ON teacher_sessions(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expiry  ON teacher_sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS scheduled_classes (
     id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
@@ -151,9 +185,9 @@ def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
 
 def _mastery_level(mastery: float) -> str:
     """Return mastery level label from a 0–1 mastery score."""
-    if mastery > 0.75:
+    if mastery >= 0.75:
         return "advanced"
-    if mastery > 0.45:
+    if mastery >= 0.40:
         return "intermediate"
     return "beginner"
 
@@ -168,6 +202,113 @@ async def _get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
         yield db
 
 
+def _hash_secret(secret: str) -> str:
+    """Hash a teacher password or student PIN with bcrypt."""
+    return bcrypt.hashpw(secret.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _parse_db_datetime_utc(value: str | None) -> datetime | None:
+    """Parse SQLite ISO timestamps as naive UTC datetimes for safe comparisons."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _username_from_name(name: str, student_id: str) -> str:
+    stem = re.sub(r"[^a-z0-9]+", "_", (name or "student").lower()).strip("_")
+    stem = stem or "student"
+    return f"{stem}_{student_id[:4].lower()}"
+
+
+async def _student_username_exists(conn: aiosqlite.Connection, username: str, exclude_id: str | None = None) -> bool:
+    if exclude_id:
+        cursor = await conn.execute(
+            "SELECT 1 FROM students WHERE lower(username) = lower(?) AND id != ? LIMIT 1",
+            (username, exclude_id),
+        )
+    else:
+        cursor = await conn.execute(
+            "SELECT 1 FROM students WHERE lower(username) = lower(?) LIMIT 1",
+            (username,),
+        )
+    return await cursor.fetchone() is not None
+
+
+async def _unique_student_username(conn: aiosqlite.Connection, name: str, student_id: str) -> str:
+    base = _username_from_name(name, student_id)
+    candidate = base
+    suffix = 2
+    while await _student_username_exists(conn, candidate, exclude_id=student_id):
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _backup_path() -> Path:
+    db_path = Path(settings.DB_PATH)
+    backup_dir = db_path.parent if db_path.parent != Path("") else Path("data")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir / f"student_backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+
+
+async def _migrate_students_for_auth(conn: aiosqlite.Connection) -> dict[str, Any]:
+    """Back up and add auth fields for existing students without deleting data."""
+    cursor = await conn.execute("SELECT * FROM students ORDER BY created_at ASC")
+    rows = await cursor.fetchall()
+    students = [_row_to_dict(r) for r in rows]
+
+    migrated = [s for s in students if not (s.get("username") or "").strip()]
+    backup = None
+    if migrated:
+        backup = _backup_path()
+        backup.write_text(json.dumps(students, ensure_ascii=False, indent=2), encoding="utf-8")
+        msg = f"Student auth migration backup: {backup}"
+        print(msg)
+        logger.info(msg)
+
+    migrated_count = 0
+    for student in students:
+        sid = student["id"]
+        grade = normalize_grade_level(student.get("grade_level"))
+        age = age_for_grade(grade)
+        await conn.execute(
+            "UPDATE students SET grade_level = ?, age = ? WHERE id = ?",
+            (grade, age, sid),
+        )
+
+        if (student.get("username") or "").strip():
+            continue
+
+        username = await _unique_student_username(conn, student.get("name") or "student", sid)
+        pin = "1234"
+        await conn.execute(
+            """
+            UPDATE students
+            SET username = ?, password_hash = ?, pin_visible = ?, is_registered = 1
+            WHERE id = ?
+            """,
+            (username, _hash_secret(pin), pin, sid),
+        )
+        migrated_count += 1
+
+    await conn.commit()
+    if migrated_count:
+        msg = (
+            f"Migrated {migrated_count} existing students. Default PIN: 1234. "
+            "Teachers should ask students to update their PIN on first login."
+        )
+        print(msg)
+        logger.info(msg)
+
+    return {"migrated": migrated_count, "backup_file": str(backup) if backup else None}
+
+
 # ──────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────
@@ -180,6 +321,12 @@ async def init_db() -> None:
         await db.commit()
         # Additive migrations — safe to run on existing DBs (ignores duplicate column errors)
         for migration in [
+            "ALTER TABLE students ADD COLUMN username TEXT",
+            "ALTER TABLE students ADD COLUMN password_hash TEXT",
+            "ALTER TABLE students ADD COLUMN pin_visible TEXT",
+            "ALTER TABLE students ADD COLUMN is_registered INTEGER DEFAULT 0",
+            "ALTER TABLE teachers ADD COLUMN initial_password TEXT",
+            "ALTER TABLE teacher_quizzes ADD COLUMN created_by TEXT",
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
             "ALTER TABLE materials ADD COLUMN translated_text TEXT",
             "ALTER TABLE materials ADD COLUMN target_language TEXT",
@@ -200,6 +347,11 @@ async def init_db() -> None:
                 await db.commit()
             except Exception:
                 pass
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username ON students(username)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_sessions_teacher ON teacher_sessions(teacher_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expiry ON teacher_sessions(expires_at)")
+        await db.commit()
+        await _migrate_students_for_auth(db)
     logger.info("Database schema ready.")
 
 
@@ -207,18 +359,20 @@ async def create_student(
     name: str,
     age: int | None,
     language: str = "en",
-    grade_level: int = 1,
+    grade_level: str | int = "7th",
 ) -> dict[str, Any]:
     """Create a new student record and return it as a dict."""
     student_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
+    grade = normalize_grade_level(grade_level)
+    inferred_age = age_for_grade(grade)
     async with _get_db() as db:
         await db.execute(
             """
             INSERT INTO students (id, name, age, language, grade_level, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (student_id, name, age, language, grade_level, now),
+            (student_id, name, inferred_age, language, grade, now),
         )
         await db.commit()
         cursor = await db.execute(
@@ -248,6 +402,277 @@ async def update_last_active(student_id: str) -> None:
             (now, student_id),
         )
         await db.commit()
+
+
+async def count_teachers() -> int:
+    async with _get_db() as db:
+        cursor = await db.execute("SELECT COUNT(*) AS n FROM teachers WHERE is_active = 1")
+        row = await cursor.fetchone()
+    return int(row["n"] if row else 0)
+
+
+async def create_teacher(
+    username: str,
+    password_hash: str,
+    display_name: str,
+    is_admin: bool = False,
+    initial_password: str | None = None,
+    created_by: str | None = None,
+) -> dict[str, Any]:
+    teacher_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO teachers (
+                id, username, password_hash, display_name, is_admin,
+                original_password_hash, initial_password, created_by, created_at, is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                teacher_id,
+                username.strip().lower(),
+                password_hash,
+                display_name.strip() or username.strip(),
+                1 if is_admin else 0,
+                password_hash,
+                initial_password,
+                created_by,
+                now,
+            ),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM teachers WHERE id = ?", (teacher_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def get_teacher_by_username(username: str) -> dict[str, Any] | None:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM teachers WHERE lower(username) = lower(?) AND is_active = 1",
+            (username.strip(),),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def get_teacher_by_id(teacher_id: str) -> dict[str, Any] | None:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM teachers WHERE id = ? AND is_active = 1",
+            (teacher_id,),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def list_teachers(include_inactive: bool = True) -> list[dict[str, Any]]:
+    async with _get_db() as db:
+        if include_inactive:
+            cursor = await db.execute("SELECT * FROM teachers ORDER BY is_active DESC, created_at ASC")
+        else:
+            cursor = await db.execute("SELECT * FROM teachers WHERE is_active = 1 ORDER BY created_at ASC")
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def update_teacher_profile(
+    teacher_id: str,
+    display_name: str | None = None,
+    is_admin: bool | None = None,
+) -> dict[str, Any] | None:
+    updates: dict[str, Any] = {}
+    if display_name is not None:
+        updates["display_name"] = display_name.strip()
+    if is_admin is not None:
+        updates["is_admin"] = 1 if is_admin else 0
+    if not updates:
+        return await get_teacher_by_id(teacher_id)
+
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    values = list(updates.values()) + [teacher_id]
+    async with _get_db() as db:
+        await db.execute(f"UPDATE teachers SET {set_clause} WHERE id = ?", values)
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM teachers WHERE id = ?", (teacher_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def update_teacher_password(
+    teacher_id: str,
+    password_hash: str,
+    initial_password: str | None = None,
+) -> None:
+    async with _get_db() as db:
+        if initial_password is None:
+            await db.execute(
+                "UPDATE teachers SET password_hash = ? WHERE id = ?",
+                (password_hash, teacher_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE teachers SET password_hash = ?, initial_password = ?, original_password_hash = ? WHERE id = ?",
+                (password_hash, initial_password, password_hash, teacher_id),
+            )
+        await db.commit()
+
+
+async def set_teacher_last_login(teacher_id: str) -> None:
+    async with _get_db() as db:
+        await db.execute(
+            "UPDATE teachers SET last_login = ? WHERE id = ?",
+            (datetime.utcnow().isoformat() + "Z", teacher_id),
+        )
+        await db.commit()
+
+
+async def count_active_admins() -> int:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS n FROM teachers WHERE is_active = 1 AND is_admin = 1"
+        )
+        row = await cursor.fetchone()
+    return int(row["n"] if row else 0)
+
+
+async def soft_delete_teacher(teacher_id: str) -> None:
+    async with _get_db() as db:
+        await db.execute("UPDATE teachers SET is_active = 0 WHERE id = ?", (teacher_id,))
+        await db.execute("DELETE FROM teacher_sessions WHERE teacher_id = ?", (teacher_id,))
+        await db.commit()
+
+
+async def create_teacher_session(token: str, teacher_id: str, expires_at: datetime) -> None:
+    async with _get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO teacher_sessions (token, teacher_id, created_at, expires_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (token, teacher_id, datetime.utcnow().isoformat() + "Z", expires_at.isoformat() + "Z"),
+        )
+        await db.commit()
+
+
+async def delete_teacher_session(token: str) -> None:
+    async with _get_db() as db:
+        await db.execute("DELETE FROM teacher_sessions WHERE token = ?", (token,))
+        await db.commit()
+
+
+async def invalidate_teacher_sessions(teacher_id: str, keep_token: str | None = None) -> None:
+    async with _get_db() as db:
+        if keep_token:
+            await db.execute(
+                "DELETE FROM teacher_sessions WHERE teacher_id = ? AND token != ?",
+                (teacher_id, keep_token),
+            )
+        else:
+            await db.execute("DELETE FROM teacher_sessions WHERE teacher_id = ?", (teacher_id,))
+        await db.commit()
+
+
+async def get_teacher_by_session(token: str) -> dict[str, Any] | None:
+    now = datetime.utcnow().isoformat() + "Z"
+    async with _get_db() as db:
+        await db.execute("DELETE FROM teacher_sessions WHERE expires_at <= ?", (now,))
+        await db.commit()
+        cursor = await db.execute(
+            """
+            SELECT t.*
+            FROM teacher_sessions s
+            JOIN teachers t ON t.id = s.teacher_id
+            WHERE s.token = ? AND s.expires_at > ? AND t.is_active = 1
+            """,
+            (token, now),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def get_student_by_username(username: str) -> dict[str, Any] | None:
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM students WHERE lower(username) = lower(?) LIMIT 1",
+            (username.strip(),),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def student_username_available(username: str) -> bool:
+    clean = username.strip().lower()
+    if not clean:
+        return False
+    async with _get_db() as db:
+        return not await _student_username_exists(db, clean)
+
+
+async def create_registered_student(
+    name: str,
+    username: str,
+    pin_hash: str,
+    pin_visible: str,
+    language: str,
+    grade_level: str | int,
+) -> dict[str, Any]:
+    student_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    grade = normalize_grade_level(grade_level)
+    age = age_for_grade(grade)
+    async with _get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO students (
+                id, name, age, language, grade_level, username,
+                password_hash, pin_visible, is_registered, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+            """,
+            (
+                student_id,
+                name.strip(),
+                age,
+                language,
+                grade,
+                username.strip().lower(),
+                pin_hash,
+                pin_visible,
+                now,
+            ),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM students WHERE id = ?", (student_id,))
+        row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def list_students_for_admin(include_pin: bool = True) -> list[dict[str, Any]]:
+    async with _get_db() as db:
+        columns = "id, name, username, pin_visible, age, language, grade_level, created_at, last_active"
+        if not include_pin:
+            columns = "id, name, username, age, language, grade_level, created_at, last_active"
+        cursor = await db.execute(f"SELECT {columns} FROM students ORDER BY name ASC")
+        rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def reset_student_pin(student_id: str, pin_hash: str, pin_visible: str) -> dict[str, Any] | None:
+    async with _get_db() as db:
+        await db.execute(
+            "UPDATE students SET password_hash = ?, pin_visible = ?, is_registered = 1 WHERE id = ?",
+            (pin_hash, pin_visible, student_id),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT id, name, username, pin_visible, age, language, grade_level, created_at, last_active FROM students WHERE id = ?",
+            (student_id,),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
 
 
 async def create_session(student_id: str) -> dict[str, Any]:
@@ -629,7 +1054,7 @@ async def get_teacher_students() -> list[dict[str, Any]]:
         rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in rows]
 
-        now_iso = datetime.utcnow().isoformat()
+        now = datetime.utcnow()
 
         for student in students:
             sid = student["id"]
@@ -649,16 +1074,11 @@ async def get_teacher_students() -> list[dict[str, Any]]:
             alerts: list[str] = []
 
             # inactive_3_days: NULL last_active OR last_active older than 3 days
-            last_active_str = student.get("last_active")
-            if last_active_str is None:
+            last_active = _parse_db_datetime_utc(student.get("last_active"))
+            if last_active is None:
                 alerts.append("inactive_3_days")
-            else:
-                try:
-                    last = datetime.fromisoformat(last_active_str)
-                    if (datetime.utcnow() - last) > timedelta(days=3):
-                        alerts.append("inactive_3_days")
-                except ValueError:
-                    alerts.append("inactive_3_days")
+            elif (now - last_active) > timedelta(days=3):
+                alerts.append("inactive_3_days")
 
             # stuck_on_topic: any topic with mastery < 0.40 and >= 3 quiz_results
             for m in mastery_list:
@@ -933,12 +1353,19 @@ async def append_material_tutor_history(
 async def get_all_materials(teacher_only: bool = False) -> list[dict[str, Any]]:
     """Return materials ordered by created_at desc. teacher_only=True filters to student_id IS NULL."""
     async with _get_db() as db:
+        base_select = """
+            SELECT m.*,
+                   COALESCE(t.username, m.uploaded_by) AS uploaded_by_username,
+                   t.display_name AS uploaded_by_display_name
+            FROM materials m
+            LEFT JOIN teachers t ON t.id = m.uploaded_by
+        """
         if teacher_only:
             cursor = await db.execute(
-                "SELECT * FROM materials WHERE student_id IS NULL ORDER BY created_at DESC"
+                base_select + " WHERE m.student_id IS NULL ORDER BY m.created_at DESC"
             )
         else:
-            cursor = await db.execute("SELECT * FROM materials ORDER BY created_at DESC")
+            cursor = await db.execute(base_select + " ORDER BY m.created_at DESC")
         rows = await cursor.fetchall()
     return [_row_to_dict(r) for r in rows]
 
@@ -948,19 +1375,28 @@ async def create_teacher_quiz(
     subject: str | None,
     questions: list[dict],
     assigned_to: str = "all",
+    created_by: str | None = None,
 ) -> dict[str, Any]:
     """Insert a teacher_quizzes row and return it."""
     import json as _json
     quiz_id = str(uuid.uuid4())[:16].replace("-", "")
     async with _get_db() as db:
         await db.execute(
-            """INSERT INTO teacher_quizzes (id, title, subject, questions, assigned_to)
-               VALUES (?, ?, ?, ?, ?)""",
-            (quiz_id, title, subject, _json.dumps(questions), assigned_to),
+            """INSERT INTO teacher_quizzes (id, title, subject, questions, assigned_to, created_by)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (quiz_id, title, subject, _json.dumps(questions), assigned_to, created_by),
         )
         await db.commit()
         cursor = await db.execute(
-            "SELECT * FROM teacher_quizzes WHERE id = ?", (quiz_id,)
+            """
+            SELECT q.*,
+                   COALESCE(t.username, q.created_by) AS created_by_username,
+                   t.display_name AS created_by_display_name
+            FROM teacher_quizzes q
+            LEFT JOIN teachers t ON t.id = q.created_by
+            WHERE q.id = ?
+            """,
+            (quiz_id,),
         )
         row = await cursor.fetchone()
     result = _row_to_dict(row)
@@ -973,7 +1409,14 @@ async def get_all_teacher_quizzes() -> list[dict[str, Any]]:
     import json as _json
     async with _get_db() as db:
         cursor = await db.execute(
-            "SELECT * FROM teacher_quizzes ORDER BY created_at DESC"
+            """
+            SELECT q.*,
+                   COALESCE(t.username, q.created_by) AS created_by_username,
+                   t.display_name AS created_by_display_name
+            FROM teacher_quizzes q
+            LEFT JOIN teachers t ON t.id = q.created_by
+            ORDER BY q.created_at DESC
+            """
         )
         rows = await cursor.fetchall()
     result = []
@@ -989,7 +1432,15 @@ async def get_teacher_quiz(quiz_id: str) -> dict[str, Any] | None:
     import json as _json
     async with _get_db() as db:
         cursor = await db.execute(
-            "SELECT * FROM teacher_quizzes WHERE id = ?", (quiz_id,)
+            """
+            SELECT q.*,
+                   COALESCE(t.username, q.created_by) AS created_by_username,
+                   t.display_name AS created_by_display_name
+            FROM teacher_quizzes q
+            LEFT JOIN teachers t ON t.id = q.created_by
+            WHERE q.id = ?
+            """,
+            (quiz_id,),
         )
         row = await cursor.fetchone()
     if row is None:
@@ -1004,10 +1455,14 @@ async def get_teacher_quizzes_for_student(student_id: str) -> list[dict[str, Any
     import json as _json
     async with _get_db() as db:
         cursor = await db.execute(
-            """SELECT * FROM teacher_quizzes
-               WHERE assigned_to = 'all'
-                  OR assigned_to LIKE ?
-               ORDER BY created_at DESC""",
+            """SELECT q.*,
+                      COALESCE(t.username, q.created_by) AS created_by_username,
+                      t.display_name AS created_by_display_name
+               FROM teacher_quizzes q
+               LEFT JOIN teachers t ON t.id = q.created_by
+               WHERE q.assigned_to = 'all'
+                  OR q.assigned_to LIKE ?
+               ORDER BY q.created_at DESC""",
             (f"%{student_id}%",),
         )
         rows = await cursor.fetchall()
@@ -1101,7 +1556,15 @@ async def get_materials_by_subject(subject: str) -> list[dict[str, Any]]:
     """Return materials for a given subject, newest first."""
     async with _get_db() as db:
         cursor = await db.execute(
-            "SELECT * FROM materials WHERE subject = ? ORDER BY created_at DESC",
+            """
+            SELECT m.*,
+                   COALESCE(t.username, m.uploaded_by) AS uploaded_by_username,
+                   t.display_name AS uploaded_by_display_name
+            FROM materials m
+            LEFT JOIN teachers t ON t.id = m.uploaded_by
+            WHERE m.subject = ?
+            ORDER BY m.created_at DESC
+            """,
             (subject,),
         )
         rows = await cursor.fetchall()
@@ -1113,10 +1576,14 @@ async def get_teacher_quizzes_by_subject(subject: str, student_id: str) -> list[
     import json as _json
     async with _get_db() as db:
         cursor = await db.execute(
-            """SELECT * FROM teacher_quizzes
-               WHERE subject = ?
-                 AND (assigned_to = 'all' OR assigned_to LIKE ?)
-               ORDER BY created_at DESC""",
+            """SELECT q.*,
+                      COALESCE(t.username, q.created_by) AS created_by_username,
+                      t.display_name AS created_by_display_name
+               FROM teacher_quizzes q
+               LEFT JOIN teachers t ON t.id = q.created_by
+               WHERE q.subject = ?
+                 AND (q.assigned_to = 'all' OR q.assigned_to LIKE ?)
+               ORDER BY q.created_at DESC""",
             (subject, f"%{student_id}%"),
         )
         rows = await cursor.fetchall()

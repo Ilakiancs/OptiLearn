@@ -14,12 +14,20 @@ Thumbs.db
 .claude.md
 AGENTS.md
 CLAUDE*.md
+AUTH_SYSTEM.md
 CC_*.md
 OPTILEARN_STATE.md
 OPTILEARN_TECHNICAL.md
+agent-prompt.md
 build_state.txt
 **/build_state.txt
 **/C*build_state.txt
+
+# Dev testing scratchpads
+optilearn/TEST.md
+
+# Runtime data backups
+optilearn/data/*_backup_*.json
 
 # Python caches and virtual environments
 __pycache__/

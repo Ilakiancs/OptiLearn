@@ -300,7 +300,7 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
             else if (opt === selected) {
               bg = 'rgba(115, 201, 247, 0.12)'; border = 'var(--color-primary)'; color = 'var(--color-text)'
               verdictIcon = <XCircle size={20} weight="bold" />
-              verdictLabel = 'Wrong'
+              verdictLabel = 'Review'
             }
           } else if (opt === selected) {
             bg = 'var(--color-surface-2)'; border = 'var(--color-primary)'; color = 'var(--color-text)'

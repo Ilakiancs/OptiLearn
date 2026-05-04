@@ -32,6 +32,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.grades import normalize_grade_level
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store
 from app.services.model_client import MODEL_SWITCH_TOKEN, get_network_status, route_generate_with_fallback
@@ -249,7 +250,7 @@ def _parse_audio_response(response_text: str) -> tuple[str, str]:
 async def transcribe_and_translate_audio(
     audio_bytes: bytes,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
     hint_language: str | None = None,
 ) -> tuple[str, str]:
@@ -273,7 +274,7 @@ def _clean_model_text(text: str) -> str:
 async def _call_ollama_translation(
     transcript: str,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
     *,
     num_predict: int,
@@ -320,7 +321,7 @@ async def _call_ollama_translation(
 async def _ollama_translate_text(
     transcript: str,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
 ) -> str:
     translated, _ = await _translate_text(transcript, target_language, grade_level, age)
@@ -330,7 +331,7 @@ async def _ollama_translate_text(
 async def _translate_text(
     transcript: str,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
 ) -> tuple[str, bool]:
     if not transcript.strip():
@@ -386,7 +387,7 @@ async def _translate_text(
 async def _translate_text_sse(
     transcript: str,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
 ) -> AsyncGenerator[tuple[str, str], None]:
     if not transcript.strip():
@@ -461,7 +462,7 @@ def _build_translation_groups(chunks: list[dict]) -> list[dict]:
 async def _gemini_audio_chunk(
     audio_bytes: bytes,
     target_language: str,
-    grade_level: int,
+    grade_level: str | int,
     age: int,
 ) -> tuple[str, str]:
     try:
@@ -840,7 +841,7 @@ async def translate_finalize(body: FinalizeRequest) -> StreamingResponse:
             return
 
         student = await db.get_student(body.student_id) or {}
-        grade = int(student.get("grade_level") or 1)
+        grade = normalize_grade_level(student.get("grade_level") or "7th")
         age = int(student.get("age") or 10)
         total = len(groups)
         translated_chunks: list[dict] = []
@@ -1211,7 +1212,7 @@ def _render_notes_pdf(
         @page {{ size: A4; margin: 18mm 20mm; }}
         * {{ box-sizing: border-box; }}
         body {{ margin: 0; color: #202124; font-family: {font_stack}; font-size: 11.5pt; line-height: 1.75; }}
-        .banner {{ background: #1a73e8; color: white; -webkit-print-color-adjust: exact;
+        .banner {{ background: #2a8dbf; color: white; -webkit-print-color-adjust: exact;
                    print-color-adjust: exact; font-weight: 700; font-size: 13pt;
                    padding: 8pt 12pt; margin-bottom: 24pt; }}
         h1 {{ margin: 0 0 6pt; color: #202124; font-size: 22pt; font-weight: 700; }}

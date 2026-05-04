@@ -1,14 +1,20 @@
 import { useMemo } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { BellSimple, ClipboardText, FileText, Megaphone } from '@phosphor-icons/react'
-import { listMaterials, listTeacherQuizzes } from '../api/client'
+import { listMaterials, listStudentQuizzes } from '../api/client'
 
 function isNew(iso) {
   return iso && Date.now() - new Date(iso).getTime() < 1000 * 60 * 60 * 24 * 2
 }
 
 export default function AnnouncementsPage() {
-  const { data: quizzes = [], isLoading: qLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes })
+  const { studentId } = useOutletContext()
+  const { data: quizzes = [], isLoading: qLoading } = useQuery({
+    queryKey: ['student-quizzes', studentId],
+    queryFn: () => listStudentQuizzes(studentId),
+    enabled: !!studentId,
+  })
   const { data: materials = [], isLoading: mLoading } = useQuery({ queryKey: ['materials'], queryFn: listMaterials })
 
   const notes = useMemo(

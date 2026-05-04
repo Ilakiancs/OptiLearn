@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createTeacherQuiz, listTeacherQuizzes, listStudents } from '../api/client'
 import { Link } from 'react-router-dom'
@@ -128,9 +128,23 @@ export default function TeacherQuizBuilder() {
   const [questions, setQuestions] = useState([{ ...BLANK_QUESTION }])
   const [error, setError] = useState('')
   const [showPreview, setShowPreview] = useState(false)
+  const [quizSearch, setQuizSearch] = useState('')
 
   const { data: students } = useQuery({ queryKey: ['students'], queryFn: listStudents })
   const { data: quizzes, isLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes, refetchInterval: 15000 })
+
+  const filteredQuizzes = useMemo(() => {
+    const q = quizSearch.trim().toLowerCase()
+    const rows = quizzes || []
+    if (!q) return rows
+    return rows.filter((quiz) => [
+      quiz.title,
+      quiz.subject,
+      quiz.created_by_username,
+      quiz.created_by_display_name,
+      quiz.created_by,
+    ].some((value) => String(value || '').toLowerCase().includes(q)))
+  }, [quizzes, quizSearch])
 
   const mutation = useMutation({
     mutationFn: createTeacherQuiz,
@@ -280,20 +294,32 @@ export default function TeacherQuizBuilder() {
 
           {/* Existing quizzes list */}
           <section style={card}>
-            <h2 style={sectionHead}>Saved Quizzes</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+              <h2 style={{ ...sectionHead, marginBottom: 0 }}>Saved Quizzes</h2>
+              <input
+                value={quizSearch}
+                onChange={(e) => setQuizSearch(e.target.value)}
+                placeholder="Search title or teacher..."
+                style={{ ...inputStyle, maxWidth: 320, minHeight: 42, fontSize: '0.9rem' }}
+              />
+            </div>
             {isLoading ? (
               <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>
             ) : !quizzes?.length ? (
               <p style={{ color: 'var(--color-text-hint)' }}>No quizzes yet.</p>
-            ) : quizzes.map((q, i) => (
+            ) : filteredQuizzes.length === 0 ? (
+              <p style={{ color: 'var(--color-text-hint)' }}>No quizzes match your search.</p>
+            ) : filteredQuizzes.map((q, i) => (
               <div key={q.id} style={{
                 display: 'flex', gap: 12, alignItems: 'center',
-                padding: '12px 0', borderBottom: i < quizzes.length - 1 ? '1px solid var(--color-border)' : 'none',
+                padding: '12px 0', borderBottom: i < filteredQuizzes.length - 1 ? '1px solid var(--color-border)' : 'none',
                 flexWrap: 'wrap',
               }}>
                 <div style={{ flex: 1, minWidth: 120 }}>
                   <div style={{ fontWeight: 600 }}>{q.title}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{q.subject || '—'} · {q.question_count} question{q.question_count !== 1 ? 's' : ''}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                    {q.subject || '—'} · {q.question_count} question{q.question_count !== 1 ? 's' : ''} · Created by {q.created_by_username || q.created_by_display_name || '-'}
+                  </div>
                 </div>
                 <span style={{
                   padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem',

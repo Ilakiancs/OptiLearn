@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, ClipboardText, FunnelSimple, ListChecks, Play, Timer, X } from '@phosphor-icons/react'
-import { getStudentProgress, listTeacherQuizzes } from '../api/client'
+import { getStudentProgress, listStudentQuizzes } from '../api/client'
 import { QuizFlow } from './CoursePage'
 import Spinner from '../components/Spinner'
 
@@ -44,7 +44,11 @@ export default function AssignmentsPage() {
   const [filter, setFilter] = useState('all')
   const [activeQuiz, setActiveQuiz] = useState(null)
 
-  const { data: quizzes = [], isLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes })
+  const { data: quizzes = [], isLoading } = useQuery({
+    queryKey: ['student-quizzes', studentId],
+    queryFn: () => listStudentQuizzes(studentId),
+    enabled: !!studentId,
+  })
   const { data: progress } = useQuery({ queryKey: ['student-progress', studentId], queryFn: () => getStudentProgress(studentId) })
 
   const attempts = progress?.recent_quizzes || []

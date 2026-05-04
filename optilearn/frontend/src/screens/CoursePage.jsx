@@ -173,7 +173,7 @@ export function QuizFlow({ quiz, studentId, onDone }) {
               border = 'var(--color-primary)'
               color = 'var(--color-text)'
               endIcon = <XCircle size={20} weight="bold" />
-              endLabel = 'Wrong'
+              endLabel = 'Review'
             }
           } else if (opt === sel) {
             border = 'var(--color-primary)'

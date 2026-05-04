@@ -16,6 +16,10 @@ httpx==0.27.2
 pydantic>=2.10.0
 pydantic-settings>=2.6.0
 
+# Offline authentication
+bcrypt>=4.1.3
+python-jose>=3.3.0
+
 # Image processing
 Pillow>=10.4.0
 

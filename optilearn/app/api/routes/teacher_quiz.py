@@ -7,12 +7,14 @@ GET  /api/teacher/quiz/{id}  — single quiz with full questions
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.routes.auth import get_current_teacher
 from app.services import db
 
 router = APIRouter(prefix="/api/teacher/quiz", tags=["teacher-quiz"])
+student_router = APIRouter(prefix="/api/student/quiz", tags=["student-quiz"])
 
 
 class QuizQuestion(BaseModel):
@@ -30,7 +32,10 @@ class CreateTeacherQuizRequest(BaseModel):
 
 
 @router.post("")
-async def create_teacher_quiz(body: CreateTeacherQuizRequest) -> dict:
+async def create_teacher_quiz(
+    body: CreateTeacherQuizRequest,
+    teacher: dict = Depends(get_current_teacher),
+) -> dict:
     """
     Create a teacher-authored quiz.
     assigned_to: "all" or comma-separated student IDs e.g. "id1,id2"
@@ -41,12 +46,17 @@ async def create_teacher_quiz(body: CreateTeacherQuizRequest) -> dict:
         subject=body.subject,
         questions=questions_raw,
         assigned_to=body.assigned_to,
+        created_by=teacher["id"],
     )
     return quiz
 
 
 @router.get("")
-async def list_teacher_quizzes(subject: str | None = None, student_id: str | None = None) -> list[dict]:
+async def list_teacher_quizzes(
+    subject: str | None = None,
+    student_id: str | None = None,
+    _: dict = Depends(get_current_teacher),
+) -> list[dict]:
     """Return teacher quizzes. Filter by ?subject= and/or ?student_id=."""
     if subject and student_id:
         quizzes = await db.get_teacher_quizzes_by_subject(subject, student_id)
@@ -60,9 +70,26 @@ async def list_teacher_quizzes(subject: str | None = None, student_id: str | Non
 
 
 @router.get("/{quiz_id}")
-async def get_teacher_quiz(quiz_id: str) -> dict:
+async def get_teacher_quiz(
+    quiz_id: str,
+    _: dict = Depends(get_current_teacher),
+) -> dict:
     """Return a single teacher quiz with full questions."""
     quiz = await db.get_teacher_quiz(quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail=f"Quiz '{quiz_id}' not found.")
     return quiz
+
+
+@student_router.get("")
+async def list_student_quizzes(subject: str | None = None, student_id: str | None = None) -> list[dict]:
+    """Return quizzes assigned to a student without exposing teacher management APIs."""
+    if not student_id:
+        raise HTTPException(status_code=422, detail="student_id is required.")
+    if subject:
+        quizzes = await db.get_teacher_quizzes_by_subject(subject, student_id)
+    else:
+        quizzes = await db.get_teacher_quizzes_for_student(student_id)
+    for q in quizzes:
+        q["question_count"] = len(q.get("questions", []))
+    return quizzes

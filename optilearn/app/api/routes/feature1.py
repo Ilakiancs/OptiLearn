@@ -180,7 +180,7 @@ def _render_translation_pdf(
             line-height: 1.75;
         }}
         .banner {{
-            background: #1a73e8;
+            background: #2a8dbf;
             color: white;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -1228,7 +1228,7 @@ async def export_translation_pdf(
 
         watermark_style = ParagraphStyle("watermark",
             fontName=base_font, fontSize=8,
-            textColor=HexColor("#1a73e8"), spaceAfter=2)
+            textColor=HexColor("#2a8dbf"), spaceAfter=2)
         title_style = ParagraphStyle("title",
             fontName=bold_font, fontSize=22,
             textColor=HexColor("#202124"), spaceAfter=4,
@@ -1267,7 +1267,7 @@ async def export_translation_pdf(
         ]]
         header_table = Table(header_data, colWidths=[83 * mm, 83 * mm])
         header_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#1a73e8")),
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#2a8dbf")),
             ("TOPPADDING", (0, 0), (-1, -1), 6),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ("LEFTPADDING", (0, 0), (0, -1), 8),
