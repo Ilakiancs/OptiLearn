@@ -11,10 +11,11 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from app.api.routes.auth import get_current_teacher
 from app.core.config import settings
 from app.services import db, faiss_store
 
@@ -68,6 +69,7 @@ async def upload_material(
     file: UploadFile = File(...),
     title: Annotated[str, Form()] = "",
     subject: Annotated[str | None, Form()] = None,
+    current_teacher: dict = Depends(get_current_teacher),
 ) -> dict:
     """
     Upload a teaching material file. PDFs are text-extracted and indexed in FAISS.
@@ -111,6 +113,7 @@ async def upload_material(
         title=title.strip(),
         subject=subject,
         file_path=str(dest_path),
+        uploaded_by=current_teacher["id"],
         faiss_indexed=passage_count > 0,
     )
     record["passage_count"] = passage_count

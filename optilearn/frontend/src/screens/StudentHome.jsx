@@ -12,7 +12,7 @@ import {
   Target,
   Trophy,
 } from '@phosphor-icons/react'
-import { getStudentProgress, getSubjects, listTeacherQuizzes } from '../api/client'
+import { getStudentProgress, getSubjects, listStudentQuizzes } from '../api/client'
 
 function StatTile({ Icon, label, value, tone }) {
   return (
@@ -50,7 +50,11 @@ export default function StudentHome() {
   const { student, studentId } = useOutletContext()
   const { data: subjects = [] } = useQuery({ queryKey: ['subjects'], queryFn: getSubjects })
   const { data: progress } = useQuery({ queryKey: ['student-progress', studentId], queryFn: () => getStudentProgress(studentId) })
-  const { data: quizzes = [] } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes })
+  const { data: quizzes = [] } = useQuery({
+    queryKey: ['student-quizzes', studentId],
+    queryFn: () => listStudentQuizzes(studentId),
+    enabled: !!studentId,
+  })
 
   const masteryAvg = progress?.mastery_by_topic?.length
     ? Math.round((progress.mastery_by_topic.reduce((acc, item) => acc + item.mastery, 0) / progress.mastery_by_topic.length) * 100)

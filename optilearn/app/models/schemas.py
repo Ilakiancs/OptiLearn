@@ -10,7 +10,7 @@ class CreateStudentRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     age: int | None = Field(default=None, ge=3, le=100)
     language: str = Field(default="en", min_length=2, max_length=10)
-    grade_level: int = Field(default=1, ge=1, le=13)
+    grade_level: str | int = Field(default="7th")
 
 
 class CreateSessionRequest(BaseModel):

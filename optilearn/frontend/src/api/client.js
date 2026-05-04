@@ -1,16 +1,44 @@
 const BASE = window.location.origin
 
+function authHeaders(headers = {}) {
+  const token = localStorage.getItem('teacher_token')
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options)
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  })
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
       const body = await res.json()
       message = body.detail || body.message || message
     } catch (_) {}
-    throw new Error(message)
+    const err = new Error(message)
+    err.status = res.status
+    throw err
   }
   return res.json()
+}
+
+async function requestBlob(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: authHeaders(options.headers || {}),
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      message = body.detail || body.message || message
+    } catch (_) {}
+    const err = new Error(message)
+    err.status = res.status
+    throw err
+  }
+  return res.blob()
 }
 
 export function createStudent({ name, age, language, grade_level }) {
@@ -18,6 +46,122 @@ export function createStudent({ name, age, language, grade_level }) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, age, language, grade_level }),
+  })
+}
+
+export function getSetupRequired() {
+  return request('/api/auth/setup-required')
+}
+
+export function setupAdmin(body) {
+  return request('/api/auth/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function loginTeacher(body) {
+  return request('/api/auth/teacher/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function logoutTeacher() {
+  return request('/api/auth/teacher/logout', { method: 'POST' })
+}
+
+export function getTeacherMe() {
+  return request('/api/auth/teacher/me')
+}
+
+export function changeTeacherPassword(body) {
+  return request('/api/auth/teacher/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function signupStudent(body) {
+  return request('/api/auth/student/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function loginStudent(body) {
+  return request('/api/auth/student/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function checkStudentUsername(username) {
+  return request(`/api/auth/student/username-available?username=${encodeURIComponent(username)}`)
+}
+
+export function listAdminTeachers() {
+  return request('/api/auth/admin/teachers')
+}
+
+export function createAdminTeacher(body) {
+  return request('/api/auth/admin/teachers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function updateAdminTeacher(teacherId, body) {
+  return request(`/api/auth/admin/teachers/${encodeURIComponent(teacherId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function resetAdminTeacherPassword(teacherId, newPassword) {
+  return request(`/api/auth/admin/teachers/${encodeURIComponent(teacherId)}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_password: newPassword }),
+  })
+}
+
+export function deactivateAdminTeacher(teacherId) {
+  return request(`/api/auth/admin/teachers/${encodeURIComponent(teacherId)}`, { method: 'DELETE' })
+}
+
+export function listAdminStudents() {
+  return request('/api/auth/admin/students')
+}
+
+export function resetAdminStudentPin(studentId, newPin) {
+  return request(`/api/auth/admin/students/${encodeURIComponent(studentId)}/reset-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_pin: newPin }),
+  })
+}
+
+export function createAdminStudent(body) {
+  return request('/api/auth/admin/students', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function changeStudentPin(body) {
+  return request('/api/auth/student/change-pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 
@@ -119,9 +263,21 @@ export function listTeacherQuizzes() {
   return request('/api/teacher/quiz')
 }
 
-export function downloadWeeklyReport(week) {
-  const url = `${window.location.origin}/api/teacher/report${week ? `?week=${week}` : ''}`
-  window.open(url, '_blank')
+export function listStudentQuizzes(studentId) {
+  return request(`/api/student/quiz?student_id=${encodeURIComponent(studentId)}`)
+}
+
+export async function downloadWeeklyReport(week) {
+  const path = `/api/teacher/report${week ? `?week=${week}` : ''}`
+  const blob = await requestBlob(path)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `OptiLearn_Report_${week || 'current'}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export function getSubjects() {
@@ -137,7 +293,7 @@ export function getMaterialFileUrl(materialId) {
 }
 
 export function getQuizzesBySubject(subject, studentId) {
-  return request(`/api/teacher/quiz?subject=${encodeURIComponent(subject)}&student_id=${encodeURIComponent(studentId)}`)
+  return request(`/api/student/quiz?subject=${encodeURIComponent(subject)}&student_id=${encodeURIComponent(studentId)}`)
 }
 
 // ── Schedule ────────────────────────────────────────────────────
@@ -169,7 +325,7 @@ export function updateTeacherSettings(body) {
 export async function streamSSE(url, body, onEvent, onDone) {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   })
   if (!response.ok) {

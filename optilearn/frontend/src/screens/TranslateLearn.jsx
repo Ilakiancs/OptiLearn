@@ -312,7 +312,7 @@ export default function TranslateLearn() {
       setAppState('translating')
       await startTranslation(result, targetLanguage)
     } catch (err) {
-      setError(err.message || 'Upload failed. Please try again.')
+      setError(err.message || 'Upload needs another try. Please check the file or text.')
       setAppState('idle')
     } finally {
       uploadInFlightRef.current = false
@@ -349,7 +349,7 @@ export default function TranslateLearn() {
             }
             setTranslationProgress(prev => ({ ...prev, current: event.page }))
           } else if (event.type === 'error') {
-            setError(event.message || 'Translation failed. Check your API key quota and try again.')
+            setError(event.message || 'Translation needs another try. Check your API key quota and try again.')
           }
         },
         () => {
@@ -362,7 +362,7 @@ export default function TranslateLearn() {
             setTimeout(loadPastSessions, 900)
             startExplanation(mat, lang)
           } else {
-            setError(prev => prev || 'Translation returned no content. The input may contain text the AI could not process - please check your input and try again.')
+            setError(prev => prev || 'Translation returned no content. Please check your input and try again.')
             setAppState('idle')
           }
         }
@@ -371,7 +371,7 @@ export default function TranslateLearn() {
       if (isCancelledRef.current || activeTranslationRef.current !== run) return
       activeTranslationRef.current = null
       setIsStreaming(false)
-      setError(err.message || 'Translation failed.')
+      setError(err.message || 'Translation needs another try.')
       setAppState('idle')
     }
   }
@@ -396,7 +396,7 @@ export default function TranslateLearn() {
               return next
             })
           } else if (event.type === 'error') {
-            setError(event.message || 'Explanation failed.')
+            setError(event.message || 'Explanation needs another try.')
           }
         },
         async () => {
@@ -424,7 +424,7 @@ export default function TranslateLearn() {
         return next
       })
       setIsStreaming(false)
-      setError(err.message || 'Explanation failed.')
+      setError(err.message || 'Explanation needs another try.')
     }
   }
 
@@ -471,7 +471,7 @@ export default function TranslateLearn() {
         return next
       })
       setIsStreaming(false)
-      setError(err.message || 'Question failed.')
+      setError(err.message || 'Question needs another try.')
     }
   }
 // -- Section --

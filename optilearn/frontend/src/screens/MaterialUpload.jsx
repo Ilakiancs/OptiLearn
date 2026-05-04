@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { uploadMaterial, listMaterials } from '../api/client'
 import { Link } from 'react-router-dom'
@@ -33,6 +33,7 @@ export default function MaterialUpload() {
   const [subject, setSubject] = useState('')
   const [error, setError] = useState('')
   const [uploadProgress, setUploadProgress] = useState(null)
+  const [materialSearch, setMaterialSearch] = useState('')
 
   const { data: materials, isLoading } = useQuery({
     queryKey: ['materials'],
@@ -55,6 +56,19 @@ export default function MaterialUpload() {
       setUploadProgress(null)
     },
   })
+
+  const filteredMaterials = useMemo(() => {
+    const q = materialSearch.trim().toLowerCase()
+    const rows = materials || []
+    if (!q) return rows
+    return rows.filter((material) => [
+      material.title,
+      material.subject,
+      material.uploaded_by_username,
+      material.uploaded_by_display_name,
+      material.uploaded_by,
+    ].some((value) => String(value || '').toLowerCase().includes(q)))
+  }, [materials, materialSearch])
 
   function validateFile(file) {
     if (!file) return 'No file selected.'
@@ -185,26 +199,37 @@ export default function MaterialUpload() {
 
         {/* Materials list */}
         <section style={card}>
-          <h2 style={sectionHead}>Uploaded Materials</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <h2 style={{ ...sectionHead, marginBottom: 0 }}>Uploaded Materials</h2>
+            <input
+              value={materialSearch}
+              onChange={(e) => setMaterialSearch(e.target.value)}
+              placeholder="Search title or teacher..."
+              style={{ ...inputStyle, maxWidth: 320, minHeight: 42, fontSize: '0.9rem' }}
+            />
+          </div>
           {isLoading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner /></div>
           ) : !materials?.length ? (
             <p style={{ color: 'var(--color-text-hint)' }}>No materials uploaded yet.</p>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: 720 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    {['Title', 'Subject', 'Indexed', 'Uploaded'].map(h => (
+                    {['Title', 'Subject', 'Uploaded by', 'Indexed', 'Uploaded'].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--color-text-muted)', fontWeight: 600 }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {materials.map((m, i) => (
-                    <tr key={m.id} style={{ borderBottom: i < materials.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                  {filteredMaterials.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: '18px 12px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No materials match your search.</td></tr>
+                  ) : filteredMaterials.map((m, i) => (
+                    <tr key={m.id} style={{ borderBottom: i < filteredMaterials.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
                       <td style={{ padding: '10px 12px', fontWeight: 600 }}>{m.title}</td>
                       <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>{m.subject || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{m.uploaded_by_username || m.uploaded_by_display_name || '-'}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', fontWeight: 600,

@@ -21,7 +21,7 @@ export default function StudentProgressPage() {
           <span>Progress</span>
         </h1>
         <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: '0.84rem' }}>
-          This view helps you notice growth, not mistakes.
+          This view helps you notice growth and next steps.
         </div>
       </div>
 

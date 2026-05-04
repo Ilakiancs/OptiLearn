@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.api.routes import chat, dashboard, feature1, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import auth, chat, dashboard, feature1, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
@@ -118,12 +118,14 @@ app.add_middleware(
 # ── Routers ────────────────────────────────────────────────────
 app.include_router(students.router)
 app.include_router(students.schedule_router)
+app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(quiz.router)
 app.include_router(dashboard.router)
 app.include_router(teacher.router)
 app.include_router(teacher_quiz.router)
+app.include_router(teacher_quiz.student_router)
 app.include_router(materials.router)
 app.include_router(feature1.router)
 app.include_router(tts_router)
