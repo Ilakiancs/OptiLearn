@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { createTeacherQuiz, listTeacherQuizzes, listStudents } from '../api/client'
-import { Link } from 'react-router-dom'
+import { createTeacherQuiz, listTeacherQuizzes, listStudents, createLiveGame } from '../api/client'
+import { Link, useNavigate } from 'react-router-dom'
 import SubjectComboInput from '../components/SubjectComboInput'
 
 const BLANK_QUESTION = { question: '', options: ['', '', '', ''], correct_answer: '', explanation: '' }
@@ -121,6 +121,7 @@ function QuizPreview({ title, subject, questions }) {
 
 export default function TeacherQuizBuilder() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const [title, setTitle] = useState('')
   const [subject, setSubject] = useState('')
@@ -129,6 +130,7 @@ export default function TeacherQuizBuilder() {
   const [error, setError] = useState('')
   const [showPreview, setShowPreview] = useState(false)
   const [quizSearch, setQuizSearch] = useState('')
+  const [launchingId, setLaunchingId] = useState(null)
 
   const { data: students } = useQuery({ queryKey: ['students'], queryFn: listStudents })
   const { data: quizzes, isLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes, refetchInterval: 15000 })
@@ -191,6 +193,18 @@ export default function TeacherQuizBuilder() {
     }))
 
     mutation.mutate({ title: title.trim(), subject: subject.trim() || undefined, questions: cleanQuestions, assigned_to: assignedTo })
+  }
+
+  async function launchGame(quizId) {
+    setLaunchingId(quizId)
+    try {
+      const result = await createLiveGame(quizId)
+      window.open(`/teacher/live-quiz/${result.game_id}`, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      alert(err.message || 'Could not create live game.')
+    } finally {
+      setLaunchingId(null)
+    }
   }
 
   const inputStyle = {
@@ -321,12 +335,33 @@ export default function TeacherQuizBuilder() {
                     {q.subject || '—'} · {q.question_count} question{q.question_count !== 1 ? 's' : ''} · Created by {q.created_by_username || q.created_by_display_name || '-'}
                   </div>
                 </div>
-                <span style={{
+              <span style={{
                   padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem',
                   background: 'var(--color-surface-2)', color: 'var(--color-text-muted)',
                 }}>
                   {q.assigned_to === 'all' ? 'All students' : `Student: ${q.assigned_to.slice(0, 8)}…`}
                 </span>
+                <button
+                  id={`launch-live-quiz-${q.id}`}
+                  onClick={() => launchGame(q.id)}
+                  disabled={launchingId === q.id}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: 'none',
+                    background: launchingId === q.id ? 'var(--color-surface-2)' : 'linear-gradient(135deg, #6c63ff, #43b89c)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: launchingId === q.id ? 'default' : 'pointer',
+                    minHeight: 36,
+                    whiteSpace: 'nowrap',
+                    boxShadow: launchingId === q.id ? 'none' : '0 2px 10px rgba(108,99,255,0.3)',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {launchingId === q.id ? '⏳ Launching…' : '🎮 Launch Live Quiz'}
+                </button>
               </div>
             ))}
           </section>
