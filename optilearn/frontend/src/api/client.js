@@ -406,3 +406,52 @@ export const feature1 = {
     })
   },
 }
+
+// ── Live Quiz (Kahoot-style) ─────────────────────────────────
+export function createLiveGame(quizId) {
+  return request('/api/live-quiz/games', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quiz_id: quizId }),
+  })
+}
+
+export function getLiveGameState(gameId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}`)
+}
+
+export function joinLiveGame(gameId, nickname) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  })
+}
+
+export function submitLiveAnswer(gameId, participantId, choiceIndex) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ participant_id: participantId, choice_index: choiceIndex }),
+  })
+}
+
+export function nextLiveQuestion(gameId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/next`, { method: 'POST' })
+}
+
+export function revealLiveAnswer(gameId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/reveal`, { method: 'POST' })
+}
+
+export function endLiveGame(gameId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/end`, { method: 'POST' })
+}
+
+export function getLiveGameResults(gameId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/results`)
+}
+
+export function findGameByCode(joinCode) {
+  return request(`/api/live-quiz/find/${encodeURIComponent(joinCode.replace(/\s/g, ''))}`)
+}

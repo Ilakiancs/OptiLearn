@@ -172,6 +172,41 @@ CREATE TABLE IF NOT EXISTS teacher_settings (
     value       TEXT NOT NULL,
     updated_at  TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS live_games (
+    id                      TEXT PRIMARY KEY,
+    quiz_id                 TEXT NOT NULL,
+    teacher_id              TEXT NOT NULL,
+    phase                   TEXT DEFAULT 'lobby',
+    current_question_index  INTEGER DEFAULT 0,
+    is_answer_revealed      INTEGER DEFAULT 0,
+    quiz_title              TEXT DEFAULT '',
+    questions_json          TEXT DEFAULT '[]',
+    join_code               TEXT DEFAULT '',
+    created_at              TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS live_participants (
+    id          TEXT PRIMARY KEY,
+    game_id     TEXT NOT NULL REFERENCES live_games(id),
+    nickname    TEXT NOT NULL,
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS live_answers (
+    id               TEXT PRIMARY KEY,
+    game_id          TEXT NOT NULL REFERENCES live_games(id),
+    question_index   INTEGER NOT NULL,
+    participant_id   TEXT NOT NULL REFERENCES live_participants(id),
+    choice_index     INTEGER,
+    is_correct       INTEGER DEFAULT 0,
+    score            INTEGER DEFAULT 0,
+    created_at       TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_participants_game ON live_participants(game_id);
+CREATE INDEX IF NOT EXISTS idx_live_answers_game      ON live_answers(game_id);
+CREATE INDEX IF NOT EXISTS idx_live_answers_participant ON live_answers(participant_id);
 """
 
 
@@ -341,6 +376,7 @@ async def init_db() -> None:
             "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language', 'en')",
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language_name', 'English')",
+            "ALTER TABLE live_games ADD COLUMN join_code TEXT DEFAULT ''",
         ]:
             try:
                 await db.execute(migration)

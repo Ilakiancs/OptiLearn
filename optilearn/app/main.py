@@ -13,10 +13,11 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.api.routes import auth, chat, dashboard, feature1, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
@@ -131,6 +132,7 @@ app.include_router(feature1.router)
 app.include_router(tts_router)
 app.include_router(translate_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(live_quiz.router)
 
 
 @app.get("/api/health", tags=["system"])
@@ -191,9 +193,45 @@ async def health() -> dict:
 
 # ── Frontend static build ──────────────────────────────────────
 _frontend_path = Path(settings.FRONTEND_DIST)
+
 if _frontend_path.exists() and _frontend_path.is_dir():
-    app.mount("/", NoCacheStaticFiles(directory=str(_frontend_path), html=True), name="frontend")
-    logger.info("Frontend mounted from {}", _frontend_path)
+    # Mount /assets separately so JS/CSS chunks are served with proper caching
+    _assets_path = _frontend_path / "assets"
+    if _assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_path)), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str) -> Response:
+        """
+        SPA catch-all: serve the exact file if it exists on disk (favicon, sw.js, etc.),
+        otherwise return index.html so React Router handles the URL client-side.
+        This fixes the 404 that occurred when opening /teacher/live-quiz/:id in a new tab.
+        """
+        # Guard against path traversal
+        try:
+            resolved = (_frontend_path / full_path).resolve()
+            if not str(resolved).startswith(str(_frontend_path.resolve())):
+                return Response(status_code=403)
+        except Exception:
+            return Response(status_code=403)
+
+        if resolved.exists() and resolved.is_file():
+            # Real file (favicon.ico, manifest.json, etc.) — serve directly
+            no_cache = full_path in {"", ".", "index.html", "sw.js"} or full_path.endswith(".html")
+            headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"} if no_cache else {}
+            return FileResponse(str(resolved), headers=headers)
+
+        # Not a real file — fall back to index.html for React Router
+        index_html = _frontend_path / "index.html"
+        if index_html.exists():
+            return FileResponse(
+                str(index_html),
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+            )
+
+        return Response("Frontend not built. Run: cd frontend && npm run build", status_code=503)
+
+    logger.info("Frontend SPA serving enabled from {}", _frontend_path)
 else:
     logger.warning(
         "Frontend dist directory '{}' not found — API-only mode. "
