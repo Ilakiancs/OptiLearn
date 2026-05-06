@@ -20,6 +20,10 @@ import AnnouncementsPage from './screens/AnnouncementsPage'
 import StudentProgressPage from './screens/StudentProgressPage'
 import TranslateLearn from './screens/TranslateLearn'
 import LiveTranslator from './screens/LiveTranslator'
+import LiveQuizJoin from './screens/livequiz/LiveQuizJoin'
+import LiveQuizPlay from './screens/livequiz/LiveQuizPlay'
+import LiveQuizHost from './screens/livequiz/LiveQuizHost'
+import LiveQuizCodeEntry from './screens/livequiz/LiveQuizCodeEntry'
 import { getTeacherMe } from './api/client'
 
 const queryClient = new QueryClient({
@@ -85,6 +89,14 @@ export default function App() {
             <Route path="/" element={<HomeScreen />} />
             <Route path="/setup" element={<SetupScreen />} />
             <Route path="/session/:studentId" element={<LegacySessionRedirect />} />
+
+            {/* Live Quiz — public join & play (no account needed) */}
+            <Route path="/join" element={<LiveQuizCodeEntry />} />
+            <Route path="/live-quiz/join/:gameId" element={<LiveQuizJoin />} />
+            <Route path="/live-quiz/play/:gameId" element={<LiveQuizPlay />} />
+
+            {/* Live Quiz — teacher host (protected) */}
+            <Route path="/teacher/live-quiz/:gameId" element={<TeacherRoute><LiveQuizHost /></TeacherRoute>} />
             <Route path="/teacher" element={<TeacherRoute><TeacherDashboard /></TeacherRoute>} />
             <Route path="/teacher/student/:studentId" element={<TeacherRoute><StudentProgress /></TeacherRoute>} />
             <Route path="/teacher/materials" element={<TeacherRoute><MaterialUpload /></TeacherRoute>} />
