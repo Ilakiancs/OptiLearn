@@ -7,8 +7,6 @@ import SetupScreen from './screens/SetupScreen'
 import StudentSession from './screens/StudentSession'
 import TeacherDashboard from './screens/TeacherDashboard'
 import StudentProgress from './screens/StudentProgress'
-import MaterialUpload from './screens/MaterialUpload'
-import TeacherQuizBuilder from './screens/TeacherQuizBuilder'
 import StudentLayout from './components/StudentLayout'
 import StudentHome from './screens/StudentHome'
 import CoursesPage from './screens/CoursesPage'
@@ -80,11 +78,47 @@ function StudentRoute({ children }) {
   return children
 }
 
+function NetworkHeartbeat() {
+  const { teacherToken } = useAuth()
+
+  useEffect(() => {
+    if (teacherToken) return undefined
+
+    let stopped = false
+    const sendHeartbeat = () => {
+      if (stopped || document.visibilityState === 'hidden') return
+      fetch('/api/network/heartbeat', {
+        method: 'POST',
+        cache: 'no-store',
+        keepalive: true,
+      }).catch(() => {})
+    }
+
+    sendHeartbeat()
+    const id = window.setInterval(sendHeartbeat, 10000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat()
+    }
+    window.addEventListener('online', sendHeartbeat)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      stopped = true
+      window.clearInterval(id)
+      window.removeEventListener('online', sendHeartbeat)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [teacherToken])
+
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <NetworkHeartbeat />
           <Routes>
             <Route path="/" element={<HomeScreen />} />
             <Route path="/setup" element={<SetupScreen />} />
@@ -99,8 +133,8 @@ export default function App() {
             <Route path="/teacher/live-quiz/:gameId" element={<TeacherRoute><LiveQuizHost /></TeacherRoute>} />
             <Route path="/teacher" element={<TeacherRoute><TeacherDashboard /></TeacherRoute>} />
             <Route path="/teacher/student/:studentId" element={<TeacherRoute><StudentProgress /></TeacherRoute>} />
-            <Route path="/teacher/materials" element={<TeacherRoute><MaterialUpload /></TeacherRoute>} />
-            <Route path="/teacher/quiz-builder" element={<TeacherRoute><TeacherQuizBuilder /></TeacherRoute>} />
+            <Route path="/teacher/materials" element={<TeacherRoute><TeacherDashboard initialView="materials" /></TeacherRoute>} />
+            <Route path="/teacher/quiz-builder" element={<TeacherRoute><TeacherDashboard initialView="quiz-builder" /></TeacherRoute>} />
 
             {/* Student LMS — nested under sidebar layout */}
             <Route path="/student/:studentId" element={<StudentRoute><StudentLayout /></StudentRoute>}>

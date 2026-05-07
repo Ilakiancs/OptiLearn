@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { ChalkboardTeacher, Eye, EyeSlash, Student } from '@phosphor-icons/react'
+import { ChalkboardTeacher, Eye, EyeSlash, ShieldCheck, Student, Users, WifiHigh } from '@phosphor-icons/react'
 import { getSetupRequired, setupAdmin } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
@@ -27,6 +27,7 @@ export default function SetupScreen() {
   const { loginTeacher } = useAuth()
   const [checking, setChecking] = useState(true)
   const [required, setRequired] = useState(false)
+  const [showHotspotStep, setShowHotspotStep] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ display_name: '', username: '', password: '', confirm: '' })
   const [error, setError] = useState('')
@@ -62,21 +63,88 @@ export default function SetupScreen() {
         password: form.password,
       })
       loginTeacher(payload)
-      navigate('/teacher', { replace: true })
+      if (localStorage.getItem('optilearn_hotspot_onboarding_done') === '1') {
+        navigate('/teacher', { replace: true })
+      } else {
+        setShowHotspotStep(true)
+      }
     } catch (err) {
       setError(err.message || 'Setup could not be completed.')
       setSaving(false)
     }
   }
 
+  function finishHotspotStep() {
+    localStorage.setItem('optilearn_hotspot_onboarding_done', '1')
+    navigate('/teacher', { replace: true })
+  }
+
   if (checking) return <div className="app-shell" style={{ minHeight: '100vh' }} />
   if (!required) return <Navigate to="/" replace />
+
+  if (showHotspotStep) {
+    const steps = [
+      {
+        Icon: WifiHigh,
+        title: 'Turn on your WiFi Hotspot',
+        description: "Go to Windows Settings > Network > Mobile Hotspot > Turn On. Name it 'OptiLearn' so students know which network to join.",
+        action: (
+          <a href="ms-settings:network-mobilehotspot" style={{ ...inputStyle, minHeight: 42, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', fontWeight: 700, color: '#2a8dbf', background: 'rgba(42,141,191,0.12)' }}>
+            Open Hotspot Settings
+          </a>
+        ),
+      },
+      {
+        Icon: ShieldCheck,
+        title: 'Run as Administrator for best experience',
+        description: "Right-click the OptiLearn shortcut and select 'Run as administrator'. This enables automatic student connection when they join your WiFi.",
+      },
+      {
+        Icon: Users,
+        title: 'Students connect automatically',
+        description: 'Once your hotspot is on, students who join your WiFi can open OptiLearn from the sign-in prompt, QR code, or classroom address.',
+      },
+    ]
+
+    return (
+      <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'grid', placeItems: 'center', padding: 20 }}>
+        <section style={{ width: '100%', maxWidth: 760, display: 'grid', gap: 18 }}>
+          <header style={{ textAlign: 'center', display: 'grid', gap: 8 }}>
+            <span style={{ margin: '0 auto', width: 62, height: 62, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
+              <WifiHigh size={32} weight="duotone" />
+            </span>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '1.55rem' }}>One more thing before your first class</h1>
+              <p style={{ margin: '6px 0 0', color: '#5f6368' }}>Set up the classroom connection so students can join smoothly.</p>
+            </div>
+          </header>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+            {steps.map(({ Icon, title, description, action }) => (
+              <section key={title} style={{ border: '1px solid #dadce0', borderRadius: 12, padding: 16, display: 'grid', gap: 10, alignContent: 'start' }}>
+                <span style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
+                  <Icon size={24} weight="duotone" />
+                </span>
+                <h2 style={{ margin: 0, fontSize: '1rem' }}>{title}</h2>
+                <p style={{ margin: 0, color: '#5f6368', lineHeight: 1.55, fontSize: '0.9rem' }}>{description}</p>
+                {action}
+              </section>
+            ))}
+          </div>
+
+          <button type="button" onClick={finishHotspotStep} style={{ minHeight: 48, border: 'none', borderRadius: 12, background: '#2a8dbf', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>
+            Got it, open dashboard
+          </button>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'grid', placeItems: 'center', padding: 20 }}>
       <section style={{ width: '100%', maxWidth: 430, display: 'grid', gap: 18 }}>
         <header style={{ textAlign: 'center', display: 'grid', gap: 10 }}>
-          <span style={{ margin: '0 auto', width: 62, height: 62, borderRadius: 16, background: '#e8f0fe', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
+          <span style={{ margin: '0 auto', width: 62, height: 62, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
             <Student size={32} weight="duotone" />
           </span>
           <div>

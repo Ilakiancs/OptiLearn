@@ -1069,12 +1069,25 @@ async def ask_question(body: AskRequest):
             context=context,
         )
         messages = [{"role": "user", "content": prompt}]
-        result = await model_client.complete_with_tools(
-            messages=messages, tools=[], image_b64=None,
-            model_preference=body.model_preference,
-            ollama_options={"num_ctx": 8192},
-            force_local=True,  # FUTURE: replace with fine-tuned model
-        )
+        try:
+            result = await asyncio.wait_for(
+                model_client.complete_with_tools(
+                    messages=messages, tools=[], image_b64=None,
+                    model_preference=body.model_preference,
+                    ollama_options={"num_ctx": 4096, "num_predict": 512},
+                    force_local=True,  # FUTURE: replace with fine-tuned model
+                ),
+                timeout=45,
+            )
+        except (asyncio.TimeoutError, RuntimeError) as exc:
+            logger.warning("Question suggestions fallback used: {}", exc)
+            return {
+                "questions": [
+                    "Can you explain the main idea in a simpler way?",
+                    "Can you give me an example from everyday life?",
+                    "What should I remember for a quick check?",
+                ]
+            }
         text = result if isinstance(result, str) else ""
         try:
             clean = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()

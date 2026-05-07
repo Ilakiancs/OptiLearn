@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createTeacherQuiz, listTeacherQuizzes, listStudents, createLiveGame } from '../api/client'
-import { Link, useNavigate } from 'react-router-dom'
+import { ClipboardText } from '@phosphor-icons/react'
 import SubjectComboInput from '../components/SubjectComboInput'
 
 const BLANK_QUESTION = { question: '', options: ['', '', '', ''], correct_answer: '', explanation: '' }
@@ -119,9 +119,8 @@ function QuizPreview({ title, subject, questions }) {
   )
 }
 
-export default function TeacherQuizBuilder() {
+export default function TeacherQuizBuilder({ embedded = false }) {
   const qc = useQueryClient()
-  const navigate = useNavigate()
 
   const [title, setTitle] = useState('')
   const [subject, setSubject] = useState('')
@@ -215,16 +214,21 @@ export default function TeacherQuizBuilder() {
   const card = { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '20px 16px', marginBottom: 24 }
   const sectionHead = { fontSize: '1rem', fontWeight: 700, marginBottom: 16, marginTop: 0 }
 
-  return (
-    <div className="page-shell">
-      <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link to="/teacher" style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '0.9rem', minHeight: 44, display: 'inline-flex', alignItems: 'center', paddingRight: 12 }}>
-          ← Back to Dashboard
-        </Link>
-        <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Quiz Builder</span>
-      </header>
+  const content = (
+    <>
+      {!embedded && (
+        <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Quiz Builder</span>
+        </header>
+      )}
 
-      <main style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px', display: 'grid', gridTemplateColumns: showPreview ? '1fr 1fr' : '1fr', gap: 24 }}>
+      <main style={{ maxWidth: embedded ? 1040 : 900, margin: '0 auto', padding: embedded ? 0 : '24px 16px', display: 'grid', gridTemplateColumns: showPreview ? '1fr 1fr' : '1fr', gap: 24, width: '100%', boxSizing: 'border-box' }}>
+        {embedded && (
+          <section style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ClipboardText size={24} weight="duotone" color="var(--color-text)" />
+            <h1 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--color-text)' }}>Quiz Builder</h1>
+          </section>
+        )}
 
         <div>
           {/* Builder form */}
@@ -381,6 +385,9 @@ export default function TeacherQuizBuilder() {
         )}
 
       </main>
-    </div>
+    </>
   )
+
+  if (embedded) return content
+  return <div className="page-shell">{content}</div>
 }

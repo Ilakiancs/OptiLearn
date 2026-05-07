@@ -21,7 +21,7 @@ import {
   Trophy,
   X,
 } from '@phosphor-icons/react'
-import { getStudent, changeStudentPin } from '../api/client'
+import { getStudent, changeStudentPin, getHealth } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import NetworkStatusPill from './NetworkStatusPill'
@@ -271,6 +271,7 @@ export default function StudentLayout() {
   const { studentId } = useParams()
   const [isMobile, setIsMobile] = useState(window.innerWidth < 980)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
 
   const { data: student } = useQuery({
     queryKey: ['student', studentId],
@@ -287,13 +288,65 @@ export default function StudentLayout() {
     if (!isMobile) setMenuOpen(false)
   }, [isMobile])
 
+  useEffect(() => {
+    let active = true
+    const markOffline = () => active && setIsOffline(true)
+    const checkConnection = async () => {
+      if (!navigator.onLine) {
+        markOffline()
+        return
+      }
+      try {
+        await getHealth()
+        if (active) setIsOffline(false)
+      } catch (_) {
+        markOffline()
+      }
+    }
+    window.addEventListener('offline', markOffline)
+    window.addEventListener('online', checkConnection)
+    checkConnection()
+    const id = setInterval(checkConnection, 15000)
+    return () => {
+      active = false
+      clearInterval(id)
+      window.removeEventListener('offline', markOffline)
+      window.removeEventListener('online', checkConnection)
+    }
+  }, [])
+
   return (
     <div className="app-shell" style={{
       display: 'grid',
       gridTemplateColumns: isMobile ? '1fr' : '296px 1fr',
       height: isMobile ? 'auto' : '100vh',
       overflow: isMobile ? 'visible' : 'hidden',
+      paddingTop: isOffline ? 32 : 0,
+      boxSizing: 'border-box',
     }}>
+      {isOffline && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 32,
+            background: '#fff8e1',
+            color: '#f57f17',
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: '0.84rem',
+            fontWeight: 700,
+            zIndex: 2500,
+            borderBottom: '1px solid #ffe0a3',
+          }}
+        >
+          Connection lost - your work is saved
+        </div>
+      )}
       <a className="quick-exit" href="https://www.google.com" target="_blank" rel="noreferrer" title="Quick exit to a neutral page">
         <DoorOpen size={16} weight="bold" />
         <span>Quick Exit</span>
@@ -302,7 +355,7 @@ export default function StudentLayout() {
       {!isMobile && (
         <aside className="student-sidebar-scroll" style={{
           borderRight: '1px solid var(--border)',
-          height: '100vh',
+          height: isOffline ? 'calc(100vh - 32px)' : '100vh',
           minHeight: 0,
           overflowY: 'auto',
         }}>
@@ -351,7 +404,7 @@ export default function StudentLayout() {
                 zIndex: 40,
                 inset: '0 auto 0 0',
                 width: 274,
-                height: '100vh',
+                height: isOffline ? 'calc(100vh - 32px)' : '100vh',
                 background: 'var(--bg)',
                 borderRight: '1px solid var(--border)',
                 overflowY: 'auto',
@@ -367,7 +420,7 @@ export default function StudentLayout() {
       )}
 
       <main style={{
-        height: isMobile ? 'auto' : '100vh',
+        height: isMobile ? 'auto' : isOffline ? 'calc(100vh - 32px)' : '100vh',
         minHeight: isMobile ? '100vh' : 0,
         padding: isMobile ? '16px 14px 28px' : '24px 24px 34px',
         boxSizing: 'border-box',

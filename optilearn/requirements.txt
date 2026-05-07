@@ -55,6 +55,10 @@ tqdm==4.66.5
 
 # Utilities
 python-dotenv==1.0.1
+dnslib>=0.9.23
+psutil>=5.9.0
+qrcode[pil]>=7.4
+zeroconf>=0.131.0
 
 # PDF extraction (material upload)
 PyMuPDF>=1.24.0

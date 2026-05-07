@@ -1721,6 +1721,24 @@ async def update_teacher_setting(key: str, value: str) -> None:
 # ──────────────────────────────────────────────────────────────
 # Allow running this file directly to initialise the schema
 # ──────────────────────────────────────────────────────────────
+async def count_recent_active_students(minutes: int = 10) -> int:
+    """Count students who look connected based on recent activity or live sessions."""
+    cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
+    async with _get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(DISTINCT s.id) AS cnt
+            FROM students s
+            LEFT JOIN sessions sess ON sess.student_id = s.id
+            WHERE s.last_active >= ?
+               OR (sess.ended_at IS NULL AND sess.started_at >= ?)
+            """,
+            (cutoff, cutoff),
+        )
+        row = await cursor.fetchone()
+    return int(row["cnt"] if row else 0)
+
+
 if __name__ == "__main__":
     import asyncio
 

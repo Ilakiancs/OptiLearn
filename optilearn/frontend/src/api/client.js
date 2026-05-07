@@ -227,6 +227,24 @@ export function getHealth() {
   return request('/api/health')
 }
 
+export function getNetworkStatus() {
+  return request('/api/network/status')
+}
+
+export function refreshNetworkStatus() {
+  return request('/api/network/refresh')
+}
+
+export function getNetworkQrUrl(cacheKey = '') {
+  const suffix = cacheKey ? `?t=${encodeURIComponent(cacheKey)}` : ''
+  return `${BASE}/api/network/qr.png${suffix}`
+}
+
+export function getNetworkQrData(cacheKey = '') {
+  const suffix = cacheKey ? `?t=${encodeURIComponent(cacheKey)}` : ''
+  return request(`/api/network/qr-data${suffix}`)
+}
+
 export function getNetworkMode() {
   return request('/api/settings/network-mode')
 }
