@@ -28,6 +28,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import MaterialUpload from './MaterialUpload'
 import TeacherQuizBuilder from './TeacherQuizBuilder'
+import DiagnosticsPanel from './DiagnosticsPanel'
 
 const GRADE_LEVELS = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
 
@@ -1198,6 +1199,12 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
               <span>Manage Users</span>
             </button>
           )}
+          {teacher?.is_admin && (
+            <button type="button" onClick={() => setView('diagnostics')} style={sidebarNavStyle(view === 'diagnostics')}>
+              <span style={sidebarIconStyle}><ClipboardText size={22} weight="duotone" /></span>
+              <span>Diagnostics</span>
+            </button>
+          )}
           <button type="button" onClick={() => setView('connect')} style={sidebarNavStyle(view === 'connect')}>
             <span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span>
             <span>Connect Students</span>
@@ -1293,6 +1300,8 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
 
       {view === 'manage' && teacher?.is_admin ? (
         <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} />
+      ) : view === 'diagnostics' && teacher?.is_admin ? (
+        <DiagnosticsPanel />
       ) : view === 'connect' ? (
         <ConnectStudentsView isMobile={isMobile} />
       ) : view === 'materials' ? (

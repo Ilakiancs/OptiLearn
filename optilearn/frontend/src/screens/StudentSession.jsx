@@ -3,6 +3,7 @@ import { useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import {
   Camera,
   CaretRight,
+  CheckCircle,
   ChatCircleText,
   ClockCounterClockwise,
   PaperPlaneTilt,
@@ -172,6 +173,8 @@ export default function StudentSession() {
   const [quizResult, setQuizResult] = useState(null)
   const [mode, setMode] = useState('chat')
   const [imageB64, setImageB64] = useState(null)
+  const [imageAttachment, setImageAttachment] = useState(null)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
   const [activeToolNotice, setActiveToolNotice] = useState(null)
   const [inputText, setInputText] = useState('')
@@ -259,8 +262,8 @@ export default function StudentSession() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, mode])
 
-  function appendUserMessage(content) {
-    setMessages(prev => [...prev, { role: 'user', content, isStreaming: false }])
+  function appendUserMessage(content, attachment = null) {
+    setMessages(prev => [...prev, { role: 'user', content, attachment, isStreaming: false }])
   }
 
   function appendAssistantMessage() {
@@ -289,7 +292,7 @@ export default function StudentSession() {
     const sid = sessId || sessionId
     if (!sid) return
 
-    appendUserMessage(text)
+    appendUserMessage(text, img ? { type: 'image', label: imageAttachment?.name ? `Image attached: ${imageAttachment.name}` : 'Image attached' } : null)
     appendAssistantMessage()
     setIsThinking(true)
     setActiveToolNotice(null)
@@ -345,11 +348,13 @@ export default function StudentSession() {
 
   function handleSend() {
     const text = inputText.trim()
-    if (!text || isThinking) return
+    if ((!text && !imageB64) || isThinking) return
     const img = imageB64
+    const fallbackText = 'Please help me understand this image.'
     setInputText('')
     setImageB64(null)
-    sendMessage(text, img)
+    setImageAttachment(null)
+    sendMessage(text || fallbackText, img)
   }
 
   function handleKeyDown(e) {
@@ -363,11 +368,27 @@ export default function StudentSession() {
     const file = e.target.files?.[0]
     if (!file) return
     setUiMessage('')
+    setIsUploadingImage(true)
+    setImageAttachment({
+      name: file.name || 'Selected image',
+      size: file.size || 0,
+      preview: URL.createObjectURL(file),
+      status: 'uploading',
+    })
     try {
       const { image_b64 } = await uploadImage(file)
       setImageB64(image_b64)
+      setImageAttachment({
+        name: file.name || 'Selected image',
+        size: file.size || 0,
+        preview: `data:image/jpeg;base64,${image_b64}`,
+        status: 'attached',
+      })
     } catch (err) {
+      setImageAttachment(null)
       setUiMessage(err.message || 'The image could not be attached.')
+    } finally {
+      setIsUploadingImage(false)
     }
     e.target.value = ''
   }
@@ -505,24 +526,52 @@ export default function StudentSession() {
 
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 12px' }}>
           {messages.map((msg, i) => (
-            <ChatMessage key={i} role={msg.role} content={msg.content} isStreaming={msg.isStreaming} />
+            <ChatMessage key={i} role={msg.role} content={msg.content} attachment={msg.attachment} isStreaming={msg.isStreaming} />
           ))}
           <div ref={messagesEndRef} />
         </div>
 
-        {imageB64 && (
+        {(imageAttachment || isUploadingImage) && (
           <div style={{
-            padding: '8px 16px',
+            padding: '10px 16px',
             borderTop: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
             gap: 10,
             background: 'var(--surface-soft)',
           }}>
-            <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
-              <Paperclip size={18} weight="bold" /> Image attached
+            {imageAttachment?.preview && (
+              <img
+                src={imageAttachment.preview}
+                alt=""
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 10,
+                  objectFit: 'cover',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                }}
+              />
+            )}
+            <span style={{ color: 'var(--text)', display: 'grid', gap: 2, minWidth: 0, flex: 1, fontSize: '0.88rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 800 }}>
+                {isUploadingImage ? <Spinner size={16} color="var(--accent)" /> : <CheckCircle size={18} weight="fill" color="var(--accent)" />}
+                {isUploadingImage ? 'Attaching image...' : 'Image attached'}
+              </span>
+              {imageAttachment?.name && (
+                <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {imageAttachment.name}
+                </span>
+              )}
             </span>
-            <button type="button" className="tutor-icon-button" onClick={() => setImageB64(null)} aria-label="Remove image">
+            <button
+              type="button"
+              className="tutor-icon-button"
+              onClick={() => { setImageB64(null); setImageAttachment(null) }}
+              aria-label="Remove image"
+              disabled={isUploadingImage}
+            >
               <X size={18} weight="bold" />
             </button>
           </div>
@@ -555,7 +604,7 @@ export default function StudentSession() {
             placeholder="Ask anything..."
             className="tutor-input"
           />
-          <button type="button" onClick={handleSend} disabled={isThinking || !inputText.trim()} className="tutor-send" aria-label="Send">
+          <button type="button" onClick={handleSend} disabled={isThinking || isUploadingImage || (!inputText.trim() && !imageB64)} className="tutor-send" aria-label="Send">
             {isThinking ? <Spinner size={22} color="#fff" /> : <PaperPlaneTilt size={22} weight="bold" />}
           </button>
         </div>

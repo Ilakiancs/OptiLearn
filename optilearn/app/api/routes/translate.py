@@ -26,7 +26,7 @@ from urllib.parse import quote
 
 import aiosqlite
 import httpx
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.grades import normalize_grade_level
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
-from app.services import db, faiss_store
+from app.services import db, faiss_store, generated_cache, job_manager
 from app.services.model_client import MODEL_SWITCH_TOKEN, get_network_status, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
@@ -360,6 +360,9 @@ async def _translate_text(
                     "num_ctx": 2048,
                     "num_predict": num_predict,
                 },
+                lane="live_translation",
+                feature="translate.text",
+                profile="translation_fast",
             ):
                 if token == MODEL_SWITCH_TOKEN:
                     switched = True
@@ -412,6 +415,9 @@ async def _translate_text_sse(
             "num_ctx": 2048,
             "num_predict": 1280,
         },
+        lane="live_translation",
+        feature="translate.chunk_stream",
+        profile="translation_fast",
     ):
         if token == MODEL_SWITCH_TOKEN:
             yield "model_switch", ""
@@ -527,6 +533,9 @@ async def _ollama_generate_notes(prompt: str, num_ctx: int) -> str:
                 "num_ctx": num_ctx,
                 "num_predict": 1400,
             },
+            lane="background",
+            feature="translate.notes",
+            profile="notes_balanced",
         ):
             if token == MODEL_SWITCH_TOKEN:
                 parts = []
@@ -615,16 +624,43 @@ async def _generate_notes(
             f"Lesson transcript:\n{full_transcript_translated[:10000]}"
         )
 
-        num_ctx = 8192
-        notes = await _ollama_generate_notes(prompt, num_ctx)
+        source_hash = generated_cache.hash_text(full_transcript_translated)
+        cache_key = generated_cache.make_cache_key(
+            "class.notes",
+            {
+                "student_id": student_id,
+                "target_language": target_language,
+                "grade": student.get("grade_level", 1),
+                "source_hash": source_hash,
+            },
+            prompt_version="translate-notes-v1",
+        )
+        cached_notes = await generated_cache.get_text(cache_key, "class.notes")
+        if cached_notes:
+            notes = cached_notes
+        else:
+            num_ctx = 8192
+            notes = await _ollama_generate_notes(prompt, num_ctx)
 
-        if not notes.strip():
-            logger.warning("generate_notes: using fallback notes for session {}", session_id)
-            notes = _fallback_notes(full_transcript_translated)
-        elif _notes_need_more_coverage(notes, full_transcript_translated):
-            logger.warning("generate_notes: expanding thin notes for session {}", session_id)
-            coverage_notes = _fallback_notes(full_transcript_translated)
-            notes = f"{notes.strip()}\n\n{coverage_notes}".strip()
+            if not notes.strip():
+                logger.warning("generate_notes: using fallback notes for session {}", session_id)
+                notes = _fallback_notes(full_transcript_translated)
+            elif _notes_need_more_coverage(notes, full_transcript_translated):
+                logger.warning("generate_notes: expanding thin notes for session {}", session_id)
+                coverage_notes = _fallback_notes(full_transcript_translated)
+                notes = f"{notes.strip()}\n\n{coverage_notes}".strip()
+
+            await generated_cache.set_text(
+                cache_key,
+                "class.notes",
+                notes,
+                input_hash=source_hash,
+                metadata={
+                    "student_id": student_id,
+                    "target_language": target_language,
+                    "session_id": session_id,
+                },
+            )
 
         async with aiosqlite.connect(settings.DB_PATH) as conn:
             conn.row_factory = aiosqlite.Row
@@ -754,6 +790,22 @@ async def translate_chunk(
     audio_bytes = await audio.read()
 
     async def event_stream() -> AsyncGenerator[str, None]:
+        if len(audio_bytes) < 1000:
+            yield _sse({"type": "skip", "chunk_index": chunk_index, "reason": "empty_audio"})
+            return
+
+        async with aiosqlite.connect(settings.DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            cur = await conn.execute(
+                "SELECT student_id, translated_chunks FROM class_notes WHERE id = ?",
+                (session_id,),
+            )
+            session_row = await cur.fetchone()
+
+        if not session_row:
+            yield _sse({"type": "error", "message": "Translation session not found.", "chunk_index": chunk_index})
+            return
+
         original_text = await transcribe_chunk(audio_bytes, hint_language)
         if not original_text:
             yield _sse({"type": "skip", "chunk_index": chunk_index})
@@ -768,7 +820,12 @@ async def translate_chunk(
             except Exception:
                 pass
 
-        yield _sse({"type": "original", "content": original_text, "detected_language": detected_lang})
+        yield _sse({
+            "type": "original",
+            "chunk_index": chunk_index,
+            "content": original_text,
+            "detected_language": detected_lang,
+        })
 
         # Persist chunk
         timestamp = datetime.utcnow().strftime("%H:%M")
@@ -782,25 +839,70 @@ async def translate_chunk(
         try:
             async with aiosqlite.connect(settings.DB_PATH) as conn:
                 conn.row_factory = aiosqlite.Row
-                cur = await conn.execute(
-                    "SELECT translated_chunks FROM class_notes WHERE id = ?", (session_id,)
+                chunks = json.loads(session_row["translated_chunks"] or "[]")
+                chunks = _upsert_chunk(chunks, chunk_data)
+                await conn.execute(
+                    "UPDATE class_notes SET translated_chunks = ?, raw_transcript = ? WHERE id = ?",
+                    (
+                        json.dumps(chunks, ensure_ascii=False),
+                        _full_original_text(chunks),
+                        session_id,
+                    ),
                 )
-                row = await cur.fetchone()
-                if row:
-                    chunks = json.loads(row["translated_chunks"] or "[]")
-                    chunks = _upsert_chunk(chunks, chunk_data)
-                    await conn.execute(
-                        "UPDATE class_notes SET translated_chunks = ?, raw_transcript = ? WHERE id = ?",
-                        (
-                            json.dumps(chunks, ensure_ascii=False),
-                            _full_original_text(chunks),
-                            session_id,
-                        ),
-                    )
-                    await conn.commit()
+                await conn.commit()
         except Exception as exc:
             logger.error("Chunk persist error session={}: {}", session_id, exc)
 
+        student = await db.get_student(session_row["student_id"] or "") or {}
+        grade = normalize_grade_level(student.get("grade_level") or "7th")
+        age = int(student.get("age") or 10)
+        translated_parts: list[str] = []
+        async for event_type, value in _translate_text_sse(original_text, target_language, grade, age):
+            if event_type == "model_switch":
+                translated_parts = []
+                yield _sse({
+                    "type": "model_switch",
+                    "chunk_index": chunk_index,
+                    "message": "Connection interrupted. Switching to local model.",
+                    "color": "#EF9F27",
+                })
+                continue
+            translated_parts.append(value)
+            yield _sse({
+                "type": "translated_token",
+                "chunk_index": chunk_index,
+                "content": value,
+            })
+
+        translated = _clean_model_text("".join(translated_parts)) or original_text
+        chunk_data["translated"] = translated
+        try:
+            async with aiosqlite.connect(settings.DB_PATH) as conn:
+                conn.row_factory = aiosqlite.Row
+                cur = await conn.execute(
+                    "SELECT translated_chunks FROM class_notes WHERE id = ?",
+                    (session_id,),
+                )
+                row = await cur.fetchone()
+                chunks = json.loads(row["translated_chunks"] or "[]") if row else []
+                chunks = _upsert_chunk(chunks, chunk_data)
+                await conn.execute(
+                    "UPDATE class_notes SET translated_chunks = ?, raw_transcript = ? WHERE id = ?",
+                    (
+                        json.dumps(chunks, ensure_ascii=False),
+                        _full_original_text(chunks),
+                        session_id,
+                    ),
+                )
+                await conn.commit()
+        except Exception as exc:
+            logger.error("Translated chunk persist error session={}: {}", session_id, exc)
+
+        yield _sse({
+            "type": "translated_chunk",
+            "chunk_index": chunk_index,
+            "chunk": chunk_data,
+        })
         yield _sse({"type": "done", "chunk_index": chunk_index})
 
     return StreamingResponse(
@@ -934,7 +1036,7 @@ class EndRequest(BaseModel):
 
 
 @router.post("/end")
-async def translate_end(body: EndRequest, background_tasks: BackgroundTasks) -> dict:
+async def translate_end(body: EndRequest) -> dict:
     async with aiosqlite.connect(settings.DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute(
@@ -965,18 +1067,26 @@ async def translate_end(body: EndRequest, background_tasks: BackgroundTasks) -> 
     else:
         _notes_ready[body.session_id].clear()
 
-    background_tasks.add_task(
-        _generate_notes,
-        body.session_id,
-        body.student_id,
-        body.target_language,
-        full_translated or full_original,
+    job_id = job_manager.create_job(
+        "translate.generate_notes",
+        lambda: _generate_notes(
+            body.session_id,
+            body.student_id,
+            body.target_language,
+            full_translated or full_original,
+        ),
+        metadata={
+            "session_id": body.session_id,
+            "student_id": body.student_id,
+            "target_language": body.target_language,
+        },
     )
 
     return {
         "status": "generating",
         "session_id": body.session_id,
         "chunk_count": len(chunks),
+        "job_id": job_id,
     }
 
 

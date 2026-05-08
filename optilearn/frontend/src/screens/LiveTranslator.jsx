@@ -248,6 +248,32 @@ export default function LiveTranslator() {
     setChunks(next)
   }
 
+  function createChunkCommitter(index) {
+    let scheduled = false
+    let translatedText = chunksRef.current[index]?.translated || ''
+    const commit = () => {
+      scheduled = false
+      setChunkAt(index, { translated: translatedText })
+    }
+    return {
+      append(token) {
+        translatedText += token
+        if (!scheduled) {
+          scheduled = true
+          requestAnimationFrame(commit)
+        }
+      },
+      flush(finalText) {
+        if (typeof finalText === 'string') translatedText = finalText
+        if (scheduled) scheduled = false
+        setChunkAt(index, { translated: translatedText })
+      },
+      value() {
+        return translatedText
+      },
+    }
+  }
+
   function resolveQueueWaiters() {
     const waiters = queueWaitersRef.current
     queueWaitersRef.current = []
@@ -417,6 +443,18 @@ export default function LiveTranslator() {
       sampleRateRef.current,
       LIVE_AUDIO_SAMPLE_RATE,
     )
+    let energy = 0
+    let voicedSamples = 0
+    for (let i = 0; i < audioSamples.length; i++) {
+      const abs = Math.abs(audioSamples[i])
+      energy += abs * abs
+      if (abs > 0.012) voicedSamples += 1
+    }
+    const rms = Math.sqrt(energy / Math.max(1, audioSamples.length))
+    const voicedRatio = voicedSamples / Math.max(1, audioSamples.length)
+    if (rms < 0.006 || voicedRatio < 0.015) {
+      return null
+    }
     const samples = new Int16Array(audioSamples.length)
     for (let i = 0; i < audioSamples.length; i++) {
       const value = Math.max(-1, Math.min(1, audioSamples[i]))
@@ -620,6 +658,8 @@ export default function LiveTranslator() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let chunkCommitter = null
+      let doneReceived = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -639,17 +679,43 @@ export default function LiveTranslator() {
                 setDetectedTeacherLanguage(event.detected_language)
               }
               rawTranscriptPartsRef.current.push(event.content)
-              queueTranscriptWords(event.content, timestamp, event.detected_language, sid)
+              setChunkAt(idx, {
+                index: idx,
+                original: event.content,
+                translated: '',
+                timestamp,
+                detected_language: event.detected_language,
+              })
+              chunkCommitter = createChunkCommitter(idx)
+              setIsProcessingTranslation(true)
+            } else if (event.type === 'translated_token') {
+              if (!chunkCommitter) chunkCommitter = createChunkCommitter(idx)
+              chunkCommitter.append(event.content || '')
+            } else if (event.type === 'translated_chunk') {
+              const translatedChunk = event.chunk || {}
+              if (!chunkCommitter) chunkCommitter = createChunkCommitter(idx)
+              chunkCommitter.flush(translatedChunk.translated || chunkCommitter.value())
+              setChunkAt(translatedChunk.index ?? idx, translatedChunk)
+              scrollPanelsToChunk(translatedChunk.index ?? idx)
+            } else if (event.type === 'model_switch') {
+              window.dispatchEvent(new CustomEvent('optilearn:model-switch', { detail: event }))
             } else if (event.type === 'done') {
+              doneReceived = true
               chunkCountRef.current++
+              setIsProcessingTranslation(false)
               // Scroll panels to bottom
-              scrollPanelsToChunk(Math.max(0, translationIndexRef.current - 1))
+              scrollPanelsToChunk(idx)
             }
           } catch (_) {}
         }
       }
+      if (!doneReceived && chunkCommitter) {
+        chunkCommitter.flush()
+      }
     } catch (err) {
       console.error('[Chunk] processing failed', idx, err)
+    } finally {
+      setIsProcessingTranslation(false)
     }
   }
 

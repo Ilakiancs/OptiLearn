@@ -1,3 +1,4 @@
+import { CheckCircle, ImageSquare } from '@phosphor-icons/react'
 import LoadingDots from './LoadingDots'
 
 const cursorStyle = `
@@ -16,7 +17,7 @@ const cursorStyle = `
 }
 `
 
-export default function ChatMessage({ role, content, isStreaming }) {
+export default function ChatMessage({ role, content, isStreaming, attachment }) {
   const isUser = role === 'user'
 
   return (
@@ -41,6 +42,25 @@ export default function ChatMessage({ role, content, isStreaming }) {
           wordBreak: 'break-word',
           whiteSpace: 'pre-wrap',
         }}>
+          {attachment?.type === 'image' && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 9px',
+              marginBottom: content ? 8 : 0,
+              borderRadius: 10,
+              border: isUser ? '1px solid rgba(255,255,255,0.34)' : '1px solid var(--border)',
+              background: isUser ? 'rgba(255,255,255,0.14)' : 'var(--surface)',
+              color: isUser ? '#fff' : 'var(--text-muted)',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+            }}>
+              <ImageSquare size={17} weight="duotone" />
+              <span>{attachment.label || 'Image attached'}</span>
+              {isUser && <CheckCircle size={16} weight="fill" />}
+            </div>
+          )}
           {isStreaming && !content
             ? <LoadingDots />
             : <>

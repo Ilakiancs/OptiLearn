@@ -39,11 +39,68 @@ import httpx
 from loguru import logger
 
 from app.core.config import settings
+from app.services import model_scheduler
 
 ROUTE_TUTOR = "TUTOR"
 ROUTE_TRANSLATION = "TRANSLATION"
 ROUTE_ADMIN = "ADMIN"
 MODEL_SWITCH_TOKEN = "__MODEL_SWITCH__"
+
+
+@dataclass(frozen=True)
+class ModelProfile:
+    """Reusable capability profile for current and future fine-tuned models."""
+
+    name: str
+    route_type: str
+    local_model_setting: str
+    lane: str
+    think: bool | str | None = False
+    keep_alive: str = "60m"
+    use_cloud_when_auto: bool = False
+
+
+MODEL_PROFILES: dict[str, ModelProfile] = {
+    "tutor_fast": ModelProfile(
+        name="tutor_fast",
+        route_type=ROUTE_TUTOR,
+        local_model_setting="OLLAMA_TUTOR_MODEL",
+        lane=model_scheduler.LANE_STUDENT_CHAT,
+        think=False,
+    ),
+    "translation_fast": ModelProfile(
+        name="translation_fast",
+        route_type=ROUTE_TRANSLATION,
+        local_model_setting="OLLAMA_MODEL_FAST",
+        lane=model_scheduler.LANE_LIVE_TRANSLATION,
+        think=False,
+        use_cloud_when_auto=True,
+    ),
+    "notes_balanced": ModelProfile(
+        name="notes_balanced",
+        route_type=ROUTE_TRANSLATION,
+        local_model_setting="OLLAMA_MODEL_FAST",
+        lane=model_scheduler.LANE_BACKGROUND,
+        think=False,
+        use_cloud_when_auto=True,
+    ),
+    "admin_balanced": ModelProfile(
+        name="admin_balanced",
+        route_type=ROUTE_ADMIN,
+        local_model_setting="OLLAMA_MODEL_FAST",
+        lane=model_scheduler.LANE_ADMIN,
+        think=False,
+        use_cloud_when_auto=True,
+    ),
+    "deep_optional": ModelProfile(
+        name="deep_optional",
+        route_type=ROUTE_ADMIN,
+        local_model_setting="OLLAMA_MODEL_DEEP",
+        lane=model_scheduler.LANE_BACKGROUND,
+        think=True,
+        use_cloud_when_auto=True,
+    ),
+}
 
 _network_status_cache: dict | None = None
 _network_status_timestamp: float = 0
@@ -51,7 +108,6 @@ NETWORK_CACHE_TTL = 30
 
 _USER_SETTINGS_PATH = Path(settings.DB_PATH).resolve().parent / "user_settings.json"
 _runtime_network_mode: str | None = None
-_OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
 _OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 
 
@@ -223,6 +279,36 @@ def invalidate_network_cache() -> None:
     _network_status_cache = None
 
 
+def resolve_model_profile(profile: str | None = None, route_type: str = ROUTE_TUTOR) -> ModelProfile:
+    if profile and profile in MODEL_PROFILES:
+        return MODEL_PROFILES[profile]
+    route = (route_type or ROUTE_TUTOR).upper()
+    if route == ROUTE_TRANSLATION:
+        return MODEL_PROFILES["translation_fast"]
+    if route == ROUTE_ADMIN:
+        return MODEL_PROFILES["admin_balanced"]
+    return MODEL_PROFILES["tutor_fast"]
+
+
+def _profile_local_model(profile: ModelProfile) -> str:
+    return str(getattr(settings, profile.local_model_setting))
+
+
+def get_model_profiles() -> dict[str, dict[str, Any]]:
+    return {
+        name: {
+            "name": profile.name,
+            "route_type": profile.route_type,
+            "local_model": _profile_local_model(profile),
+            "lane": profile.lane,
+            "think": profile.think,
+            "keep_alive": profile.keep_alive,
+            "use_cloud_when_auto": profile.use_cloud_when_auto,
+        }
+        for name, profile in MODEL_PROFILES.items()
+    }
+
+
 def _get_26b_client() -> Any:
     from google import genai
 
@@ -301,6 +387,12 @@ async def _ollama_stream(
     enable_thinking: bool = False,
     extra_options: dict[str, Any] | None = None,
     image_b64: str | None = None,
+    lane: str | None = None,
+    feature: str = "model.generate",
+    route_type: str = "OLLAMA",
+    cache_status: str = "miss",
+    think: bool | str | None = False,
+    keep_alive: str = "60m",
 ) -> AsyncGenerator[str, None]:
     opts: dict[str, Any] = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
     if extra_options:
@@ -311,12 +403,14 @@ async def _ollama_stream(
         "system": system_prompt,
         "stream": True,
         "options": opts,
-        "keep_alive": "60m",
+        "keep_alive": keep_alive,
     }
+    if think is not None:
+        body["think"] = think
     if image_b64:
         body["images"] = [image_b64]
-    try:
-        async with _OLLAMA_SEMAPHORE:
+    async def request_stream() -> AsyncGenerator[str, None]:
+        try:
             async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
                 async with client.stream("POST", f"{settings.OLLAMA_HOST}/api/generate", json=body) as response:
                     response.raise_for_status()
@@ -329,6 +423,9 @@ async def _ollama_stream(
                         except json.JSONDecodeError:
                             continue
                         token = chunk.get("response", "")
+                        thinking = chunk.get("thinking", "")
+                        if thinking and enable_thinking and not token:
+                            continue
                         if token:
                             buffer += token
                             if enable_thinking:
@@ -341,6 +438,23 @@ async def _ollama_stream(
                                 yield token
                         if chunk.get("done"):
                             break
+        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
+            logger.error("Ollama not reachable at {} (routed stream): {}", settings.OLLAMA_HOST, exc)
+            raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
+        except httpx.TimeoutException as exc:
+            logger.error("Ollama routed stream timed out at {}: {}", settings.OLLAMA_HOST, exc)
+            raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
+
+    try:
+        async for token in model_scheduler.stream_with_lane(
+            lane=lane,
+            feature=feature,
+            route_type=route_type,
+            input_size=len(prompt) + len(system_prompt),
+            cache_status=cache_status,
+            generator_factory=request_stream,
+        ):
+            yield token
     except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
         logger.error("Ollama not reachable at {} (routed stream): {}", settings.OLLAMA_HOST, exc)
         raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
@@ -357,6 +471,10 @@ async def route_generate(
     stream: bool = True,
     image_b64: str | None = None,
     ollama_options: dict[str, Any] | None = None,
+    lane: str | None = None,
+    feature: str | None = None,
+    cache_status: str = "miss",
+    profile: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Routes to the correct model based on route_type and network status.
@@ -364,33 +482,54 @@ async def route_generate(
     TRANSLATION and ADMIN use 26B when online, E2B when offline.
     """
     del stream
+    feature_name = feature or f"route.{route_type.lower()}"
+    model_profile = resolve_model_profile(profile, route_type)
+    lane_name = lane or model_profile.lane
     if route_type == ROUTE_TUTOR:
         # FUTURE: replace settings.OLLAMA_TUTOR_MODEL with fine-tuned model
-        logger.info("MODEL ROUTE: {} -> local E2B ({})", route_type, settings.OLLAMA_TUTOR_MODEL)
+        local_model = _profile_local_model(model_profile)
+        logger.info("MODEL ROUTE: {} -> local profile={} ({})", route_type, model_profile.name, local_model)
         async for token in _ollama_stream(
             prompt,
-            settings.OLLAMA_TUTOR_MODEL,
+            local_model,
             system_prompt=system_prompt,
             enable_thinking=enable_thinking,
             extra_options=ollama_options,
             image_b64=image_b64,
+            lane=lane_name,
+            feature=feature_name,
+            route_type=route_type,
+            cache_status=cache_status,
+            think=model_profile.think,
+            keep_alive=model_profile.keep_alive,
         ):
             yield token
         return
 
     status = await get_network_status()
-    if status["use_26b"]:
+    if status["use_26b"] and model_profile.use_cloud_when_auto:
         logger.info(
             "MODEL ROUTE: {} -> 26B API ({}) latency={}ms",
             route_type,
             settings.GEMMA_26B_MODEL,
             status["latency_ms"],
         )
-        async for token in stream_26b(
-            prompt,
-            system_prompt=system_prompt,
-            enable_thinking=enable_thinking,
-            image_b64=image_b64,
+        async def api_stream() -> AsyncGenerator[str, None]:
+            async for piece in stream_26b(
+                prompt,
+                system_prompt=system_prompt,
+                enable_thinking=enable_thinking,
+                image_b64=image_b64,
+            ):
+                yield piece
+
+        async for token in model_scheduler.stream_with_lane(
+            lane=lane_name,
+            feature=feature_name,
+            route_type=route_type,
+            input_size=len(prompt) + len(system_prompt),
+            cache_status=cache_status,
+            generator_factory=api_stream,
         ):
             yield token
         return
@@ -403,18 +542,25 @@ async def route_generate(
         else "offline"
     )
     logger.info(
-        "MODEL ROUTE: {} -> local E2B ({}) reason={}",
+        "MODEL ROUTE: {} -> local profile={} ({}) reason={}",
         route_type,
-        settings.OLLAMA_MODEL_FAST,
+        model_profile.name,
+        _profile_local_model(model_profile),
         reason,
     )
     async for token in _ollama_stream(
         prompt,
-        settings.OLLAMA_MODEL_FAST,
+        _profile_local_model(model_profile),
         system_prompt=system_prompt,
         enable_thinking=enable_thinking,
         extra_options=ollama_options,
         image_b64=image_b64,
+        lane=lane_name,
+        feature=feature_name,
+        route_type=route_type,
+        cache_status=cache_status,
+        think=model_profile.think,
+        keep_alive=model_profile.keep_alive,
     ):
         yield token
 
@@ -427,10 +573,17 @@ async def route_generate_with_fallback(
     stream: bool = True,
     image_b64: str | None = None,
     ollama_options: dict[str, Any] | None = None,
+    lane: str | None = None,
+    feature: str | None = None,
+    cache_status: str = "miss",
+    profile: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Like route_generate but catches 26B failures and falls back to E2B."""
+    feature_name = feature or f"route.{route_type.lower()}"
+    model_profile = resolve_model_profile(profile, route_type)
+    lane_name = lane or model_profile.lane
     status = await get_network_status()
-    if not status["use_26b"] or route_type == ROUTE_TUTOR:
+    if not status["use_26b"] or route_type == ROUTE_TUTOR or not model_profile.use_cloud_when_auto:
         if route_type != ROUTE_TUTOR:
             reason = (
                 "manual override"
@@ -440,9 +593,10 @@ async def route_generate_with_fallback(
                 else "offline"
             )
             logger.info(
-                "MODEL ROUTE: {} -> local E2B ({}) reason={}",
+                "MODEL ROUTE: {} -> local profile={} ({}) reason={}",
                 route_type,
-                settings.OLLAMA_MODEL_FAST,
+                model_profile.name,
+                _profile_local_model(model_profile),
                 reason,
             )
         async for token in route_generate(
@@ -453,6 +607,10 @@ async def route_generate_with_fallback(
             stream=stream,
             image_b64=image_b64,
             ollama_options=ollama_options,
+            lane=lane_name,
+            feature=feature_name,
+            cache_status=cache_status,
+            profile=model_profile.name,
         ):
             yield token
         return
@@ -465,11 +623,22 @@ async def route_generate_with_fallback(
             settings.GEMMA_26B_MODEL,
             status["latency_ms"],
         )
-        async for token in stream_26b(
-            prompt,
-            system_prompt=system_prompt,
-            enable_thinking=enable_thinking,
-            image_b64=image_b64,
+        async def api_stream() -> AsyncGenerator[str, None]:
+            async for piece in stream_26b(
+                prompt,
+                system_prompt=system_prompt,
+                enable_thinking=enable_thinking,
+                image_b64=image_b64,
+            ):
+                yield piece
+
+        async for token in model_scheduler.stream_with_lane(
+            lane=lane_name,
+            feature=feature_name,
+            route_type=route_type,
+            input_size=len(prompt) + len(system_prompt),
+            cache_status=cache_status,
+            generator_factory=api_stream,
         ):
             got_tokens = True
             yield token
@@ -481,18 +650,25 @@ async def route_generate_with_fallback(
             yield MODEL_SWITCH_TOKEN
         else:
             logger.warning(
-                "MODEL ROUTE: {} -> local E2B ({}) reason=26B failed before first token",
+                "MODEL ROUTE: {} -> local profile={} ({}) reason=26B failed before first token",
                 route_type,
-                settings.OLLAMA_MODEL_FAST,
+                model_profile.name,
+                _profile_local_model(model_profile),
             )
 
     async for token in _ollama_stream(
         prompt,
-        settings.OLLAMA_MODEL_FAST,
+        _profile_local_model(model_profile),
         system_prompt=system_prompt,
         enable_thinking=enable_thinking,
         extra_options=ollama_options,
         image_b64=image_b64,
+        lane=lane_name,
+        feature=feature_name,
+        route_type=route_type,
+        cache_status=cache_status,
+        think=model_profile.think,
+        keep_alive=model_profile.keep_alive,
     ):
         yield token
 
@@ -628,13 +804,38 @@ class ModelClient:
         enable_thinking: bool = True,
         ollama_options: dict[str, Any] | None = None,
         force_local: bool = False,
+        lane: str | None = None,
+        feature: str = "chat.stream",
+        cache_status: str = "miss",
+        profile: str | None = "tutor_fast",
     ) -> AsyncGenerator[str, None]:
+        model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
+        lane_name = lane or model_profile.lane
         if not force_local and await should_use_gemini():
-            async for token in self._gemma_stream(messages, tools, image_b64):
+            async def api_stream() -> AsyncGenerator[str, None]:
+                async for piece in self._gemma_stream(messages, tools, image_b64):
+                    yield piece
+
+            async for token in model_scheduler.stream_with_lane(
+                lane=lane_name,
+                feature=feature,
+                route_type=ROUTE_TUTOR,
+                input_size=sum(len(str(m.get("content", ""))) for m in messages),
+                cache_status=cache_status,
+                generator_factory=api_stream,
+            ):
                 yield token
         else:
             async for token in self._ollama_stream(
-                messages, image_b64, model_preference, enable_thinking, ollama_options
+                messages,
+                image_b64,
+                model_preference,
+                enable_thinking,
+                ollama_options,
+                lane=lane_name,
+                feature=feature,
+                cache_status=cache_status,
+                profile=model_profile.name,
             ):
                 yield token
 
@@ -646,10 +847,32 @@ class ModelClient:
         model_preference: str = "fast",
         ollama_options: dict[str, Any] | None = None,
         force_local: bool = False,
+        lane: str | None = None,
+        feature: str = "chat.complete",
+        cache_status: str = "miss",
+        profile: str | None = "tutor_fast",
     ) -> "ToolCallEvent | str":
+        model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
+        lane_name = lane or model_profile.lane
         if not force_local and await should_use_gemini():
-            return await self._gemma_complete(messages, tools, image_b64)
-        return await self._ollama_complete(messages, image_b64, model_preference, ollama_options)
+            return await model_scheduler.run_with_lane(
+                lane=lane_name,
+                feature=feature,
+                route_type=ROUTE_TUTOR,
+                input_size=sum(len(str(m.get("content", ""))) for m in messages),
+                cache_status=cache_status,
+                call_factory=lambda: self._gemma_complete(messages, tools, image_b64),
+            )
+        return await self._ollama_complete(
+            messages,
+            image_b64,
+            model_preference,
+            ollama_options,
+            lane=lane_name,
+            feature=feature,
+            cache_status=cache_status,
+            profile=model_profile.name,
+        )
 
     # ── Ollama streaming (/api/chat — native multi-turn format) ─
     async def _ollama_stream(
@@ -659,6 +882,10 @@ class ModelClient:
         preferred: str = "fast",
         enable_thinking: bool = True,
         extra_options: dict[str, Any] | None = None,
+        lane: str | None = None,
+        feature: str = "chat.stream",
+        cache_status: str = "miss",
+        profile: str | None = "tutor_fast",
     ) -> AsyncGenerator[str, None]:
         """Stream a chat response from Ollama using the /api/chat endpoint.
 
@@ -671,7 +898,8 @@ class ModelClient:
         Thinking tokens (<|channel>thought...</channel|>) are stripped before
         yielding to the client.
         """
-        model_name = await get_active_model(preferred)
+        model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
+        model_name = await get_active_model("deep") if preferred == "deep" else _profile_local_model(model_profile)
 
         # Normalise role names: /api/chat expects 'assistant' not 'model'
         normalised: list[dict] = []
@@ -691,8 +919,10 @@ class ModelClient:
             "messages": normalised,
             "stream": True,
             "options": opts,
-            "keep_alive": "60m",
+            "keep_alive": model_profile.keep_alive,
         }
+        if model_profile.think is not None:
+            body["think"] = model_profile.think
 
         # Attach image to the last user message when provided
         if image_b64:
@@ -704,8 +934,8 @@ class ModelClient:
         url = f"{settings.OLLAMA_HOST}/api/chat"
         logger.info("Ollama /api/chat stream → model={} thinking={}", model_name, enable_thinking)
 
-        try:
-            async with _OLLAMA_SEMAPHORE:
+        async def request_stream() -> AsyncGenerator[str, None]:
+            try:
                 async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
                     async with client.stream("POST", url, json=body) as response:
                         response.raise_for_status()
@@ -719,6 +949,9 @@ class ModelClient:
                                 continue
                             # /api/chat response format: chunk["message"]["content"]
                             token = chunk.get("message", {}).get("content", "")
+                            thinking = chunk.get("message", {}).get("thinking", "")
+                            if thinking and enable_thinking and not token:
+                                continue
                             if token:
                                 buffer += token
                                 if enable_thinking:
@@ -731,12 +964,23 @@ class ModelClient:
                                     yield token
                             if chunk.get("done"):
                                 break
-        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError):
-            logger.error("Ollama not reachable at {} (stream)", settings.OLLAMA_HOST)
-            raise RuntimeError(_OLLAMA_DOWN_MSG)
-        except httpx.TimeoutException as exc:
-            logger.error("Ollama stream timed out at {}: {}", settings.OLLAMA_HOST, exc)
-            raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
+            except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError):
+                logger.error("Ollama not reachable at {} (stream)", settings.OLLAMA_HOST)
+                raise RuntimeError(_OLLAMA_DOWN_MSG)
+            except httpx.TimeoutException as exc:
+                logger.error("Ollama stream timed out at {}: {}", settings.OLLAMA_HOST, exc)
+                raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
+
+        try:
+            async for token in model_scheduler.stream_with_lane(
+                lane=lane,
+                feature=feature,
+                route_type=ROUTE_TUTOR,
+                input_size=sum(len(str(m.get("content", ""))) for m in normalised),
+                cache_status=cache_status,
+                generator_factory=request_stream,
+            ):
+                yield token
         except Exception as exc:
             logger.error("Ollama stream error: {}", exc)
             raise
@@ -750,10 +994,14 @@ class ModelClient:
         image_b64: str | None,
         preferred: str = "fast",
         extra_options: dict[str, Any] | None = None,
+        lane: str | None = None,
+        feature: str = "chat.complete",
+        cache_status: str = "miss",
+        profile: str | None = "tutor_fast",
     ) -> "ToolCallEvent | str":
-        model_name = await get_active_model(preferred)
+        model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
+        model_name = await get_active_model("deep") if preferred == "deep" else _profile_local_model(model_profile)
         system_text, prompt = _messages_to_prompt(messages)
-        system_text = "<|think|>\n" + system_text if system_text else "<|think|>"
 
         opts: dict[str, Any] = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
         if extra_options:
@@ -765,27 +1013,39 @@ class ModelClient:
             "system": system_text,
             "stream": False,
             "options": opts,
-            "keep_alive": "60m",
+            "keep_alive": model_profile.keep_alive,
         }
+        if model_profile.think is not None:
+            body["think"] = model_profile.think
         if image_b64:
             body["images"] = [image_b64]
 
         url = f"{settings.OLLAMA_HOST}/api/generate"
         logger.info("Ollama /api/generate complete → model={}", model_name)
 
-        try:
-            async with _OLLAMA_SEMAPHORE:
+        async def call() -> "ToolCallEvent | str":
+            try:
                 async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
                     response = await client.post(url, json=body)
                     response.raise_for_status()
                     data = response.json()
                     return _strip_thinking(data.get("response", ""))
-        except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
-            logger.error("Ollama not reachable at {} (complete): {}", settings.OLLAMA_HOST, exc)
-            raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
-        except httpx.TimeoutException as exc:
-            logger.error("Ollama complete timed out at {}: {}", settings.OLLAMA_HOST, exc)
-            raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
+            except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
+                logger.error("Ollama not reachable at {} (complete): {}", settings.OLLAMA_HOST, exc)
+                raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
+            except httpx.TimeoutException as exc:
+                logger.error("Ollama complete timed out at {}: {}", settings.OLLAMA_HOST, exc)
+                raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
+
+        try:
+            return await model_scheduler.run_with_lane(
+                lane=lane,
+                feature=feature,
+                route_type=ROUTE_TUTOR,
+                input_size=len(prompt) + len(system_text),
+                cache_status=cache_status,
+                call_factory=call,
+            )
         except Exception as exc:
             logger.error("Ollama complete error: {}", exc)
             raise

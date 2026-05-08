@@ -135,6 +135,7 @@ export default function App() {
             <Route path="/teacher/student/:studentId" element={<TeacherRoute><StudentProgress /></TeacherRoute>} />
             <Route path="/teacher/materials" element={<TeacherRoute><TeacherDashboard initialView="materials" /></TeacherRoute>} />
             <Route path="/teacher/quiz-builder" element={<TeacherRoute><TeacherDashboard initialView="quiz-builder" /></TeacherRoute>} />
+            <Route path="/teacher/diagnostics" element={<TeacherRoute><TeacherDashboard initialView="diagnostics" /></TeacherRoute>} />
 
             {/* Student LMS — nested under sidebar layout */}
             <Route path="/student/:studentId" element={<StudentRoute><StudentLayout /></StudentRoute>}>
