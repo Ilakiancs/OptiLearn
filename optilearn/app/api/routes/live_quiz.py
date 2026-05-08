@@ -54,12 +54,14 @@ class ConnectionManager:
         logger.debug("WS connected: game={} total={}", game_id, len(self.rooms[game_id]))
 
     def disconnect(self, game_id: str, ws: WebSocket) -> None:
-        self.rooms[game_id].discard(ws) if hasattr(self.rooms[game_id], 'discard') else None
         try:
             self.rooms[game_id].remove(ws)
         except ValueError:
             pass
-        logger.debug("WS disconnected: game={} remaining={}", game_id, len(self.rooms[game_id]))
+        if not self.rooms[game_id]:
+            del self.rooms[game_id]
+        else:
+            logger.debug("WS disconnected: game={} remaining={}", game_id, len(self.rooms[game_id]))
 
     async def broadcast(self, game_id: str, message: dict[str, Any]) -> None:
         dead: list[WebSocket] = []

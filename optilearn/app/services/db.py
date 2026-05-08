@@ -581,6 +581,17 @@ async def soft_delete_teacher(teacher_id: str) -> None:
         await db.commit()
 
 
+async def purge_expired_sessions() -> int:
+    """Delete all expired teacher sessions. Returns the number of rows deleted."""
+    now = datetime.utcnow().isoformat() + "Z"
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "DELETE FROM teacher_sessions WHERE expires_at <= ?", (now,)
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
 async def create_teacher_session(token: str, teacher_id: str, expires_at: datetime) -> None:
     async with _get_db() as db:
         await db.execute(

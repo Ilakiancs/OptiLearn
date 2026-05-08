@@ -171,6 +171,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("Embedding model warmup skipped: {}", exc)
 
     asyncio.create_task(_warmup_background_models())
+
+    # Purge stale sessions at startup, then every hour in the background.
+    purged = await db.purge_expired_sessions()
+    if purged:
+        logger.info("Purged {} expired teacher session(s) at startup.", purged)
+
+    async def _session_cleanup_loop() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                n = await db.purge_expired_sessions()
+                if n:
+                    logger.info("Periodic cleanup: purged {} expired teacher session(s).", n)
+            except Exception as exc:
+                logger.warning("Session cleanup error: {}", exc)
+
+    asyncio.create_task(_session_cleanup_loop())
+
     logger.info("Server ready on http://{}:{}", settings.HOST, settings.PORT)
     try:
         yield

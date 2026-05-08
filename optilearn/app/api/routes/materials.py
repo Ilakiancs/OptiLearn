@@ -47,14 +47,24 @@ def _extract_pdf(file_path: str, source: str) -> list[dict]:
         logger.warning("PyMuPDF not installed — PDF text extraction skipped")
         return []
 
-    doc = fitz.open(file_path)
+    try:
+        doc = fitz.open(file_path)
+    except Exception as exc:
+        logger.error("Cannot open PDF {}: {}", file_path, exc)
+        return []
     all_chunks: list[dict] = []
     for page_num, page in enumerate(doc, start=1):
-        text = page.get_text().strip()
+        try:
+            text = page.get_text().strip()
+        except Exception as exc:
+            logger.warning("PDF text extraction failed on page {}: {}", page_num, exc)
+            continue
         if text:
             page_source = f"{source}:p{page_num}"
             all_chunks.extend(_chunk_text(text, page_source))
     doc.close()
+    if not all_chunks:
+        logger.warning("PDF {} yielded no extractable text (scanned/image-only?)", file_path)
     return all_chunks
 
 
@@ -146,6 +156,51 @@ async def get_material_file(material_id: str) -> FileResponse:
     }
     media_type = media_types.get(ext, "application/octet-stream")
     return FileResponse(str(file_path), media_type=media_type)
+
+
+@router.post("/reindex")
+async def reindex_materials(
+    current_teacher: dict = Depends(get_current_teacher),
+) -> dict:
+    """
+    Re-extract and re-index all PDF/TXT materials into FAISS.
+
+    Use after manually updating curriculum files on disk, or when the index
+    becomes stale. Rebuilds from every material record that has a readable file.
+    Returns counts of materials processed and passages added.
+    """
+    faiss_store.reset_index()
+
+    all_materials = await db.get_all_materials(teacher_only=False)
+    processed = 0
+    total_passages = 0
+
+    for mat in all_materials:
+        file_path = mat.get("file_path") or ""
+        if not file_path:
+            continue
+        ext = Path(file_path).suffix.lower()
+        if ext not in {".pdf", ".txt"}:
+            continue
+        if not os.path.exists(file_path):
+            logger.warning("Reindex: file not found on disk, skipping: {}", file_path)
+            continue
+        source_label = f"{mat.get('title', 'unknown')}{ext}"
+        try:
+            if ext == ".pdf":
+                chunks = _extract_pdf(file_path, source_label)
+            else:
+                chunks = _extract_txt(file_path, source_label)
+        except Exception as exc:
+            logger.warning("Reindex: extraction failed for {}: {}", file_path, exc)
+            continue
+        if chunks:
+            count = faiss_store.add_passages(chunks)
+            total_passages += count
+            processed += 1
+
+    logger.info("Reindex complete: {} materials, {} passages", processed, total_passages)
+    return {"materials_processed": processed, "passages_indexed": total_passages}
 
 
 @router.get("")
