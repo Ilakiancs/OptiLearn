@@ -227,6 +227,14 @@ export function getHealth() {
   return request('/api/health')
 }
 
+export function getPerformanceDiagnostics(limit = 100) {
+  return request(`/api/diagnostics/performance?limit=${encodeURIComponent(limit)}`)
+}
+
+export function getJob(jobId) {
+  return request(`/api/jobs/${encodeURIComponent(jobId)}`)
+}
+
 export function getNetworkStatus() {
   return request('/api/network/status')
 }
@@ -355,9 +363,55 @@ export async function streamSSE(url, body, onEvent, onDone) {
   const decoder = new TextDecoder()
   let buffer = ''
   let completed = false
+  let firstTokenDelivered = false
+  let tokenBatch = null
+  let flushScheduled = false
+  const scheduleFlush = () => {
+    if (flushScheduled) return
+    flushScheduled = true
+    const run = () => {
+      flushScheduled = false
+      if (tokenBatch) {
+        onEvent(tokenBatch)
+        tokenBatch = null
+      }
+    }
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      window.requestAnimationFrame(run)
+    } else {
+      setTimeout(run, 32)
+    }
+  }
+  const flushTokens = () => {
+    if (!tokenBatch) return
+    const batch = tokenBatch
+    tokenBatch = null
+    flushScheduled = false
+    onEvent(batch)
+  }
+  const handleEvent = (event) => {
+    if (event.type === 'token' && typeof event.content === 'string') {
+      if (!firstTokenDelivered) {
+        firstTokenDelivered = true
+        onEvent(event)
+        return
+      }
+      const samePage = (tokenBatch?.page ?? null) === (event.page ?? null)
+      if (tokenBatch && samePage) {
+        tokenBatch = { ...tokenBatch, content: `${tokenBatch.content || ''}${event.content || ''}` }
+      } else {
+        flushTokens()
+        tokenBatch = { ...event }
+      }
+      scheduleFlush()
+      return
+    }
+    flushTokens()
+    onEvent(event)
+  }
   while (true) {
     const { done, value } = await reader.read()
-    if (done) { if (!completed) onDone?.(); break }
+    if (done) { flushTokens(); if (!completed) onDone?.(); break }
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
     buffer = lines.pop() ?? ''
@@ -368,8 +422,9 @@ export async function streamSSE(url, body, onEvent, onDone) {
           if (event.type === 'model_switch') {
             window.dispatchEvent(new CustomEvent('optilearn:model-switch', { detail: event }))
           }
-          onEvent(event)
+          handleEvent(event)
           if (event.type === 'done') {
+            flushTokens()
             completed = true
             onDone?.()
             await reader.cancel()

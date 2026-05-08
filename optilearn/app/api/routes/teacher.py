@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.api.routes.auth import get_current_admin, get_current_teacher
 from app.models.schemas import TeacherChatRequest
-from app.services import db
+from app.services import db, generated_cache
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
 
 
@@ -185,15 +185,45 @@ async def teacher_report(
             f"Highlight what is positive and give one gentle actionable suggestion. "
             f"Write ONLY in {master_lang_name}."
         )
-        tokens: list[str] = []
-        async for token in route_generate_with_fallback(
-            summary_prompt, "ADMIN",
-            system_prompt=summary_system,
-            enable_thinking=False,
-        ):
-            if token != MODEL_SWITCH_TOKEN:
-                tokens.append(token)
-        ai_summary = "".join(tokens).strip()
+        summary_hash = generated_cache.hash_text(
+            json.dumps(
+                {
+                    "lang": master_lang_name,
+                    "total": total,
+                    "alerts": alert_count,
+                    "avg_mastery": avg_mastery,
+                },
+                sort_keys=True,
+            )
+        )
+        cache_key = generated_cache.make_cache_key(
+            "teacher.class_summary",
+            {"summary_hash": summary_hash},
+            prompt_version="teacher-summary-v1",
+        )
+        cached_summary = await generated_cache.get_text(cache_key, "teacher.class_summary")
+        if cached_summary:
+            ai_summary = cached_summary
+        else:
+            tokens: list[str] = []
+            async for token in route_generate_with_fallback(
+                summary_prompt, "ADMIN",
+                system_prompt=summary_system,
+                enable_thinking=False,
+                lane="admin",
+                feature="teacher.class_summary",
+                profile="admin_balanced",
+            ):
+                if token != MODEL_SWITCH_TOKEN:
+                    tokens.append(token)
+            ai_summary = "".join(tokens).strip()
+            if ai_summary:
+                await generated_cache.set_text(
+                    cache_key,
+                    "teacher.class_summary",
+                    ai_summary,
+                    input_hash=summary_hash,
+                )
     except Exception as exc:
         logger.warning("PDF AI summary failed: {}", exc)
 
@@ -439,6 +469,9 @@ async def teacher_chat(
                 "ADMIN",
                 system_prompt=system_prompt,
                 enable_thinking=False,
+                lane="admin",
+                feature="teacher.chat",
+                profile="admin_balanced",
             ):
                 if token == MODEL_SWITCH_TOKEN:
                     yield _sse({

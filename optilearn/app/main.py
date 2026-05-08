@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -22,13 +22,15 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, network, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes.auth import get_current_admin
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
-from app.services import db, faiss_store
+from app.services import db, faiss_store, job_manager, model_scheduler, telemetry, tts_client
 from app.services.client_tracker import record_client
 from app.services.dns_server import start_captive_portal, stop_captive_portal
 from app.services.mdns_server import start_mdns, stop_mdns
-from app.services.model_client import get_network_mode, get_network_status, load_user_network_settings
+from app.services.model_client import get_model_profiles, get_network_mode, get_network_status, load_user_network_settings
+from app.services.whisper_client import get_transcriber_status
 from app.services.network import get_cached_hotspot_ip, get_server_url
 
 
@@ -279,9 +281,14 @@ async def health() -> dict:
         "db_ok": db_ok,
         "faiss_passages": faiss_passages,
         "embedding": faiss_store.get_embed_status(),
+        "speech": get_transcriber_status(),
+        "tts": tts_client.get_tts_status(),
         "use_local_ollama": not network_status["use_26b"],
         "e4b_available": e4b_available,
         "active_model": settings.OLLAMA_MODEL_FAST,
+        "model_profiles": get_model_profiles(),
+        "scheduler": model_scheduler.get_scheduler_status(),
+        "jobs": job_manager.snapshot(),
         "network": {
             **network_status,
             "mode": get_network_mode(),
@@ -294,6 +301,41 @@ async def health() -> dict:
     }
 
 # ── Frontend static build ──────────────────────────────────────
+@app.get("/api/diagnostics/performance", tags=["system"])
+async def performance_diagnostics(
+    limit: int = 100,
+    _admin: dict = Depends(get_current_admin),
+) -> dict:
+    """Recent system-layer AI telemetry for teacher/admin diagnostics."""
+    safe_limit = max(1, min(limit, 300))
+    return {
+        "summary": telemetry.telemetry_summary(),
+        "active": telemetry.active_ai_traces(),
+        "recent": telemetry.recent_ai_events(safe_limit),
+        "scheduler": model_scheduler.get_scheduler_status(),
+        "jobs": job_manager.snapshot(),
+    }
+
+
+@app.get("/api/jobs", tags=["system"])
+async def list_jobs(
+    limit: int = 50,
+    _admin: dict = Depends(get_current_admin),
+) -> dict:
+    return {"jobs": job_manager.list_jobs(limit)}
+
+
+@app.get("/api/jobs/{job_id}", tags=["system"])
+async def get_job(
+    job_id: str,
+    _admin: dict = Depends(get_current_admin),
+) -> dict:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
 # Keep unknown API endpoints as API 404s before the frontend catch-all mount.
 @app.api_route(
     "/api/{path:path}",

@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
-from app.services import db, faiss_store
+from app.services import db, faiss_store, generated_cache, job_manager
 from app.services.model_client import MODEL_SWITCH_TOKEN, model_client, route_generate, route_generate_with_fallback
 
 router = APIRouter(prefix="/api/feature1", tags=["feature1"])
@@ -884,6 +884,28 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                     yield _sse({"type": "done", "total_pages": 1})
                     return
 
+                source_hash = generated_cache.hash_text(
+                    "\n\n".join((p.get("text") or "") for p in target_pages)
+                    or str(material.get("file_path") or body.material_id)
+                )
+                cache_key = generated_cache.make_cache_key(
+                    "material.translation",
+                    {
+                        "material_id": body.material_id,
+                        "target_language": body.target_language,
+                        "grade": grade,
+                        "source_hash": source_hash,
+                    },
+                    prompt_version="feature1-translation-v1",
+                )
+                persisted_cached = await generated_cache.get_text(cache_key, "material.translation")
+                if persisted_cached:
+                    _translation_cache[body.material_id] = persisted_cached
+                    _translation_cache[f"lang_{body.material_id}"] = body.target_language
+                    yield _sse({"type": "page_complete", "page": 1, "full_text": persisted_cached})
+                    yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
+                    return
+
                 for pg in target_pages:
                     page_num = pg["page"]
                     content = pg.get("text", "")
@@ -910,6 +932,9 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             enable_thinking=True,
                             image_b64=image_b64,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
+                            lane="background",
+                            feature="feature1.material_translation",
+                            profile="notes_balanced",
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
                             if sse_event.startswith(": keepalive"):
@@ -932,6 +957,9 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
                             enable_thinking=True,
                             ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
+                            lane="background",
+                            feature="feature1.material_translation",
+                            profile="notes_balanced",
                         )
                         async for sse_event in _sse_stream_with_keepalive(gen, page_num):
                             if sse_event.startswith(": keepalive"):
@@ -947,16 +975,32 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                 full_text = "\n\n".join(full_parts)
                 _translation_cache[body.material_id] = full_text
                 _translation_cache[f"lang_{body.material_id}"] = body.target_language
+                await generated_cache.set_text(
+                    cache_key,
+                    "material.translation",
+                    full_text,
+                    input_hash=source_hash,
+                    metadata={
+                        "material_id": body.material_id,
+                        "target_language": body.target_language,
+                        "grade": grade,
+                    },
+                )
 
-                asyncio.create_task(
-                    _persist_translated_material(
+                persist_job_id = job_manager.create_job(
+                    "feature1.persist_material",
+                    lambda: _persist_translated_material(
                         material_id=body.material_id,
                         student_id=body.student_id,
                         target_language=body.target_language,
                         full_text=full_text,
-                    )
+                    ),
+                    metadata={
+                        "material_id": body.material_id,
+                        "student_id": body.student_id,
+                    },
                 )
-                yield _sse({"type": "done", "total_pages": len(target_pages)})
+                yield _sse({"type": "done", "total_pages": len(target_pages), "job_id": persist_job_id})
                 return
 
         except Exception as exc:
@@ -1005,9 +1049,27 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
         language=lang_name,
         translated_text=translated_text[:4000],
     )
+    source_hash = generated_cache.hash_text(translated_text)
+    cache_key = generated_cache.make_cache_key(
+        "material.explanation",
+        {
+            "material_id": body.material_id,
+            "student_id": body.student_id,
+            "language": body.language,
+            "grade": student.get("grade_level", 1),
+            "source_hash": source_hash,
+        },
+        prompt_version="feature1-explain-v1",
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
+            cached = await generated_cache.get_text(cache_key, "material.explanation")
+            if cached:
+                yield _sse({"type": "token", "page": 1, "content": cached})
+                yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
+                return
+
             summary_chunks: list[str] = []
             # FUTURE: replace with fine-tuned model
             gen = route_generate(
@@ -1015,12 +1077,26 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
                 "TUTOR",
                 enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
+                lane="student_chat",
+                feature="feature1.explain",
+                profile="tutor_fast",
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, summary_chunks.append):
                 yield sse_event
             summary_text = "".join(summary_chunks).strip()
             if summary_text:
                 await db.update_material_tutor_summary(body.material_id, summary_text)
+                await generated_cache.set_text(
+                    cache_key,
+                    "material.explanation",
+                    summary_text,
+                    input_hash=source_hash,
+                    metadata={
+                        "material_id": body.material_id,
+                        "student_id": body.student_id,
+                        "language": body.language,
+                    },
+                )
             yield _sse({"type": "done", "total_pages": 1})
         except Exception as exc:
             logger.error("Explain stream error: {}\n{}", exc, traceback.format_exc())
@@ -1068,6 +1144,20 @@ async def ask_question(body: AskRequest):
             grade_level=student.get("grade_level", 1),
             context=context,
         )
+        cache_key = generated_cache.make_cache_key(
+            "suggested.questions",
+            {
+                "material_id": body.material_id,
+                "student_id": body.student_id,
+                "language": body.language,
+                "grade": student.get("grade_level", 1),
+                "source_hash": generated_cache.hash_text(context),
+            },
+            prompt_version="feature1-suggestions-v1",
+        )
+        cached_questions = await generated_cache.get_json(cache_key, "suggested.questions")
+        if isinstance(cached_questions, list):
+            return {"questions": cached_questions, "cache_hit": True}
         messages = [{"role": "user", "content": prompt}]
         try:
             result = await asyncio.wait_for(
@@ -1076,6 +1166,9 @@ async def ask_question(body: AskRequest):
                     model_preference=body.model_preference,
                     ollama_options={"num_ctx": 4096, "num_predict": 512},
                     force_local=True,  # FUTURE: replace with fine-tuned model
+                    lane="student_chat",
+                    feature="feature1.suggest_questions",
+                    profile="tutor_fast",
                 ),
                 timeout=45,
             )
@@ -1096,6 +1189,14 @@ async def ask_question(body: AskRequest):
                 questions = []
         except (json.JSONDecodeError, ValueError):
             questions = []
+        if questions:
+            await generated_cache.set_json(
+                cache_key,
+                "suggested.questions",
+                questions,
+                input_hash=generated_cache.hash_text(context),
+                metadata={"material_id": body.material_id, "language": body.language},
+            )
         return {"questions": questions}
 
     prompt = _ASK_PROMPT.format(
@@ -1106,9 +1207,27 @@ async def ask_question(body: AskRequest):
         context=context,
         question=body.question,
     )
+    source_hash = generated_cache.hash_text(f"{context}\n\n{body.question}")
+    cache_key = generated_cache.make_cache_key(
+        "material.qa",
+        {
+            "material_id": body.material_id,
+            "student_id": body.student_id,
+            "language": body.language,
+            "grade": student.get("grade_level", 1),
+            "source_hash": source_hash,
+        },
+        prompt_version="feature1-ask-v1",
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
+            cached = await generated_cache.get_text(cache_key, "material.qa")
+            if cached:
+                yield _sse({"type": "token", "page": 1, "content": cached})
+                yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
+                return
+
             answer_chunks: list[str] = []
             # FUTURE: replace with fine-tuned model
             gen = route_generate(
@@ -1116,6 +1235,9 @@ async def ask_question(body: AskRequest):
                 "TUTOR",
                 enable_thinking=True,
                 ollama_options={"num_ctx": 8192},
+                lane="student_chat",
+                feature="feature1.ask",
+                profile="tutor_fast",
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, answer_chunks.append):
                 yield sse_event
@@ -1125,6 +1247,17 @@ async def ask_question(body: AskRequest):
                     body.material_id,
                     body.question,
                     answer_text,
+                )
+                await generated_cache.set_text(
+                    cache_key,
+                    "material.qa",
+                    answer_text,
+                    input_hash=source_hash,
+                    metadata={
+                        "material_id": body.material_id,
+                        "student_id": body.student_id,
+                        "language": body.language,
+                    },
                 )
             yield _sse({"type": "done", "total_pages": 1})
         except Exception as exc:

@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.models.schemas import CreateStudentRequest
-from app.services import db
+from app.services import db, generated_cache
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
 
 router = APIRouter(prefix="/api/students", tags=["students"])
@@ -92,14 +92,34 @@ async def get_student_report(
         topic_mastery_dict=json.dumps(mastery_dict),
         last_10_results=json.dumps(last_10),
     ) + lang_instruction
+    progress_hash = generated_cache.hash_text(json.dumps(progress, ensure_ascii=False, sort_keys=True))
+    cache_key = generated_cache.make_cache_key(
+        "student.report",
+        {
+            "student_id": student_id,
+            "language": language,
+            "progress_hash": progress_hash,
+        },
+        prompt_version="student-report-v1",
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
+            cached_report = await generated_cache.get_text(cache_key, "student.report")
+            if cached_report:
+                yield _sse({"type": "token", "content": cached_report})
+                yield _sse({"type": "done", "cache_hit": True})
+                return
+
+            report_parts: list[str] = []
             async for token in route_generate_with_fallback(
                 prompt,
                 "ADMIN",
                 system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
                 enable_thinking=False,
+                lane="admin",
+                feature="student.report",
+                profile="admin_balanced",
             ):
                 if token == MODEL_SWITCH_TOKEN:
                     yield _sse({
@@ -108,7 +128,17 @@ async def get_student_report(
                         "color": "#EF9F27",
                     })
                     continue
+                report_parts.append(token)
                 yield _sse({"type": "token", "content": token})
+            report_text = "".join(report_parts).strip()
+            if report_text:
+                await generated_cache.set_text(
+                    cache_key,
+                    "student.report",
+                    report_text,
+                    input_hash=progress_hash,
+                    metadata={"student_id": student_id, "language": language},
+                )
             yield _sse({"type": "done"})
         except Exception as exc:
             logger.error("Report stream error: {}\n{}", exc, traceback.format_exc())

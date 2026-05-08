@@ -207,6 +207,18 @@ CREATE TABLE IF NOT EXISTS live_answers (
 CREATE INDEX IF NOT EXISTS idx_live_participants_game ON live_participants(game_id);
 CREATE INDEX IF NOT EXISTS idx_live_answers_game      ON live_answers(game_id);
 CREATE INDEX IF NOT EXISTS idx_live_answers_participant ON live_answers(participant_id);
+
+CREATE TABLE IF NOT EXISTS generated_cache (
+    cache_key   TEXT PRIMARY KEY,
+    feature     TEXT NOT NULL,
+    input_hash  TEXT,
+    payload     TEXT NOT NULL,
+    metadata    TEXT DEFAULT '{}',
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_generated_cache_feature ON generated_cache(feature);
 """
 
 
@@ -389,6 +401,54 @@ async def init_db() -> None:
         await db.commit()
         await _migrate_students_for_auth(db)
     logger.info("Database schema ready.")
+
+
+async def get_generated_cache(cache_key: str) -> dict[str, Any] | None:
+    """Return a generated artifact cache entry by stable cache key."""
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "SELECT * FROM generated_cache WHERE cache_key = ?",
+            (cache_key,),
+        )
+        row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def set_generated_cache(
+    *,
+    cache_key: str,
+    feature: str,
+    payload: str,
+    input_hash: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Persist generated artifact output across server restarts."""
+    now = datetime.utcnow().isoformat()
+    async with _get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO generated_cache (
+                cache_key, feature, input_hash, payload, metadata, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                feature = excluded.feature,
+                input_hash = excluded.input_hash,
+                payload = excluded.payload,
+                metadata = excluded.metadata,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cache_key,
+                feature,
+                input_hash,
+                payload,
+                json.dumps(metadata or {}, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
 
 
 async def create_student(

@@ -58,6 +58,40 @@ _mms_cache: dict[str, tuple] = {}
 _mms_unavailable: set[str] = set()
 
 
+def get_tts_status() -> dict:
+    """Return offline TTS asset readiness without loading synthesis models."""
+    voices_dir = Path(settings.VOICES_DIR)
+    piper_binary = Path(settings.PIPER_BINARY)
+    voice_files = list(voices_dir.glob("*.onnx")) if voices_dir.exists() else []
+    piper_voices = sorted({
+        voice
+        for engine, voice in VOICE_MAP.values()
+        if engine == "piper"
+    })
+    missing_piper_voices = [
+        voice for voice in piper_voices
+        if not (voices_dir / f"{voice}.onnx").exists()
+    ]
+    mms_models = sorted({
+        model_id
+        for engine, model_id in VOICE_MAP.values()
+        if engine == "mms"
+    })
+    ready = piper_binary.exists() and voices_dir.exists() and bool(voice_files)
+    return {
+        "ready": ready,
+        "piper_binary": str(piper_binary),
+        "piper_binary_exists": piper_binary.exists(),
+        "voices_dir": str(voices_dir),
+        "voices_dir_exists": voices_dir.exists(),
+        "installed_voice_count": len(voice_files),
+        "missing_piper_voices": missing_piper_voices,
+        "mms_models": mms_models,
+        "mms_loaded": sorted(_mms_cache.keys()),
+        "mms_unavailable": sorted(_mms_unavailable),
+    }
+
+
 # Helpers
 def raw_pcm_to_wav(raw_bytes: bytes, sample_rate: int = 22050) -> bytes:
     buf = io.BytesIO()

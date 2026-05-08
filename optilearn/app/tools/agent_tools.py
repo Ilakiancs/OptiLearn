@@ -246,6 +246,9 @@ async def generate_quiz(
         messages=messages,
         tools=[],
         image_b64=None,
+        lane="student_chat",
+        feature="tool.generate_quiz",
+        profile="tutor_fast",
     )
 
     if not isinstance(result, str):

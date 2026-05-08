@@ -18,7 +18,7 @@ from PIL import Image
 from app.core.config import settings
 from app.core.prompts import build_system_prompt
 from app.models.schemas import ChatRequest
-from app.services import db
+from app.services import context_prep, db
 from app.services.model_client import ToolCallEvent, model_client
 from app.tools.agent_tools import TOOL_SCHEMAS, detect_language, generate_quiz, retrieve_curriculum, update_progress
 
@@ -45,6 +45,20 @@ async def _dispatch_tool(tool_name: str, arguments: dict) -> Any:
 def _sse(event: dict) -> str:
     """Format a dict as an SSE data line."""
     return f"data: {json.dumps(event)}\n\n"
+
+
+def _should_plan_tools(message: str, has_image: bool = False) -> bool:
+    """Only spend a planning generation when a tool is likely useful."""
+    if has_image:
+        return False
+    text = (message or "").lower()
+    tool_keywords = {
+        "quiz", "quick check", "test me", "practice questions",
+        "progress", "mastery", "score", "how am i doing",
+        "curriculum", "lesson from", "look up", "retrieve",
+        "what language", "detect language",
+    }
+    return any(keyword in text for keyword in tool_keywords)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -110,11 +124,7 @@ async def chat(body: ChatRequest) -> StreamingResponse:
             system_prompt = build_system_prompt(student, mastery, selected_language)
             model_preference = body.model_preference or "fast"
             saved_history = await db.get_session_messages(body.session_id)
-            recent_history = [
-                {"role": msg["role"], "content": msg.get("content") or ""}
-                for msg in saved_history
-                if msg.get("role") in {"user", "assistant"} and (msg.get("content") or "").strip()
-            ][-12:]
+            recent_history = context_prep.select_chat_history(saved_history, body.message)
 
             await db.add_message(body.session_id, "user", body.message)
             assistant_parts: list[str] = []
@@ -125,29 +135,40 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                 {"role": "user", "content": body.message},
             ]
 
-            try:
-                result = await asyncio.wait_for(
-                    model_client.complete_with_tools(
-                        messages=messages,
-                        tools=TOOL_SCHEMAS,
-                        image_b64=body.image_b64,
-                        model_preference=model_preference,
-                        ollama_options={"num_ctx": 4096, "num_predict": 512},
-                        force_local=True,  # FUTURE: replace with fine-tuned model
-                    ),
-                    timeout=50,
-                )
-            except (asyncio.TimeoutError, RuntimeError) as exc:
-                logger.warning("Tool planning skipped; streaming tutor answer directly: {}", exc)
+            result: ToolCallEvent | str = ""
+            if _should_plan_tools(body.message, bool(body.image_b64)):
+                try:
+                    result = await asyncio.wait_for(
+                        model_client.complete_with_tools(
+                            messages=messages,
+                            tools=TOOL_SCHEMAS,
+                            image_b64=body.image_b64,
+                            model_preference=model_preference,
+                            ollama_options={"num_ctx": 4096, "num_predict": 128},
+                            force_local=True,  # FUTURE: replace with fine-tuned model
+                            lane="student_chat",
+                            feature="chat.tool_planning",
+                            profile="tutor_fast",
+                        ),
+                        timeout=12,
+                    )
+                except (asyncio.TimeoutError, RuntimeError) as exc:
+                    logger.warning("Tool planning skipped; streaming tutor answer directly: {}", exc)
+                    result = ""
+
+            if not result:
                 result = ""
                 async for token in model_client.stream_chat(
                     messages=messages,
                     tools=[],
                     image_b64=body.image_b64,
                     model_preference=model_preference,
-                    enable_thinking=True,
-                    ollama_options={"num_ctx": 4096},
+                    enable_thinking=False,
+                    ollama_options={"num_ctx": 4096, "num_predict": 384},
                     force_local=True,
+                    lane="student_chat",
+                    feature="chat.direct_stream",
+                    profile="tutor_fast",
                 ):
                     assistant_parts.append(token)
                     yield _sse({"type": "token", "content": token})
@@ -180,6 +201,9 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                         image_b64=None,
                         model_preference=model_preference,
                         force_local=True,  # FUTURE: replace with fine-tuned model
+                        lane="student_chat",
+                        feature="chat.tool_followup",
+                        profile="tutor_fast",
                     ):
                         assistant_parts.append(token)
                         yield _sse({"type": "token", "content": token})
