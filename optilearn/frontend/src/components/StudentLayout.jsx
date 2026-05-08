@@ -7,6 +7,7 @@ import {
   ChatsCircle,
   ChartBar,
   DoorOpen,
+  GameController,
   House,
   Key,
   ListChecks,
@@ -137,6 +138,8 @@ const EXTRA_ITEMS = [
   { suffix: '/live-translator', label: 'Live Class', Icon: Radio },
 ]
 
+const LIVE_QUIZ_ITEM = { to: '/join', label: 'Join Live Quiz', Icon: GameController }
+
 export function avatarColor(name) {
   const palette = ['#4ca8d9', '#4fbc99', '#6fa8f3', '#4f9fce', '#7fb89f', '#82a3d4']
   let h = 0
@@ -238,6 +241,7 @@ function Sidebar({ studentId, student, onNavigate }) {
         {EXTRA_ITEMS.map(({ suffix, label, Icon }) => (
           <NavButton key={suffix} to={`/student/${studentId}${suffix}`} label={label} Icon={Icon} onClick={onNavigate} />
         ))}
+        <NavButton to={LIVE_QUIZ_ITEM.to} label={LIVE_QUIZ_ITEM.label} Icon={LIVE_QUIZ_ITEM.Icon} onClick={onNavigate} />
       </nav>
 
       <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>

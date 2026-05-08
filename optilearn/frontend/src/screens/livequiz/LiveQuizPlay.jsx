@@ -68,7 +68,7 @@ export default function LiveQuizPlay() {
   const [currentQIndex, setCurrentQIndex] = useState(0)
   const timerRef = useRef(null)
 
-  // Restore participant from sessionStorage
+  // Restore participant from sessionStorage and fetch initial game state
   useEffect(() => {
     const stored = sessionStorage.getItem(`lq_participant_${gameId}`)
     if (!stored) {
@@ -79,7 +79,16 @@ export default function LiveQuizPlay() {
       setParticipant(JSON.parse(stored))
     } catch {
       navigate(`/live-quiz/join/${gameId}`, { replace: true })
+      return
     }
+    // Fetch current state immediately so we don't show lobby if game already started
+    getLiveGameState(gameId).then((data) => {
+      setPhase(data.phase)
+      setCurrentQIndex(data.current_question_index ?? 0)
+      setAnswerRevealed(data.is_answer_revealed ?? false)
+      setGameInfo(data)
+      if (data.phase === 'result') loadResults()
+    }).catch(() => {})
   }, [gameId, navigate])
 
   // Process WebSocket state updates
@@ -115,8 +124,8 @@ export default function LiveQuizPlay() {
 
       setGameInfo((prev) => ({ ...prev, ...wsState }))
 
-      // Fetch the full question data (with choices)
-      if (newPhase === 'quiz' || newPhase === 'result') {
+      // Fetch full question data (with choices) only for quiz phase
+      if (newPhase === 'quiz') {
         getLiveGameState(gameId).then((data) => {
           setGameInfo(data)
         }).catch(() => {})
@@ -124,12 +133,13 @@ export default function LiveQuizPlay() {
     }
   }, [wsState, currentQIndex, gameId])
 
-  // Countdown timer — starts when phase=quiz and answer not yet revealed
+  // Countdown timer — starts on each new question, stops when answered/revealed/done
   useEffect(() => {
     if (phase !== 'quiz' || answerRevealed || answered) {
       clearInterval(timerRef.current)
       return
     }
+    // Only reset to 20 when the question actually changes (currentQIndex drives this)
     setTimeLeft(20)
     timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
@@ -141,7 +151,7 @@ export default function LiveQuizPlay() {
       })
     }, 1000)
     return () => clearInterval(timerRef.current)
-  }, [phase, currentQIndex, answerRevealed])
+  }, [phase, currentQIndex, answerRevealed, answered])
 
   async function loadResults() {
     try {
