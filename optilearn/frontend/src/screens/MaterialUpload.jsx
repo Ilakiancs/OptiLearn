@@ -6,6 +6,7 @@ import SubjectComboInput from '../components/SubjectComboInput'
 import Spinner from '../components/Spinner'
 
 const ALLOWED = ['.pdf', '.txt', '.png', '.jpg', '.jpeg', '.webp']
+const ACCEPT = '.pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/png,image/jpeg,image/webp'
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -134,13 +135,14 @@ export default function MaterialUpload({ embedded = false }) {
           <h2 style={sectionHead}>Add New Material</h2>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-            {/* Drop zone */}
-            <div
+            {/* Drop zone — uses <label> so tap-to-browse works natively on iOS/Android */}
+            <label
+              htmlFor="material-file-input"
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
               style={{
+                display: 'block',
                 border: `2px dashed ${dragOver ? 'var(--color-primary)' : 'var(--color-border)'}`,
                 borderRadius: 'var(--radius-lg)',
                 padding: '32px 20px',
@@ -158,18 +160,19 @@ export default function MaterialUpload({ embedded = false }) {
               ) : (
                 <div>
                   <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><FileText size={30} /></div>
-                  <div style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Drag & drop a file here, or click to browse</div>
+                  <div style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Tap to browse, or drag & drop</div>
                   <div style={{ color: 'var(--color-text-hint)', fontSize: '0.8rem', marginTop: 6 }}>PDF, TXT, PNG, JPG, WEBP — max 50 MB</div>
                 </div>
               )}
               <input
+                id="material-file-input"
                 ref={fileInputRef}
                 type="file"
-                accept={ALLOWED.join(',')}
+                accept={ACCEPT}
                 style={{ display: 'none' }}
                 onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = '' }}
               />
-            </div>
+            </label>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Title *</label>
