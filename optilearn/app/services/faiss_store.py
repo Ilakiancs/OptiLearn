@@ -244,3 +244,15 @@ def add_passages(passages: list[dict]) -> int:
 
     logger.info("add_passages: added {} passages, index total={}", len(passages), _index.ntotal)
     return len(passages)
+
+
+def reset_index() -> None:
+    """Drop the in-memory FAISS index so the next query reloads it from disk.
+
+    Call this after an external rebuild of the curriculum index files so the
+    server picks up the new content without a restart.
+    """
+    global _index, _meta  # noqa: PLW0603
+    _index = None
+    _meta = None
+    logger.info("FAISS index reset; will reload from disk on next query.")
