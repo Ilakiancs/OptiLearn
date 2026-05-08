@@ -51,6 +51,8 @@ NETWORK_CACHE_TTL = 30
 
 _USER_SETTINGS_PATH = Path(settings.DB_PATH).resolve().parent / "user_settings.json"
 _runtime_network_mode: str | None = None
+_OLLAMA_SEMAPHORE = asyncio.Semaphore(1)
+_OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -59,6 +61,10 @@ _runtime_network_mode: str | None = None
 _OLLAMA_DOWN_MSG = (
     "The local AI model is not running. "
     "Please start Ollama (run 'ollama serve' in a terminal) and try again."
+)
+_OLLAMA_TIMEOUT_MSG = (
+    "The local AI model is taking longer than expected. "
+    "OptiLearn is keeping the classroom server stable; please try again in a moment."
 )
 
 # ──────────────────────────────────────────────────────────────
@@ -310,35 +316,37 @@ async def _ollama_stream(
     if image_b64:
         body["images"] = [image_b64]
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=5.0)
-        ) as client:
-            async with client.stream("POST", f"{settings.OLLAMA_HOST}/api/generate", json=body) as response:
-                response.raise_for_status()
-                buffer = ""
-                async for raw in response.aiter_lines():
-                    if not raw.strip():
-                        continue
-                    try:
-                        chunk = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    token = chunk.get("response", "")
-                    if token:
-                        buffer += token
-                        if enable_thinking:
-                            clean = _strip_thinking(buffer)
-                            prev_clean = _strip_thinking(buffer[:-len(token)])
-                            new_portion = clean[len(prev_clean):]
-                            if new_portion:
-                                yield new_portion
-                        else:
-                            yield token
-                    if chunk.get("done"):
-                        break
+        async with _OLLAMA_SEMAPHORE:
+            async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
+                async with client.stream("POST", f"{settings.OLLAMA_HOST}/api/generate", json=body) as response:
+                    response.raise_for_status()
+                    buffer = ""
+                    async for raw in response.aiter_lines():
+                        if not raw.strip():
+                            continue
+                        try:
+                            chunk = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        token = chunk.get("response", "")
+                        if token:
+                            buffer += token
+                            if enable_thinking:
+                                clean = _strip_thinking(buffer)
+                                prev_clean = _strip_thinking(buffer[:-len(token)])
+                                new_portion = clean[len(prev_clean):]
+                                if new_portion:
+                                    yield new_portion
+                            else:
+                                yield token
+                        if chunk.get("done"):
+                            break
     except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
         logger.error("Ollama not reachable at {} (routed stream): {}", settings.OLLAMA_HOST, exc)
         raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
+    except httpx.TimeoutException as exc:
+        logger.error("Ollama routed stream timed out at {}: {}", settings.OLLAMA_HOST, exc)
+        raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
 
 
 async def route_generate(
@@ -697,36 +705,38 @@ class ModelClient:
         logger.info("Ollama /api/chat stream → model={} thinking={}", model_name, enable_thinking)
 
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=5.0)
-            ) as client:
-                async with client.stream("POST", url, json=body) as response:
-                    response.raise_for_status()
-                    buffer = ""
-                    async for raw in response.aiter_lines():
-                        if not raw.strip():
-                            continue
-                        try:
-                            chunk = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        # /api/chat response format: chunk["message"]["content"]
-                        token = chunk.get("message", {}).get("content", "")
-                        if token:
-                            buffer += token
-                            if enable_thinking:
-                                clean = _strip_thinking(buffer)
-                                prev_clean = _strip_thinking(buffer[: -len(token)])
-                                new_portion = clean[len(prev_clean):]
-                                if new_portion:
-                                    yield new_portion
-                            else:
-                                yield token
-                        if chunk.get("done"):
-                            break
+            async with _OLLAMA_SEMAPHORE:
+                async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
+                    async with client.stream("POST", url, json=body) as response:
+                        response.raise_for_status()
+                        buffer = ""
+                        async for raw in response.aiter_lines():
+                            if not raw.strip():
+                                continue
+                            try:
+                                chunk = json.loads(raw)
+                            except json.JSONDecodeError:
+                                continue
+                            # /api/chat response format: chunk["message"]["content"]
+                            token = chunk.get("message", {}).get("content", "")
+                            if token:
+                                buffer += token
+                                if enable_thinking:
+                                    clean = _strip_thinking(buffer)
+                                    prev_clean = _strip_thinking(buffer[: -len(token)])
+                                    new_portion = clean[len(prev_clean):]
+                                    if new_portion:
+                                        yield new_portion
+                                else:
+                                    yield token
+                            if chunk.get("done"):
+                                break
         except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError):
             logger.error("Ollama not reachable at {} (stream)", settings.OLLAMA_HOST)
             raise RuntimeError(_OLLAMA_DOWN_MSG)
+        except httpx.TimeoutException as exc:
+            logger.error("Ollama stream timed out at {}: {}", settings.OLLAMA_HOST, exc)
+            raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
         except Exception as exc:
             logger.error("Ollama stream error: {}", exc)
             raise
@@ -764,16 +774,18 @@ class ModelClient:
         logger.info("Ollama /api/generate complete → model={}", model_name)
 
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=5.0)
-            ) as client:
-                response = await client.post(url, json=body)
-                response.raise_for_status()
-                data = response.json()
-                return _strip_thinking(data.get("response", ""))
+            async with _OLLAMA_SEMAPHORE:
+                async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
+                    response = await client.post(url, json=body)
+                    response.raise_for_status()
+                    data = response.json()
+                    return _strip_thinking(data.get("response", ""))
         except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError) as exc:
             logger.error("Ollama not reachable at {} (complete): {}", settings.OLLAMA_HOST, exc)
             raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
+        except httpx.TimeoutException as exc:
+            logger.error("Ollama complete timed out at {}: {}", settings.OLLAMA_HOST, exc)
+            raise RuntimeError(_OLLAMA_TIMEOUT_MSG) from exc
         except Exception as exc:
             logger.error("Ollama complete error: {}", exc)
             raise

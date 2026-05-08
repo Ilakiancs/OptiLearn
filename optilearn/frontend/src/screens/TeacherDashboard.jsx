@@ -6,6 +6,7 @@ import {
   Sparkle, X, ArrowRight, ArrowClockwise,
   UploadSimple, Plus, CalendarDots, Moon, Student, Sun,
   SignOut, Key, Eye, EyeSlash, Copy, ShieldCheck, UserPlus, MagnifyingGlass,
+  WifiHigh, QrCode, CheckCircle, WarningCircle, ClipboardText, ChalkboardTeacher, FileText,
 } from '@phosphor-icons/react'
 import {
   getTeacherStudents, getTeacherHeatmap, downloadWeeklyReport,
@@ -15,6 +16,7 @@ import {
   listAdminTeachers, createAdminTeacher, updateAdminTeacher,
   resetAdminTeacherPassword, deactivateAdminTeacher,
   listAdminStudents, resetAdminStudentPin, createAdminStudent,
+  getNetworkStatus, refreshNetworkStatus, getNetworkQrData, getNetworkQrUrl,
 } from '../api/client'
 import { feature1 } from '../api/client'
 import MasteryBadge from '../components/MasteryBadge'
@@ -24,6 +26,8 @@ import TeacherCalendarModal from '../components/TeacherCalendarModal'
 import Spinner from '../components/Spinner'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
+import MaterialUpload from './MaterialUpload'
+import TeacherQuizBuilder from './TeacherQuizBuilder'
 
 const GRADE_LEVELS = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
 
@@ -218,6 +222,154 @@ function SecretCell({ value }) {
       </button>
       {value && <CopyButton value={value} label="Copy" />}
     </span>
+  )
+}
+
+function ConnectStudentsView({ isMobile = false }) {
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState('')
+  const [qrVersion, setQrVersion] = useState(() => Date.now())
+  const [qrSrc, setQrSrc] = useState('')
+
+  async function load({ refresh = false, quiet = false } = {}) {
+    if (!quiet) {
+      setError('')
+      refresh ? setRefreshing(true) : setLoading(true)
+    }
+    try {
+      const data = refresh ? await refreshNetworkStatus() : await getNetworkStatus()
+      setStatus(data)
+      const nextQrVersion = Date.now()
+      setQrVersion(nextQrVersion)
+      try {
+        const qr = await getNetworkQrData(nextQrVersion)
+        setQrSrc(qr.data_url)
+      } catch (_) {
+        setQrSrc(getNetworkQrUrl(nextQrVersion))
+      }
+    } catch (err) {
+      if (!quiet) setError(err.message || 'Network status could not be loaded.')
+    } finally {
+      if (!quiet) {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    const safeLoad = async (options) => {
+      if (!active) return
+      await load(options)
+    }
+    safeLoad()
+    const id = setInterval(() => safeLoad({ quiet: true }), 10000)
+    return () => {
+      active = false
+      clearInterval(id)
+    }
+  }, [])
+
+  const fallbackUrl = status?.connect_url || status?.server_url || 'http://192.168.137.1:8000'
+  const url = fallbackUrl.endsWith('/') ? fallbackUrl : `${fallbackUrl}/`
+  const mdnsUrl = status?.mdns_url || 'http://optilearn.local:8000/'
+  const connectionUrls = Array.from(new Set([url, mdnsUrl].filter(Boolean)))
+  const portalActive = !!status?.captive_portal_active
+  const connectedCount = Number(status?.network_client_count ?? status?.student_count ?? 0)
+  const studentLabel = connectedCount === 1 ? 'student' : 'students'
+  const qrSize = isMobile ? 'min(244px, 72vw)' : 'min(292px, 38vh)'
+
+  async function copyUrl(value) {
+    try {
+      await navigator.clipboard?.writeText(value)
+      setCopied(value)
+      setTimeout(() => setCopied(''), 1800)
+    } catch (_) {}
+  }
+
+  return (
+    <main style={{ padding: isMobile ? '16px' : '24px 22px', background: 'var(--bg)', color: 'var(--color-text)', minHeight: '100vh', overflowY: 'auto', display: 'grid', placeItems: isMobile ? 'start stretch' : 'center', boxSizing: 'border-box' }}>
+      <section style={{ width: '100%', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 24, justifyItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center', flexWrap: 'wrap' }}>
+          <span style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--color-primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <WifiHigh size={23} weight="duotone" />
+          </span>
+          <h1 style={{ margin: 0, fontSize: '1.35rem', color: 'var(--color-text)' }}>Connect Students to OptiLearn</h1>
+        </div>
+
+        {error && (
+          <div style={{ width: '100%', border: '1px solid var(--color-danger)', color: 'var(--color-danger)', borderRadius: 10, padding: 12, background: 'var(--color-surface)' }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ width: '100%', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 360px) minmax(360px, 1fr)', gap: isMobile ? 16 : 28, alignItems: 'center', justifyContent: 'center' }}>
+
+          <div style={{ display: 'grid', gap: 14, justifyItems: 'center', alignContent: 'center', minWidth: 0 }}>
+            <div style={{ border: '6px solid #2a8dbf', borderRadius: 12, padding: 0, background: '#fff', width: qrSize, height: qrSize, display: 'grid', placeItems: 'center', boxSizing: 'border-box', overflow: 'hidden' }}>
+              {loading ? <Spinner /> : <img src={qrSrc || getNetworkQrUrl(qrVersion)} alt="OptiLearn connection QR code" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }} />}
+            </div>
+            <div style={{ fontSize: '0.86rem', color: 'var(--color-text-muted)' }}>Scan this code with any phone or tablet</div>
+
+            <div style={{ width: '100%', border: '1px solid var(--color-border)', borderRadius: 10, background: 'var(--color-surface)', padding: 14, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, color: portalActive ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 700, lineHeight: 1.35 }}>
+                {portalActive ? <CheckCircle size={20} weight="fill" style={{ flexShrink: 0, marginTop: 1 }} /> : <WarningCircle size={20} weight="fill" style={{ flexShrink: 0, marginTop: 1 }} />}
+                <span>
+                  {portalActive
+                    ? 'Auto-connect active - students see OptiLearn automatically when they join WiFi'
+                    : 'Auto-connect needs admin privileges - run OptiLearn as administrator to enable it'}
+                </span>
+              </div>
+              <div style={{ paddingLeft: 30, color: 'var(--color-text-muted)', fontSize: '0.9rem', lineHeight: 1.4 }}>
+                {connectedCount} {studentLabel} connected to the OptiLearn network
+              </div>
+            </div>
+
+            <button type="button" onClick={() => load({ refresh: true })} disabled={refreshing} style={{ ...ctaBtnStyle, minHeight: 44, justifyContent: 'center', minWidth: 180, opacity: refreshing ? 0.72 : 1 }}>
+              {refreshing ? <Spinner size={14} color="#fff" /> : <ArrowClockwise size={15} />}
+              {refreshing ? 'Refreshing...' : 'Refresh connection'}
+            </button>
+          </div>
+
+          <div style={{ width: '100%', display: 'grid', gap: 14, alignContent: 'center', minWidth: 0 }}>
+            <div style={{ width: '100%', display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 12, color: 'var(--color-text-muted)', fontSize: '0.82rem', fontWeight: 700 }}>
+              <span style={{ height: 1, background: 'var(--color-border)' }} />
+              <span>or connect manually</span>
+              <span style={{ height: 1, background: 'var(--color-border)' }} />
+            </div>
+
+            <div style={{ width: '100%', display: 'grid', gap: 10 }}>
+              {connectionUrls.map((value) => (
+                <div key={value} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <code style={{ fontSize: isMobile ? '1rem' : '1.22rem', fontWeight: 800, color: 'var(--color-text)', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 12px', wordBreak: 'break-all' }}>
+                    {value}
+                  </code>
+                  <button type="button" onClick={() => copyUrl(value)} style={{ ...refreshBtnStyle, minHeight: 42, justifyContent: 'center' }}>
+                    <Copy size={15} />
+                    {copied === value ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.84rem', lineHeight: 1.5 }}>
+              Use the numeric address first so students stay signed in. optilearn.local is optional and may not open on some iPhone, iPad, or hotspot networks.
+            </div>
+
+            <ol style={{ margin: 0, paddingLeft: 22, lineHeight: 1.65, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
+              <li>Connect to the "OptiLearn" WiFi on your device</li>
+              <li>Scan the QR code above or type the address in your browser</li>
+              <li>Sign in or create your account</li>
+              <li>Tap "Add to Home Screen" to install the OptiLearn app</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+    </main>
   )
 }
 
@@ -430,7 +582,7 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
       <section style={{ display: 'grid', gap: 10 }}>
         <h1 style={{ margin: 0, fontSize: '1.3rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <ShieldCheck size={24} weight="duotone" />
-          Manage Teachers
+          Manage Users
         </h1>
         {notice && (
           <div style={{ border: '1px solid var(--color-success)', borderRadius: 10, padding: 10, color: 'var(--color-success)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -440,6 +592,11 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
         )}
         {error && <div style={{ color: 'var(--color-danger)' }}>{error}</div>}
       </section>
+
+      <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <UserPlus size={20} weight="duotone" />
+        Add Teacher
+      </h2>
 
       <form
         onSubmit={addTeacher}
@@ -675,11 +832,11 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
 
 // ── Main component ───────────────────────────────────────────────
 
-export default function TeacherDashboard() {
+export default function TeacherDashboard({ initialView = 'overview' }) {
   const navigate = useNavigate()
   const { theme, toggleTheme } = useTheme()
   const { teacher, clearTeacher } = useAuth()
-  const [view, setView] = useState('overview')
+  const [view, setView] = useState(initialView)
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [materialSearch, setMaterialSearch] = useState('')
   const [quizSearch, setQuizSearch] = useState('')
@@ -690,6 +847,10 @@ export default function TeacherDashboard() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  useEffect(() => {
+    setView(initialView)
+  }, [initialView])
 
   // ── Queries ──
   const { data: students, isLoading, error, dataUpdatedAt } = useQuery({
@@ -1034,17 +1195,21 @@ export default function TeacherDashboard() {
           {teacher?.is_admin && (
             <button type="button" onClick={() => setView('manage')} style={sidebarNavStyle(view === 'manage')}>
               <span style={sidebarIconStyle}><ShieldCheck size={22} weight="duotone" /></span>
-              <span>Manage Teachers</span>
+              <span>Manage Users</span>
             </button>
           )}
-          <Link to="/teacher/materials" style={sidebarNavStyle(false)}>
+          <button type="button" onClick={() => setView('connect')} style={sidebarNavStyle(view === 'connect')}>
+            <span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span>
+            <span>Connect Students</span>
+          </button>
+          <button type="button" onClick={() => setView('materials')} style={sidebarNavStyle(view === 'materials')}>
             <span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span>
             <span>Upload Materials</span>
-          </Link>
-          <Link to="/teacher/quiz-builder" style={sidebarNavStyle(false)}>
+          </button>
+          <button type="button" onClick={() => setView('quiz-builder')} style={sidebarNavStyle(view === 'quiz-builder')}>
             <span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span>
             <span>Quiz Builder</span>
-          </Link>
+          </button>
           <button type="button" onClick={() => setCalendarOpen(true)} style={sidebarNavStyle(false)}>
             <span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span>
             <span>Schedule Class</span>
@@ -1128,8 +1293,29 @@ export default function TeacherDashboard() {
 
       {view === 'manage' && teacher?.is_admin ? (
         <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} />
+      ) : view === 'connect' ? (
+        <ConnectStudentsView isMobile={isMobile} />
+      ) : view === 'materials' ? (
+        <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px', boxSizing: 'border-box' }}>
+          <MaterialUpload embedded />
+        </div>
+      ) : view === 'quiz-builder' ? (
+        <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px', boxSizing: 'border-box' }}>
+          <TeacherQuizBuilder embedded />
+        </div>
       ) : (
       <main style={{ maxWidth: '960px', margin: '0 auto', padding: '24px 16px' }}>
+        <section style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '1.35rem', color: 'var(--color-text)' }}>Classroom Dashboard</h1>
+            <p style={{ margin: '5px 0 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Share the live classroom link, QR code, and hotspot status from one place.</p>
+          </div>
+          <button type="button" onClick={() => setView('connect')} style={{ ...ctaBtnStyle, minHeight: 42, fontWeight: 700 }}>
+            <QrCode size={16} weight="duotone" />
+            Connect Students
+          </button>
+        </section>
+
         {error && (
           <p style={{ color: 'var(--color-danger)', marginBottom: 16 }}>
             Error loading dashboard: {error.message}
@@ -1222,22 +1408,22 @@ export default function TeacherDashboard() {
               <button type="button" onClick={() => refetchMaterials()} style={refreshBtnStyle}>
                 <ArrowClockwise size={14} /> Refresh
               </button>
-              <Link to="/teacher/materials" style={ctaBtnStyle}>
+              <button type="button" onClick={() => setView('materials')} style={ctaBtnStyle}>
                 <UploadSimple size={14} /> Upload
-              </Link>
+              </button>
             </div>
           </div>
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             {!materials || materials.length === 0 ? (
               <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>📄</div>
+                <FileText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} />
                 <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No materials uploaded yet</div>
                 <div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>
                   Upload PDFs or images to expand the AI tutor curriculum for your class.
                 </div>
-                <Link to="/teacher/materials" style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
+                <button type="button" onClick={() => setView('materials')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
                   <UploadSimple size={14} /> Upload first material
-                </Link>
+                </button>
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
@@ -1275,22 +1461,22 @@ export default function TeacherDashboard() {
               <button type="button" onClick={() => refetchQuizzes()} style={refreshBtnStyle}>
                 <ArrowClockwise size={14} /> Refresh
               </button>
-              <Link to="/teacher/quiz-builder" style={ctaBtnStyle}>
+              <button type="button" onClick={() => setView('quiz-builder')} style={ctaBtnStyle}>
                 <Plus size={14} /> Create
-              </Link>
+              </button>
             </div>
           </div>
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             {!quizzes || quizzes.length === 0 ? (
               <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <div style={{ fontSize: '1.6rem', marginBottom: 8 }}>📝</div>
+                <ClipboardText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} />
                 <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No quizzes yet</div>
                 <div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>
                   Create quizzes and assign them to your students to consolidate what you have taught.
                 </div>
-                <Link to="/teacher/quiz-builder" style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
+                <button type="button" onClick={() => setView('quiz-builder')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
                   <Plus size={14} /> Create first quiz
-                </Link>
+                </button>
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
@@ -1333,12 +1519,10 @@ export default function TeacherDashboard() {
               <p style={{ padding: 16, color: 'var(--color-text-muted)' }}>Loading...</p>
             ) : allStudents.length === 0 ? (
               <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <div style={{ fontSize: '2rem', marginBottom: 10 }}>🏫</div>
+                <ChalkboardTeacher size={36} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 10 }} />
                 <div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 8, color: 'var(--color-text)' }}>No students yet</div>
                 <div style={{ fontSize: '0.9rem', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>
-                  Students join by opening a browser and going to{' '}
-                  <strong style={{ color: 'var(--color-primary)' }}>http://192.168.137.1:8000</strong>{' '}
-                  on your WiFi hotspot, then entering their name.
+                  Use Connect Students to show the current QR code and classroom address for your WiFi hotspot.
                 </div>
               </div>
             ) : (

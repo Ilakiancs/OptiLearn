@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { uploadMaterial, listMaterials } from '../api/client'
-import { Link } from 'react-router-dom'
 import { FileText } from '@phosphor-icons/react'
 import SubjectComboInput from '../components/SubjectComboInput'
 import Spinner from '../components/Spinner'
@@ -23,7 +22,7 @@ function relativeTime(iso) {
   return Math.floor(diff / 86400000) + 'd ago'
 }
 
-export default function MaterialUpload() {
+export default function MaterialUpload({ embedded = false }) {
   const qc = useQueryClient()
   const fileInputRef = useRef(null)
 
@@ -114,16 +113,21 @@ export default function MaterialUpload() {
   }
   const sectionHead = { fontSize: '1rem', fontWeight: 700, marginBottom: 16, marginTop: 0 }
 
-  return (
-    <div className="page-shell">
-      <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Link to="/teacher" style={{ color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '0.9rem', minHeight: 44, display: 'inline-flex', alignItems: 'center', paddingRight: 12 }}>
-          ← Back to Dashboard
-        </Link>
-        <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Upload Teaching Materials</span>
-      </header>
+  const content = (
+    <>
+      {!embedded && (
+        <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>Upload Teaching Materials</span>
+        </header>
+      )}
 
-      <main style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
+      <main style={{ maxWidth: embedded ? 1040 : 800, margin: '0 auto', padding: embedded ? 0 : '24px 16px', width: '100%', boxSizing: 'border-box' }}>
+        {embedded && (
+          <section style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+            <FileText size={24} weight="duotone" color="var(--color-text)" />
+            <h1 style={{ margin: 0, fontSize: '1.3rem', color: 'var(--color-text)' }}>Upload Teaching Materials</h1>
+          </section>
+        )}
 
         {/* Upload form */}
         <section style={card}>
@@ -249,6 +253,9 @@ export default function MaterialUpload() {
         </section>
 
       </main>
-    </div>
+    </>
   )
+
+  if (embedded) return content
+  return <div className="page-shell">{content}</div>
 }

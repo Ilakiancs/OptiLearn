@@ -3,26 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#6c63ff" />
+    <meta name="theme-color" content="#2a8dbf" />
     <link rel="manifest" href="/manifest.json" />
     <title>OptiLearn</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    <script>
-      const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
-      if ('serviceWorker' in navigator) {
-        if (isLocalhost) {
-          navigator.serviceWorker.getRegistrations()
-            .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
-            .then(() => ('caches' in window ? caches.keys() : []))
-            .then(keys => Promise.all(keys.map(key => caches.delete(key))))
-            .catch(() => {})
-        } else {
-          navigator.serviceWorker.register('/sw.js')
-        }
-      }
-    </script>
   </body>
 </html>

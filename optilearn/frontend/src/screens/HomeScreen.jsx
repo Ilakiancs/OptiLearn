@@ -177,7 +177,7 @@ export default function HomeScreen() {
     <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
       <section style={{ width: '100%', maxWidth: 460, display: 'grid', gap: 18 }}>
         <header style={{ textAlign: 'center', display: 'grid', gap: 10 }}>
-          <span style={{ margin: '0 auto', width: 64, height: 64, borderRadius: 16, background: '#e8f0fe', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
+          <span style={{ margin: '0 auto', width: 64, height: 64, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
             <Student size={34} weight="duotone" />
           </span>
           <div>
@@ -199,7 +199,7 @@ export default function HomeScreen() {
                 style={{
                   minHeight: 46,
                   border: 'none',
-                  background: tab === key ? '#e8f0fe' : '#fff',
+                  background: tab === key ? 'rgba(42,141,191,0.12)' : '#fff',
                   color: tab === key ? '#2a8dbf' : '#5f6368',
                   fontWeight: 700,
                   cursor: 'pointer',

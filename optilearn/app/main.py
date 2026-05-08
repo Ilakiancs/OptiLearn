@@ -11,29 +11,94 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import RedirectResponse
 
-from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, network, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
 from app.services import db, faiss_store
+from app.services.client_tracker import record_client
+from app.services.dns_server import start_captive_portal, stop_captive_portal
+from app.services.mdns_server import start_mdns, stop_mdns
 from app.services.model_client import get_network_mode, get_network_status, load_user_network_settings
+from app.services.network import get_cached_hotspot_ip, get_server_url
+
+
+_CAPTIVE_HOSTS = frozenset({
+    "captive.apple.com",
+    "www.apple.com",
+    "connectivitycheck.gstatic.com",
+    "connectivitycheck.android.com",
+    "clients3.google.com",
+    "clients1.google.com",
+    "nmcheck.gnome.org",
+    "network-test.debian.org",
+    "detectportal.firefox.com",
+    "www.msftconnecttest.com",
+    "www.msftncsi.com",
+})
+
+
+class CaptivePortalMiddleware(BaseHTTPMiddleware):
+    """Redirect captive-portal detection requests to OptiLearn by Host header.
+
+    When DNS redirects all queries to this server, phones send their captive
+    portal checks here with the original hostname in the Host header. This
+    catches them regardless of path and sends the browser to OptiLearn.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        record_client(
+            request.client.host if request.client else None,
+            request.url.path,
+            request.headers.get("user-agent"),
+        )
+        if host == "optilearn.local" and request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/"):
+            target = f"{get_server_url()}{request.url.path}"
+            if request.url.query:
+                target = f"{target}?{request.url.query}"
+            return RedirectResponse(url=target, status_code=302)
+        if host in _CAPTIVE_HOSTS:
+            return RedirectResponse(url=f"{get_server_url()}/", status_code=302)
+        return await call_next(request)
 
 
 class NoCacheStaticFiles(StaticFiles):
     """Serve the app shell without browser caching stale frontend builds."""
 
     async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        if path in {"", ".", "index.html", "sw.js"} or path.endswith(".html"):
+        served_path = path
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or not self._is_spa_route(path):
+                raise
+            served_path = "index.html"
+            response = await super().get_response(served_path, scope)
+
+        if served_path in {"", ".", "index.html", "sw.js"} or served_path.endswith(".html"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
         return response
+
+    @staticmethod
+    def _is_spa_route(path: str) -> bool:
+        clean_path = path.lstrip("/")
+        if not clean_path:
+            return False
+        if clean_path.startswith(("api/", "assets/", "icons/")):
+            return False
+        return "." not in Path(clean_path).name
 
 
 # ──────────────────────────────────────────────────────────────
@@ -80,6 +145,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     load_user_network_settings()
     _ensure_noto_fonts()
     await db.init_db()
+    hotspot_ip = get_cached_hotspot_ip()
+    server_url = get_server_url()
+    logger.info("Server accessible at: {}", server_url)
+    portal_active = start_captive_portal(hotspot_ip)
+    if portal_active:
+        logger.info("Captive portal active; students auto-connect on WiFi join")
+    else:
+        logger.warning(
+            "Captive portal requires administrator privileges. "
+            "Students connect via QR code or URL: {}",
+            server_url,
+        )
+    start_mdns(port=settings.PORT)
     # Warm live translation models first, then embeddings. Running FAISS model
     # loading beside ASR made classroom startup painfully slow on teacher laptops.
     async def _warmup_background_models() -> None:
@@ -94,8 +172,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     asyncio.create_task(_warmup_background_models())
     logger.info("Server ready on http://{}:{}", settings.HOST, settings.PORT)
-    yield
-    logger.info("OptiLearn shutting down gracefully.")
+    try:
+        yield
+    finally:
+        stop_mdns()
+        stop_captive_portal()
+        logger.info("OptiLearn shutting down gracefully.")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -115,8 +197,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CaptivePortalMiddleware)
 
 # ── Routers ────────────────────────────────────────────────────
+app.include_router(network.router)
 app.include_router(students.router)
 app.include_router(students.schedule_router)
 app.include_router(auth.router)
@@ -192,6 +276,22 @@ async def health() -> dict:
     }
 
 # ── Frontend static build ──────────────────────────────────────
+# Keep unknown API endpoints as API 404s before the frontend catch-all mount.
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+@app.api_route(
+    "/api",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def api_not_found(path: str = "") -> None:
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+# Frontend static build
 _frontend_path = Path(settings.FRONTEND_DIST)
 
 if _frontend_path.exists() and _frontend_path.is_dir():

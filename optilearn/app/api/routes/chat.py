@@ -3,6 +3,7 @@ app/api/routes/chat.py — SSE streaming chat endpoint and image upload.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -124,13 +125,32 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                 {"role": "user", "content": body.message},
             ]
 
-            result = await model_client.complete_with_tools(
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                image_b64=body.image_b64,
-                model_preference=model_preference,
-                force_local=True,  # FUTURE: replace with fine-tuned model
-            )
+            try:
+                result = await asyncio.wait_for(
+                    model_client.complete_with_tools(
+                        messages=messages,
+                        tools=TOOL_SCHEMAS,
+                        image_b64=body.image_b64,
+                        model_preference=model_preference,
+                        ollama_options={"num_ctx": 4096, "num_predict": 512},
+                        force_local=True,  # FUTURE: replace with fine-tuned model
+                    ),
+                    timeout=50,
+                )
+            except (asyncio.TimeoutError, RuntimeError) as exc:
+                logger.warning("Tool planning skipped; streaming tutor answer directly: {}", exc)
+                result = ""
+                async for token in model_client.stream_chat(
+                    messages=messages,
+                    tools=[],
+                    image_b64=body.image_b64,
+                    model_preference=model_preference,
+                    enable_thinking=True,
+                    ollama_options={"num_ctx": 4096},
+                    force_local=True,
+                ):
+                    assistant_parts.append(token)
+                    yield _sse({"type": "token", "content": token})
 
             if isinstance(result, ToolCallEvent):
                 yield _sse({"type": "tool_start", "tool": result.tool_name})
