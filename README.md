@@ -38,7 +38,7 @@ Built for the [Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/
 │                      │   │  SQLite │  │ FAISS  │  │ Piper /  │ │  │
 │                      │   │    DB   │  │ Index  │  │ MMS TTS  │ │  │
 │                      │   └─────────┘  └────────┘  └──────────┘ │  │
-│                      │  React frontend (served as static files) │ │
+│                      │  React frontend (served as static files)│  │
 │                      └───────────────────────────────────────  ┘  │
 │                                   ▲ port 8000                     │
 │                       WiFi Hotspot│192.168.137.1                  │
