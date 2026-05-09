@@ -77,7 +77,146 @@ The teacher laptop runs Ollama + OptiLearn locally. Students connect from any br
 
 ---
 
-## Quick Start
+## Project Structure
+
+```
+OptiLearn/
+│
+├── optilearn/                          # Main application
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py                     # FastAPI application entry point
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── routes/
+│   │   │       ├── __init__.py
+│   │   │       ├── auth.py             # Authentication endpoints
+│   │   │       ├── chat.py             # Chat/messaging endpoints
+│   │   │       ├── dashboard.py        # Dashboard endpoints
+│   │   │       ├── feature1.py         # Feature endpoints
+│   │   │       ├── live_quiz.py        # Live quiz endpoints
+│   │   │       ├── materials.py        # Learning materials
+│   │   │       ├── network.py          # Network management
+│   │   │       ├── quiz.py             # Quiz endpoints
+│   │   │       ├── sessions.py         # Session management
+│   │   │       ├── settings.py         # Settings endpoints
+│   │   │       ├── students.py         # Student management
+│   │   │       ├── teacher.py          # Teacher dashboard
+│   │   │       ├── teacher_quiz.py     # Teacher quiz creation
+│   │   │       └── translate.py        # Translation endpoints
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── config.py               # App configuration
+│   │   │   ├── grades.py               # Grading logic
+│   │   │   └── prompts.py              # AI prompts
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   └── schemas.py              # Pydantic schemas
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── client_tracker.py       # Client tracking
+│   │   │   ├── context_prep.py         # Context preparation
+│   │   │   ├── db.py                   # Database operations
+│   │   │   ├── dns_server.py           # DNS/captive portal
+│   │   │   ├── faiss_store.py          # Vector store operations
+│   │   │   ├── generated_cache.py      # Caching
+│   │   │   ├── job_manager.py          # Async job management
+│   │   │   ├── mdns_server.py          # mDNS service discovery
+│   │   │   ├── model_client.py         # Gemma/Ollama client
+│   │   │   ├── model_scheduler.py      # Model scheduling
+│   │   │   ├── network.py              # Network utilities
+│   │   │   ├── student_transfer.py     # Data transfer
+│   │   │   ├── telemetry.py            # Analytics
+│   │   │   ├── tts_client.py           # Text-to-speech
+│   │   │   └── whisper_client.py       # Speech-to-text
+│   │   └── tools/
+│   │       ├── __init__.py
+│   │       └── agent_tools.py          # AI agent tools
+│   │
+│   ├── data/
+│   │   ├── curriculum.index            # FAISS vector index
+│   │   ├── curriculum_meta.json        # Curriculum metadata
+│   │   ├── optilearn.db                # SQLite database
+│   │   ├── user_settings.json          # User preferences
+│   │   ├── curriculum/                 # Plain text curriculum
+│   │   │   ├── life_skills_hygiene.txt
+│   │   │   ├── literacy_phonics.txt
+│   │   │   ├── math_counting.txt
+│   │   │   ├── math_fractions.txt
+│   │   │   └── science_water_cycle.txt
+│   │   ├── fonts/                      # Custom fonts
+│   │   ├── materials/                  # Student learning materials
+│   │   │   ├── 324c4168-1070-41f5-b0d9-1f963a6f378d/
+│   │   │   └── 40e141c2-2161-43fd-a6b2-9ac1df192aa5/
+│   │   └── scripts/
+│   │       └── build_index.py          # FAISS index builder
+│   │
+│   ├── frontend/                       # React + Vite SPA
+│   │   ├── index.html
+│   │   ├── vite.config.js
+│   │   ├── package.json
+│   │   ├── pnpm-lock.yaml
+│   │   ├── public/
+│   │   │   ├── manifest.json
+│   │   │   └── icons/
+│   │   └── src/
+│   │       ├── App.jsx                 # Root component
+│   │       ├── main.jsx                # Entry point
+│   │       ├── api/
+│   │       │   └── client.js           # API client
+│   │       ├── components/             # React components
+│   │       ├── context/                # React context
+│   │       ├── hooks/                  # Custom hooks
+│   │       ├── screens/                # Page screens
+│   │       └── styles/                 # CSS/styling
+│   │
+│   ├── models/                         # Model artifacts
+│   ├── tests/
+│   │   └── test_system_optimization.py
+│   ├── scripts/
+│   │   ├── setup.sh                    # One-shot installer (Linux/Mac)
+│   │   ├── start.sh                    # Start server (Linux/Mac)
+│   │   └── stop.sh                     # Stop server (Linux/Mac)
+│   ├── start_admin.bat                 # Start server (Windows)
+│   ├── requirements.txt                # Python dependencies
+│   └── SETUP.md                        # Detailed setup guide
+│
+├── training/                           # Fine-tuning pipeline
+│   ├── 01_prepare_dataset.py           # Dataset preparation
+│   ├── 02_finetune.py                  # Fine-tuning script
+│   ├── 03_evaluate.py                  # Evaluation
+│   ├── 04_export.py                    # Model export
+│   ├── kaggle_notebook.ipynb           # Kaggle notebook
+│   ├── README_training.md              # Training guide
+│   ├── requirements_training.txt       # Training dependencies
+│   ├── dataset/                        # Training datasets
+│   └── outputs/                        # Model outputs
+│
+├── fine-tuning-resources/              # SFT training data
+│   ├── optilearn_sft_train.jsonl       # Training set
+│   └── optilearn_sft_eval.jsonl        # Evaluation set
+│
+├── Modelfile                           # Ollama model definition
+├── README.md                           # This file
+└── test_export.py                      # Export testing
+```
+
+---
+
+## Quick Start (Windows)
+
+### 1. Navigate to the project
+
+```bash
+cd optilearn
+```
+
+### 2. Create Virtual Environment
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
 
 ### Linux / macOS
 
@@ -275,7 +414,56 @@ The QR code for this URL is available from the Teacher Dashboard → Network tab
 
 ---
 
-## Environment Variables
+## Troubleshooting
+
+### Port 8000 Already in Use
+
+```bash
+# Find and kill process on port 8000
+# Windows:
+netstat -ano | findstr :8000
+taskkill /PID <PID> /F
+
+# Linux/Mac:
+lsof -i :8000
+kill -9 <PID>
+```
+
+### Virtual Environment Not Activating
+
+**Windows:**
+```bash
+.venv\Scripts\activate
+```
+
+**Linux/Mac:**
+```bash
+source .venv/bin/activate
+```
+
+### Curriculum Index Build Fails
+
+Ensure you have curriculum files in `data/curriculum/`:
+
+```bash
+# Rebuild manually
+python data/scripts/build_index.py
+```
+
+### Ollama Connection Error
+
+Ensure Ollama is running:
+
+```bash
+ollama serve
+```
+
+---
+
+## Documentation
+
+- [Training Guide](training/README_training.md) — Fine-tuning Gemma for custom datasets
+- [SETUP.md](optilearn/SETUP.md) — Detailed setup instructions
 
 All configuration is in `optilearn/.env`. The file is created from `.env.example` during setup.
 

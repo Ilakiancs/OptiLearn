@@ -69,3 +69,6 @@ reportlab>=4.2.2
 # Dev / testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
+# ZIP encryption for student export/import
+pyzipper==0.3.6
+pycryptodomex>=3.18.0

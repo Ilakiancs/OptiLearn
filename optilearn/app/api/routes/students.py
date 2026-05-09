@@ -7,8 +7,12 @@ import json
 import traceback
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, Form, Header
 from fastapi.responses import StreamingResponse
+import io
+
+from app.api.routes.auth import get_current_teacher
+from app.services.student_transfer import build_student_bundle, bundle_to_zip_bytes, import_zip_bytes
 from loguru import logger
 
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
@@ -160,3 +164,96 @@ async def get_student(student_id: str) -> dict:
     mastery = await db.get_student_mastery(student_id)
     student["topic_mastery"] = mastery
     return student
+
+
+@router.get("/{student_id}/export")
+async def export_student_archive(
+    student_id: str,
+    pin: str = Query(..., description="Student PIN for verification"),
+    teacher: dict = Depends(get_current_teacher),
+):
+    """Export a student's profile as a password-protected ZIP. Teacher-only, requires PIN verification."""
+    try:
+        student = await db.get_student(student_id)
+        if student is None:
+            raise HTTPException(status_code=404, detail=f"Student '{student_id}' not found.")
+        
+        # Verify PIN matches
+        stored_pin = student.get("pin_visible") or ""
+        if pin != stored_pin:
+            raise HTTPException(status_code=401, detail="Incorrect PIN.")
+        
+        logger.info(f"Exporting student {student_id}")
+        bundle = await build_student_bundle(student_id)
+        logger.info(f"Bundle built for {student_id}, creating ZIP")
+        zip_bytes = bundle_to_zip_bytes(bundle, stored_pin)
+        logger.info(f"ZIP created for {student_id}, size={len(zip_bytes)} bytes")
+        filename = f"{(student.get('username') or student.get('name') or student_id)}.optistudent.zip"
+        return StreamingResponse(io.BytesIO(zip_bytes), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error(f"Export failed for {student_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(err)}")
+
+@router.post("/import")
+async def import_student_archive(
+    file: UploadFile = File(...),
+    pin: str = Form(...),
+    target_student_id: str | None = Form(None),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> dict:
+    """Import a student ZIP archive. Teacher auth optional (for signup vs manage users)."""
+    # Get teacher ID if auth provided, otherwise use "system" for signup imports
+    imported_by = None
+    if authorization:
+        try:
+            from app.api.routes.auth import _teacher_from_token, _bearer_token
+            token = _bearer_token(authorization)
+            teacher = await _teacher_from_token(token)
+            imported_by = teacher.get("id")
+        except Exception:
+            # Auth failed, continue without it (signup case)
+            pass
+    
+    contents = await file.read()
+    try:
+        result = await import_zip_bytes(contents, pin, target_student_id, imported_by=imported_by or "signup")
+        logger.info(f"Import successful for student {result.get('student_id')}")
+    except ValueError as exc:
+        logger.error(f"Import failed: {exc}")
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Import error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(exc)}")
+    return result
+
+
+@router.delete("/{student_id}")
+async def delete_student(student_id: str, teacher: dict = Depends(get_current_teacher)) -> dict:
+    """Hard-delete a student and all related records. Teacher-only."""
+    try:
+        student = await db.get_student(student_id)
+        if student is None:
+            raise HTTPException(status_code=404, detail=f"Student '{student_id}' not found.")
+        
+        # Hard delete: remove all related records
+        async with db._get_db() as conn:
+            # Delete related records in order (respecting foreign keys)
+            await conn.execute("DELETE FROM import_history WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM quiz_results WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM topic_mastery WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM class_notes WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM materials WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE student_id = ?)", (student_id,))
+            await conn.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
+            await conn.commit()
+        
+        logger.info(f"Student {student_id} deleted by teacher {teacher.get('id')}")
+        return {"success": True, "deleted_student_id": student_id}
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error(f"Delete failed for {student_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(err)}")

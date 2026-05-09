@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS students (
     last_active TEXT
 );
 
+CREATE TABLE IF NOT EXISTS import_history (
+    fingerprint TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id),
+    imported_at TEXT DEFAULT (datetime('now')),
+    imported_by TEXT
+);
+
 CREATE TABLE IF NOT EXISTS teachers (
     id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
     username    TEXT UNIQUE NOT NULL,

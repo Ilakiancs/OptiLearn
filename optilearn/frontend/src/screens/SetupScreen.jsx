@@ -181,7 +181,7 @@ export default function SetupScreen() {
             <span style={{ color: '#5f6368', fontSize: '0.84rem' }}>Confirm Password</span>
             <input {...secretInputProps} name="optilearn_setup_password_confirm" style={{ ...inputStyle, WebkitTextSecurity: 'disc' }} value={form.confirm} onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))} />
           </label>
-          {error && <div style={{ color: '#d93025', fontSize: '0.84rem' }}>{error}</div>}
+          {error && <div style={{ color: '#FF9800', fontSize: '0.84rem' }}>{error}</div>}
           <button type="submit" disabled={saving} style={{ minHeight: 46, border: 'none', borderRadius: 12, background: '#2a8dbf', color: '#fff', fontWeight: 700, cursor: saving ? 'default' : 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
             <ChalkboardTeacher size={18} weight="duotone" />
             {saving ? 'Creating...' : 'Create Admin Account'}

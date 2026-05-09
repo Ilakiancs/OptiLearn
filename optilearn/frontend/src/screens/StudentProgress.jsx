@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { getStudentProgress } from '../api/client'
+import { getStudentProgress, exportStudentWithPin, deleteStudent } from '../api/client'
+import { FileZip, DownloadSimple, WarningCircle } from '@phosphor-icons/react'
 import MasteryBadge from '../components/MasteryBadge'
 import Spinner from '../components/Spinner'
 
 const BASE = window.location.origin
 
 const MASTERY_COLORS = {
-  red:   { bar: '#E24B4A', bg: '#3a1a1a' },
+  red:   { bar: '#FF9800', bg: '#3a1a1a' },
   amber: { bar: 'var(--color-warning)', bg: 'var(--color-surface-2)' },
   green: { bar: '#639922', bg: '#1a2e0a' },
   grey:  { bar: '#AAAAAA', bg: '#2a2a2a' },
@@ -84,15 +85,58 @@ function ScoreSparkline({ quizzes, topic }) {
 
 export default function StudentProgress() {
   const { studentId } = useParams()
+  const navigate = useNavigate()
   const [reportLang, setReportLang] = useState('en')
   const [reportText, setReportText] = useState('')
   const [streaming, setStreaming] = useState(false)
   const abortRef = useRef(null)
 
+  // Export and delete states
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportPin, setExportPin] = useState('')
+  const [exportBusy, setExportBusy] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const [deletePromptOpen, setDeletePromptOpen] = useState(false)
+  const [deletePromptBusy, setDeletePromptBusy] = useState(false)
+  const [deletePromptError, setDeletePromptError] = useState('')
+
   const { data: progress, isLoading, error } = useQuery({
     queryKey: ['student-progress', studentId],
     queryFn: () => getStudentProgress(studentId),
   })
+
+  // Export handler
+  async function submitExport() {
+    if (!exportPin) return
+    setExportBusy(true)
+    setExportError('')
+    try {
+      await exportStudentWithPin(studentId, exportPin)
+      // Export successful, show delete confirmation
+      setExportOpen(false)
+      setExportPin('')
+      setDeletePromptOpen(true)
+    } catch (err) {
+      setExportError(err.message || 'Export failed')
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
+  // Delete confirmation handler
+  async function confirmDeleteAfterExport() {
+    setDeletePromptBusy(true)
+    setDeletePromptError('')
+    try {
+      await deleteStudent(studentId)
+      // Deletion successful, navigate back to dashboard
+      navigate('/teacher?view=manage', { replace: true })
+    } catch (err) {
+      setDeletePromptError(err.message || 'Delete failed')
+    } finally {
+      setDeletePromptBusy(false)
+    }
+  }
 
   async function handleGenerateReport() {
     if (streaming) {
@@ -170,6 +214,27 @@ export default function StudentProgress() {
         <span style={{ fontWeight: 700, fontSize: '1.05rem', flex: 1 }}>
           {student.name} — Progress
         </span>
+        <button
+          type="button"
+          onClick={() => setExportOpen(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 16px',
+            minHeight: 40,
+            background: 'var(--color-primary)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <DownloadSimple size={16} weight="bold" />
+          Export Profile
+        </button>
         <MasteryBadge level={level} />
       </header>
 
@@ -291,6 +356,64 @@ export default function StudentProgress() {
         </section>
 
       </main>
+
+      {/* Export Modal */}
+      {exportOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+                <DownloadSimple size={20} weight="duotone" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Export Student Profile</h3>
+                <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{student.name}</div>
+              </div>
+            </div>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Enter the student PIN to download the encrypted ZIP archive.</p>
+            <input
+              value={exportPin}
+              onChange={(e) => setExportPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              maxLength={4}
+              inputMode="numeric"
+              placeholder="0000"
+              style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: '1rem', fontWeight: 700, letterSpacing: 4, textAlign: 'center', background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
+            />
+            {exportError && <div style={{ background: '#FFF3E0', color: '#FF9800', borderRadius: 10, padding: 10, fontSize: '0.85rem' }}>{exportError}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => { setExportOpen(false); setExportPin(''); setExportError('') }} style={{ flex: 1, minHeight: 44, padding: '10px 14px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-2)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button type="button" onClick={submitExport} disabled={exportBusy || !exportPin} style={{ flex: 1, minHeight: 44, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-primary)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: exportBusy || !exportPin ? 0.7 : 1 }}>
+                {exportBusy ? 'Exporting...' : 'Export ZIP'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletePromptOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 10000, padding: 16 }}>
+          <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ background: '#fef2f2', color: '#dc2626', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+                <WarningCircle size={20} weight="duotone" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Delete student record?</h3>
+                <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{student.name}</div>
+              </div>
+            </div>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>The ZIP has been downloaded. Do you want to delete this student record from the system now?</p>
+            {deletePromptError && <div style={{ background: '#FFF3E0', color: '#FF9800', borderRadius: 10, padding: 10, fontSize: '0.85rem' }}>{deletePromptError}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => { setDeletePromptOpen(false); setDeletePromptError(''); navigate('/teacher?view=manage', { replace: true }); }} style={{ flex: 1, minHeight: 44, padding: '10px 14px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-2)', color: 'var(--color-text)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }} disabled={deletePromptBusy}>Keep Record</button>
+              <button type="button" onClick={confirmDeleteAfterExport} disabled={deletePromptBusy} style={{ flex: 1, minHeight: 44, padding: '10px 14px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-primary)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: deletePromptBusy ? 0.7 : 1 }}>
+                {deletePromptBusy ? 'Deleting...' : 'Delete Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
