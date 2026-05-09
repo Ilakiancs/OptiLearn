@@ -217,7 +217,7 @@ export default function TeacherCalendarModal({ onClose }) {
                   <label style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', display: 'block', marginBottom: 3, marginTop: 10 }}>End *</label>
                   <input type="datetime-local" value={form.end_datetime} onChange={e => setForm(f => ({ ...f, end_datetime: e.target.value }))} style={fieldStyle} required />
 
-                  {formError && <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: 8 }}>{formError}</div>}
+                  {formError && <div style={{ color: '#FF9800', fontSize: '0.8rem', marginTop: 8 }}>{formError}</div>}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                     <button type="submit" disabled={isPending} style={{ flex: 1, padding: '9px', background: '#2a8dbf', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: isPending ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -245,7 +245,7 @@ export default function TeacherCalendarModal({ onClose }) {
                     <button onClick={() => openEdit(viewingEvent)} style={{ flex: 1, padding: '8px', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'var(--color-text)' }}>
                       <Pencil size={14} /> Edit
                     </button>
-                    <button onClick={() => { if (window.confirm('Delete this class?')) deleteMut.mutate(viewingEvent.id) }} style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', fontWeight: 600 }}>
+                    <button onClick={() => { if (window.confirm('Delete this class?')) deleteMut.mutate(viewingEvent.id) }} style={{ padding: '8px 12px', background: '#FFF3E0', border: '1px solid #FFB74D', borderRadius: 8, cursor: 'pointer', color: '#FF9800', display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', fontWeight: 600 }}>
                       <Trash size={14} /> Delete
                     </button>
                   </div>

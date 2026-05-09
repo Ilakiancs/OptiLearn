@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { CheckCircle, Eye, EyeSlash, LockKey, Student, UserCircle, UserPlus, WarningCircle } from '@phosphor-icons/react'
-import { checkStudentUsername, feature1, getSetupRequired, loginStudent, loginTeacher, signupStudent } from '../api/client'
+import { CheckCircle, Eye, EyeSlash, LockKey, Student, UserCircle, UserPlus, WarningCircle, FileZip, ArrowRight, Info } from '@phosphor-icons/react'
+import { checkStudentUsername, feature1, getSetupRequired, loginStudent, loginTeacher, signupStudent, importStudentArchive } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 const GRADES = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
@@ -54,6 +54,10 @@ export default function HomeScreen() {
   const [usernameState, setUsernameState] = useState({ status: 'idle', message: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [importFile, setImportFile] = useState(null)
+  const [importPin, setImportPin] = useState('')
+  const [importModal, setImportModal] = useState(false)
+  const [importSuccess, setImportSuccess] = useState(false)
 
   const sessionMessage = useMemo(() => {
     const params = new URLSearchParams(location.search)
@@ -162,12 +166,72 @@ export default function HomeScreen() {
     }
   }
 
+  function handleImportFileSelect(file) {
+    if (file) {
+      setImportFile(file)
+      setImportPin('')
+      setImportModal(true)
+    }
+  }
+
+  async function submitImport() {
+    if (!importFile || !importPin) return
+    setError('')
+    setBusy(true)
+    try {
+      await importStudentArchive({ file: importFile, pin: importPin })
+      setBusy(false)
+      setImportModal(false)
+      setImportSuccess(true)
+      setImportFile(null)
+      setImportPin('')
+    } catch (err) {
+      setBusy(false)
+      setError(err.message || 'Import failed. Check the PIN and file.')
+    }
+  }
+
+  if (checkingSetup) return <div style={{ minHeight: '100vh', background: '#fff' }} />
+
+  if (importSuccess) {
+    return (
+      <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
+        <section style={{ width: '100%', maxWidth: 480, display: 'grid', gap: 20, textAlign: 'center' }}>
+          <div style={{ background: '#e8f5e9', color: '#2e7d32', padding: 32, borderRadius: 16, display: 'grid', gap: 16, boxShadow: '0 2px 8px rgba(46,125,50,0.1)' }}>
+            <div style={{ margin: '0 auto' }}>
+              <CheckCircle size={56} weight="fill" style={{ color: '#2e7d32' }} />
+            </div>
+            <div>
+              <h2 style={{ margin: '0 0 8px', fontSize: '1.5rem', fontWeight: 800 }}>Import Successful</h2>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#1b5e20', opacity: 0.9 }}>Your profile has been restored. You can now sign in with your previous credentials.</p>
+            </div>
+            <button
+              onClick={() => {
+                setImportSuccess(false)
+                setImportModal(false)
+                setImportFile(null)
+                setImportPin('')
+                setError('')
+                setTab('signin')
+              }}
+              type="button"
+              style={{ minHeight: 48, border: 'none', borderRadius: 12, background: '#2a8dbf', color: '#fff', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8, fontSize: '1rem' }}
+            >
+              <LockKey size={18} weight="duotone" />
+              Go to Sign In
+            </button>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   if (checkingSetup) return <div style={{ minHeight: '100vh', background: '#fff' }} />
 
   const usernameStatus = usernameState.status === 'ok'
     ? { text: usernameState.message, tone: '#188038' }
     : usernameState.status === 'taken'
-      ? { text: usernameState.message, tone: '#d93025' }
+      ? { text: usernameState.message, tone: '#FF9800' }
       : usernameState.message
         ? { text: usernameState.message, tone: '#5f6368' }
         : null
@@ -279,7 +343,7 @@ export default function HomeScreen() {
               </>
             )}
 
-            {error && <div style={{ color: '#d93025', fontSize: '0.84rem' }}>{error}</div>}
+            {error && <div style={{ color: '#FF9800', fontSize: '0.84rem' }}>{error}</div>}
 
             <button
               type="submit"
@@ -289,8 +353,93 @@ export default function HomeScreen() {
               {tab === 'signin' ? <LockKey size={18} weight="duotone" /> : <UserPlus size={18} weight="duotone" />}
               {busy ? 'Please wait...' : tab === 'signin' ? 'Sign In' : 'Create Account'}
             </button>
+
+            {tab === 'signup' && (
+              <>
+                <div style={{ textAlign: 'center', color: '#5f6368', fontSize: '0.84rem', margin: '8px 0' }}>— or —</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = '.zip'
+                    input.onchange = (e) => handleImportFileSelect(e.target.files?.[0] || null)
+                    input.click()
+                  }}
+                  style={{ minHeight: 48, border: '1px solid #2a8dbf', borderRadius: 12, background: '#fff', color: '#2a8dbf', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
+                >
+                  <FileZip size={18} weight="duotone" />
+                  Import Student Data
+                </button>
+              </>
+            )}
           </form>
         </div>
+
+        {importModal && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', zIndex: 9999,
+            padding: 16,
+          }}>
+            <div style={{
+              background: '#fff', padding: 24, borderRadius: 16,
+              maxWidth: 420, width: '100%', display: 'grid', gap: 16,
+              boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ background: 'rgba(42,141,191,0.1)', color: '#2a8dbf', padding: 8, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileZip size={20} weight="duotone" />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Enter Student PIN</h3>
+              </div>
+              <p style={{ margin: 0, color: '#5f6368', fontSize: '0.9rem', lineHeight: 1.5 }}>Enter the 4-digit PIN from your previous school account:</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="0000"
+                value={importPin}
+                onChange={(e) => setImportPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                style={{
+                  minHeight: 44, padding: '10px 12px', border: '2px solid #dadce0',
+                  borderRadius: 12, background: '#fff', color: '#202124', width: '100%', boxSizing: 'border-box',
+                  fontSize: '1rem', fontWeight: 600, textAlign: 'center', letterSpacing: '4px',
+                }}
+              />
+              {importModal.error && (
+                <div style={{ background: '#FFF3E0', color: '#FF9800', padding: 12, borderRadius: 8, display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.85rem' }}>
+                  <WarningCircle size={16} weight="fill" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>{importModal.error}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button 
+                  onClick={() => { setImportModal(false); setImportFile(null); setImportPin(''); setError('') }} 
+                  disabled={busy}
+                  style={{ 
+                    minHeight: 42, border: '1px solid #dadce0', borderRadius: 12, background: '#fff', 
+                    color: '#202124', flex: 1, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
+                    opacity: busy ? 0.6 : 1, transition: 'all 0.2s'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={submitImport} 
+                  disabled={busy || !importPin}
+                  style={{ 
+                    minHeight: 42, border: 'none', borderRadius: 12, background: '#2a8dbf', 
+                    color: '#fff', flex: 1, fontWeight: 600, cursor: (busy || !importPin) ? 'default' : 'pointer', 
+                    opacity: (busy || !importPin) ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                  }}
+                >
+                  {busy ? 'Importing...' : <>Import<ArrowRight size={16} weight="bold" /></>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </main>
   )

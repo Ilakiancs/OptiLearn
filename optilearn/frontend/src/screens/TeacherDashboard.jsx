@@ -7,6 +7,7 @@ import {
   UploadSimple, Plus, CalendarDots, Moon, Student, Sun,
   SignOut, Key, Eye, EyeSlash, Copy, ShieldCheck, UserPlus, MagnifyingGlass,
   WifiHigh, QrCode, CheckCircle, WarningCircle, ClipboardText, ChalkboardTeacher, FileText,
+  FileZip, DownloadSimple,
 } from '@phosphor-icons/react'
 import {
   getTeacherStudents, getTeacherHeatmap, downloadWeeklyReport,
@@ -16,6 +17,7 @@ import {
   listAdminTeachers, createAdminTeacher, updateAdminTeacher,
   resetAdminTeacherPassword, deactivateAdminTeacher,
   listAdminStudents, resetAdminStudentPin, createAdminStudent,
+  exportStudentWithPin, importStudentArchive, deleteStudent,
   getNetworkStatus, refreshNetworkStatus, getNetworkQrData, getNetworkQrUrl,
 } from '../api/client'
 import { feature1 } from '../api/client'
@@ -293,7 +295,7 @@ function ConnectStudentsView({ isMobile = false }) {
   }
 
   return (
-    <main style={{ padding: isMobile ? '16px' : '24px 22px', background: 'var(--bg)', color: 'var(--color-text)', minHeight: '100vh', overflowY: 'auto', display: 'grid', placeItems: isMobile ? 'start stretch' : 'center', boxSizing: 'border-box' }}>
+    <main style={{ padding: isMobile ? '16px' : '24px 22px', background: 'transparent', color: 'var(--color-text)', minHeight: '100vh', overflowY: 'auto', display: 'grid', placeItems: isMobile ? 'start stretch' : 'center', boxSizing: 'border-box' }}>
       <section style={{ width: '100%', maxWidth: 1080, margin: '0 auto', display: 'grid', gap: 24, justifyItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, textAlign: 'center', flexWrap: 'wrap' }}>
           <span style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--color-primary)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -451,6 +453,21 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
   const [studentForm, setStudentForm] = useState({ name: '', username: '', pin: randomPin(), grade_level: '7th', language: 'en' })
   const [studentError, setStudentError] = useState('')
   const [studentNotice, setStudentNotice] = useState('')
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportTarget, setExportTarget] = useState(null)
+  const [exportPin, setExportPin] = useState('')
+  const [exportError, setExportError] = useState('')
+  const [exportBusy, setExportBusy] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState(null)
+  const [importPin, setImportPin] = useState('')
+  const [importError, setImportError] = useState('')
+  const [importBusy, setImportBusy] = useState(false)
+  const importFileInputRef = useRef(null)
+  const [deletePromptOpen, setDeletePromptOpen] = useState(false)
+  const [deletePromptTarget, setDeletePromptTarget] = useState(null)
+  const [deletePromptBusy, setDeletePromptBusy] = useState(false)
+  const [deletePromptError, setDeletePromptError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -522,6 +539,79 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
     }
   }
 
+  function openExport(student) {
+    setExportTarget(student)
+    setExportPin('')
+    setExportError('')
+    setExportOpen(true)
+  }
+
+  async function submitExport() {
+    if (!exportTarget || !exportPin) return
+    setExportBusy(true)
+    setExportError('')
+    try {
+      await exportStudentWithPin(exportTarget.id, exportPin)
+      setExportOpen(false)
+      setExportTarget(null)
+      setExportPin('')
+      setDeletePromptTarget(exportTarget)
+      setDeletePromptError('')
+      setDeletePromptOpen(true)
+    } catch (err) {
+      setExportError(err.message || 'Student export could not be completed.')
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
+  async function confirmDeleteAfterExport() {
+    if (!deletePromptTarget) return
+    setDeletePromptBusy(true)
+    setDeletePromptError('')
+    try {
+      await deleteStudent(deletePromptTarget.id)
+      setDeletePromptOpen(false)
+      setDeletePromptTarget(null)
+      setNotice(`Deleted ${deletePromptTarget.name || deletePromptTarget.username} after export.`)
+      await load()
+    } catch (err) {
+      setDeletePromptError(err.message || 'Student record could not be deleted.')
+    } finally {
+      setDeletePromptBusy(false)
+    }
+  }
+
+  function openImportPicker() {
+    importFileInputRef.current?.click()
+  }
+
+  function handleImportFileSelect(file) {
+    if (!file) return
+    setImportFile(file)
+    setImportPin('')
+    setImportError('')
+    setImportOpen(true)
+  }
+
+  async function submitImport() {
+    if (!importFile || !importPin) return
+    setImportBusy(true)
+    setImportError('')
+    try {
+      await importStudentArchive({ file: importFile, pin: importPin })
+      setStudentNotice(`Imported student profile from ${importFile.name}.`)
+      setImportOpen(false)
+      setImportFile(null)
+      setImportPin('')
+      await load()
+    } catch (err) {
+      setImportError(err.message || 'Student import could not be completed.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
   async function addStudent(e) {
     e.preventDefault()
     setStudentError('')
@@ -574,12 +664,19 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
   const tableWrap = { overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', background: 'var(--color-surface)' }
   const th = { padding: '12px 14px', textAlign: 'left', color: 'var(--color-text-muted)', fontSize: '0.78rem', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap', fontWeight: 700 }
   const td = { padding: '12px 14px', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap', fontSize: '0.86rem', verticalAlign: 'middle' }
-  const actionCell = { ...td, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', minWidth: 380 }
+  const actionCell = { ...td, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', minWidth: 520 }
   const compactBtn = { ...refreshBtnStyle, minHeight: 38, padding: '7px 12px', borderRadius: 'var(--radius-md)' }
   const sectionHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }
 
   return (
     <main style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 16px', display: 'grid', gap: 22 }}>
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".zip"
+        onChange={(e) => handleImportFileSelect(e.target.files?.[0] || null)}
+        style={{ display: 'none' }}
+      />
       <section style={{ display: 'grid', gap: 10 }}>
         <h1 style={{ margin: 0, fontSize: '1.3rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <ShieldCheck size={24} weight="duotone" />
@@ -660,10 +757,16 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
 
       {/* ── Add Student ─────────────────────────────────────────── */}
       <section style={{ display: 'grid', gap: 10 }}>
-        <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <UserPlus size={20} weight="duotone" />
-          Add Student
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <UserPlus size={20} weight="duotone" />
+            Add Student
+          </h2>
+          <button type="button" onClick={openImportPicker} style={{ ...ctaBtnStyle, minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+            <FileZip size={16} weight="duotone" />
+            Import Student Data
+          </button>
+        </div>
         {studentNotice && (
           <div style={{ border: '1px solid var(--color-success)', borderRadius: 10, padding: 10, color: 'var(--color-success)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span>{studentNotice}</span>
@@ -818,13 +921,109 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
                       <td style={td}>{student.grade_level}</td>
                       <td style={td}>{student.language}</td>
                       <td style={td}>{relativeTime(student.last_active)}</td>
-                      <td style={td}><button type="button" onClick={() => resetPin(student)} style={compactBtn}>Reset PIN</button></td>
+                      <td style={td}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button type="button" onClick={() => resetPin(student)} style={compactBtn}>Reset PIN</button>
+                          <button type="button" onClick={() => openExport(student)} style={{ ...compactBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <DownloadSimple size={14} weight="bold" />
+                            Export Student Data
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </section>
+
+          {exportOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+                    <DownloadSimple size={20} weight="duotone" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Export Student Data</h3>
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{exportTarget?.name || exportTarget?.username || 'Selected student'}</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Enter the student PIN to download the encrypted ZIP archive.</p>
+                <input
+                  value={exportPin}
+                  onChange={(e) => setExportPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  maxLength={4}
+                  inputMode="numeric"
+                  placeholder="0000"
+                  style={{ ...inputBase, textAlign: 'center', letterSpacing: 4, fontSize: '1rem', fontWeight: 700 }}
+                />
+                {exportError && <div style={{ background: '#FFF3E0', color: '#FF9800', borderRadius: 10, padding: 10, fontSize: '0.85rem' }}>{exportError}</div>}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" onClick={() => { setExportOpen(false); setExportTarget(null); setExportPin(''); setExportError('') }} style={{ ...refreshBtnStyle, flex: 1, minHeight: 44 }}>Cancel</button>
+                  <button type="button" onClick={submitExport} disabled={exportBusy || !exportPin} style={{ ...ctaBtnStyle, flex: 1, minHeight: 44, justifyContent: 'center', opacity: exportBusy || !exportPin ? 0.7 : 1 }}>
+                    {exportBusy ? 'Exporting...' : 'Export ZIP'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {importOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+                    <FileZip size={20} weight="duotone" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Import Student Data</h3>
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{importFile?.name || 'ZIP archive selected'}</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Enter the old student PIN from the archive you are restoring.</p>
+                <input
+                  value={importPin}
+                  onChange={(e) => setImportPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  maxLength={4}
+                  inputMode="numeric"
+                  placeholder="0000"
+                  style={{ ...inputBase, textAlign: 'center', letterSpacing: 4, fontSize: '1rem', fontWeight: 700 }}
+                />
+                {importError && <div style={{ background: '#FFF3E0', color: '#FF9800', borderRadius: 10, padding: 10, fontSize: '0.85rem' }}>{importError}</div>}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" onClick={() => { setImportOpen(false); setImportFile(null); setImportPin(''); setImportError('') }} style={{ ...refreshBtnStyle, flex: 1, minHeight: 44 }}>Cancel</button>
+                  <button type="button" onClick={submitImport} disabled={importBusy || !importPin} style={{ ...ctaBtnStyle, flex: 1, minHeight: 44, justifyContent: 'center', opacity: importBusy || !importPin ? 0.7 : 1 }}>
+                    {importBusy ? 'Importing...' : 'Import ZIP'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {deletePromptOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 10000, padding: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ background: '#fef2f2', color: '#dc2626', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+                    <WarningCircle size={20} weight="duotone" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Delete student record?</h3>
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{deletePromptTarget?.name || deletePromptTarget?.username || 'Selected student'}</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>The ZIP has been downloaded. Do you want to delete this student record from the system now?</p>
+                {deletePromptError && <div style={{ background: '#FFF3E0', color: '#FF9800', borderRadius: 10, padding: 10, fontSize: '0.85rem' }}>{deletePromptError}</div>}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" onClick={() => { setDeletePromptOpen(false); setDeletePromptTarget(null); setDeletePromptError('') }} style={{ ...refreshBtnStyle, flex: 1, minHeight: 44 }} disabled={deletePromptBusy}>Keep Record</button>
+                  <button type="button" onClick={confirmDeleteAfterExport} disabled={deletePromptBusy} style={{ ...ctaBtnStyle, flex: 1, minHeight: 44, justifyContent: 'center', background: 'var(--color-primary)', opacity: deletePromptBusy ? 0.7 : 1 }}>
+                    {deletePromptBusy ? 'Deleting...' : 'Delete Record'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </main>
@@ -842,6 +1041,8 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   const [materialSearch, setMaterialSearch] = useState('')
   const [quizSearch, setQuizSearch] = useState('')
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 980)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const sidebarWidth = 296
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 980)
@@ -1134,578 +1335,216 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   // ── Render ──
 
   return (
-    <div
-      className="page-shell"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : '296px minmax(0, 1fr)',
-        minHeight: '100vh',
-        alignItems: 'start',
-      }}
-    >
-
-      {/* ──────── Sidebar ──────── */}
-      <aside className="student-sidebar-scroll" style={{
-        padding: 14,
-        borderRight: isMobile ? 'none' : '1px solid var(--border)',
-        borderBottom: isMobile ? '1px solid var(--border)' : 'none',
-        background: 'var(--bg)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-        position: isMobile ? 'relative' : 'sticky',
-        top: 0,
-        height: isMobile ? 'auto' : '100vh',
-        minHeight: 0,
-        overflowY: isMobile ? 'visible' : 'auto',
-        boxSizing: 'border-box',
-      }}>
-        <div className="surface-card" style={{
-          color: 'var(--text)', textDecoration: 'none',
-          minHeight: 70, display: 'inline-flex', alignItems: 'center',
-          gap: 12, padding: 12,
-        }}>
-          <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}>
-            <Student size={24} weight="duotone" />
-          </span>
-          <span style={{ display: 'grid', gap: 2 }}>
-            <span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span>
-          </span>
-        </div>
-        <div className="surface-card" style={{ padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: '1.2rem', flexShrink: 0 }}>
-            {(teacher?.display_name || teacher?.username || 'T').slice(0, 1).toUpperCase()}
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {teacher?.display_name || teacher?.username || 'Teacher'}
-            </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-              {teacher?.is_admin ? 'Admin teacher' : 'Teacher'}
-            </div>
+    <div className="app-shell" style={{ minHeight: '100vh', color: 'var(--color-text)' }}>
+      {isMobile && (
+        <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 100 }}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(o => !o)}
+            style={{ padding: '8px 12px', border: 'none', background: 'transparent', color: 'var(--color-text)', cursor: 'pointer', minHeight: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+          </button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-text)' }}>Classroom Dashboard</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>{teacher?.display_name || teacher?.username || 'Teacher'}</div>
           </div>
-        </div>
-        <NetworkStatusPill variant="inline" fullWidth dropdownAlign="left" />
-
-        <div style={{ display: 'grid', gap: 10 }}>
-          <button type="button" onClick={() => setView('overview')} style={sidebarNavStyle(view === 'overview')}>
-            <span style={sidebarIconStyle}><Student size={22} weight="duotone" /></span>
-            <span>Overview</span>
-          </button>
-          {teacher?.is_admin && (
-            <button type="button" onClick={() => setView('manage')} style={sidebarNavStyle(view === 'manage')}>
-              <span style={sidebarIconStyle}><ShieldCheck size={22} weight="duotone" /></span>
-              <span>Manage Users</span>
-            </button>
-          )}
-          {teacher?.is_admin && (
-            <button type="button" onClick={() => setView('diagnostics')} style={sidebarNavStyle(view === 'diagnostics')}>
-              <span style={sidebarIconStyle}><ClipboardText size={22} weight="duotone" /></span>
-              <span>Diagnostics</span>
-            </button>
-          )}
-          <button type="button" onClick={() => setView('connect')} style={sidebarNavStyle(view === 'connect')}>
-            <span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span>
-            <span>Connect Students</span>
-          </button>
-          <button type="button" onClick={() => setView('materials')} style={sidebarNavStyle(view === 'materials')}>
-            <span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span>
-            <span>Upload Materials</span>
-          </button>
-          <button type="button" onClick={() => setView('quiz-builder')} style={sidebarNavStyle(view === 'quiz-builder')}>
-            <span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span>
-            <span>Quiz Builder</span>
-          </button>
-          <button type="button" onClick={() => setCalendarOpen(true)} style={sidebarNavStyle(false)}>
-            <span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span>
-            <span>Schedule Class</span>
-          </button>
-
-          {/* Language toggle */}
-          <div style={sidebarSectionStyle}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
-            <select
-              value={masterLang}
-              onChange={e => handleLangChange(e.target.value)}
-              disabled={!canUpdateSettings}
-              title={canUpdateSettings ? 'Change report language' : 'Only admin teachers can change this setting'}
-              style={{
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-                padding: '8px 10px', fontSize: '0.82rem',
-                background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38,
-                cursor: canUpdateSettings ? 'pointer' : 'not-allowed',
-                opacity: canUpdateSettings ? 1 : 0.62,
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            >
-              {allLanguages.map(l => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)}
-            </select>
-            {langSaved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600 }}>Saved</span>}
-          </div>
-
-          {/* Report download with week picker */}
-          <div style={sidebarSectionStyle}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Weekly Report</span>
-            <input
-              type="week"
-              value={selectedWeek}
-              onChange={e => setSelectedWeek(e.target.value)}
-              style={{
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-                padding: '8px 10px', fontSize: '0.82rem',
-                background: 'var(--surface-soft)', color: 'var(--text)',
-                minHeight: 38, cursor: 'pointer',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleDownloadReport}
-              disabled={reportLoading}
-              style={{ ...ctaBtnStyle, justifyContent: 'center', minHeight: 42, fontWeight: 700, opacity: reportLoading ? 0.72 : 1 }}
-            >
-              {reportLoading && <Spinner size={14} color="#fff" />}
-              {reportLoading ? 'Generating…' : 'Download Class Report'}
-            </button>
-          </div>
-        </div>
-
-        {/* Bottom actions — pushed to bottom, matching student sidebar */}
-        <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
-          <button type="button" onClick={toggleTheme} className="pill-button">
-            {theme === 'dark' ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}
-            <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
-          </button>
-          <button type="button" onClick={() => setPasswordOpen(true)} className="pill-button">
-            <Key size={18} weight="duotone" />
-            <span>Change Password</span>
-          </button>
-          <button type="button" onClick={handleSignOut} className="pill-button">
-            <SignOut size={18} weight="duotone" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-
-        {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
-
-        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textAlign: 'center', opacity: 0.7 }}>
-          {dataUpdatedAt
-            ? secsAgo < 5 ? 'Just updated' : `Updated ${secsAgo}s ago`
-            : isLoading ? 'Loading...' : '—'}
-        </span>
-      </aside>
-
-      {view === 'manage' && teacher?.is_admin ? (
-        <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} />
-      ) : view === 'diagnostics' && teacher?.is_admin ? (
-        <DiagnosticsPanel />
-      ) : view === 'connect' ? (
-        <ConnectStudentsView isMobile={isMobile} />
-      ) : view === 'materials' ? (
-        <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px', boxSizing: 'border-box' }}>
-          <MaterialUpload embedded />
-        </div>
-      ) : view === 'quiz-builder' ? (
-        <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px', boxSizing: 'border-box' }}>
-          <TeacherQuizBuilder embedded />
-        </div>
-      ) : (
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: '24px 16px' }}>
-        <section style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.35rem', color: 'var(--color-text)' }}>Classroom Dashboard</h1>
-            <p style={{ margin: '5px 0 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Share the live classroom link, QR code, and hotspot status from one place.</p>
-          </div>
-          <button type="button" onClick={() => setView('connect')} style={{ ...ctaBtnStyle, minHeight: 42, fontWeight: 700 }}>
+          <button type="button" onClick={() => setView('connect')} style={{ padding: '8px 16px', minHeight: 44, background: 'var(--color-primary)', border: 'none', borderRadius: 'var(--radius-md)', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <QrCode size={16} weight="duotone" />
             Connect Students
           </button>
-        </section>
-
-        {error && (
-          <p style={{ color: 'var(--color-danger)', marginBottom: 16 }}>
-            Error loading dashboard: {error.message}
-          </p>
-        )}
-
-        {/* ──────── Metric cards ──────── */}
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '28px', flexWrap: 'wrap' }}>
-          <div style={metricCardStyle}>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-              {isLoading ? '—' : allStudents.length}
-            </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Total students</div>
-          </div>
-          <div style={metricCardStyle}>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: alertedStudents.length > 0 ? '#EF9F27' : 'var(--color-success)' }}>
-              {isLoading ? '—' : alertedStudents.length}
-            </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Flagged students</div>
-          </div>
-          <div style={metricCardStyle}>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-              {isLoading ? '—' : (heatmapData?.topics?.length ?? '—')}
-            </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Topics tracked</div>
-          </div>
-        </div>
-
-        {/* ──────── Alerts panel ──────── */}
-        {alertedStudents.length > 0 && (
-          <section style={{ marginBottom: '32px' }}>
-            <h2 style={sectionHeadStyle}>Alerts</h2>
-            <div style={{
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-lg)',
-              overflow: 'hidden',
-            }}>
-              {alertedStudents.map((student, i) => (
-                <div key={student.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '14px 16px', flexWrap: 'wrap',
-                  borderBottom: i < alertedStudents.length - 1 ? '1px solid var(--color-border)' : 'none',
-                }}>
-                  <AlertDot alerts={student.alerts} />
-                  <Link
-                    to={`/teacher/student/${student.id}`}
-                    style={{ fontWeight: 600, flex: 1, minWidth: 80, color: 'var(--color-text)', textDecoration: 'none' }}
-                  >
-                    {student.name}
-                  </Link>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {student.alerts.map(a => <AlertBadge key={a} type={a} />)}
-                  </div>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
-                    {Math.round((student.mastery_avg || 0) * 100)}% avg mastery
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ──────── Topic Heatmap ──────── */}
-        <section style={{ marginBottom: '32px' }}>
-          <h2 style={sectionHeadStyle}>Topic Heatmap</h2>
-          <div style={{
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '20px 16px',
-          }}>
-            {isLoading ? (
-              <p style={{ color: 'var(--color-text-muted)' }}>Loading...</p>
-            ) : heatmapData ? (
-              <HeatmapFromApi data={heatmapData} />
-            ) : (
-              <TopicHeatmap students={allStudents} />
-            )}
-            <HeatmapLegend />
-          </div>
-        </section>
-
-        {/* ──────── Materials ──────── */}
-        <section style={{ marginBottom: '32px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <h2 style={{ ...sectionHeadStyle, marginBottom: 0 }}>Uploaded Materials</h2>
-            <SearchBox value={materialSearch} onChange={setMaterialSearch} placeholder="Search by title or teacher..." />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" onClick={() => refetchMaterials()} style={refreshBtnStyle}>
-                <ArrowClockwise size={14} /> Refresh
-              </button>
-              <button type="button" onClick={() => setView('materials')} style={ctaBtnStyle}>
-                <UploadSimple size={14} /> Upload
-              </button>
-            </div>
-          </div>
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            {!materials || materials.length === 0 ? (
-              <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <FileText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} />
-                <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No materials uploaded yet</div>
-                <div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>
-                  Upload PDFs or images to expand the AI tutor curriculum for your class.
-                </div>
-                <button type="button" onClick={() => setView('materials')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
-                  <UploadSimple size={14} /> Upload first material
-                </button>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    {['Title', 'Subject', 'Pages', 'Uploaded by', 'Uploaded'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredMaterials.length === 0 ? (
-                    <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No materials match your search.</td></tr>
-                  ) : filteredMaterials.slice(0, 8).map((m, i) => (
-                    <tr key={m.id} style={{ borderBottom: i < Math.min(filteredMaterials.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.subject || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.page_count || 1}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{m.uploaded_by_username || m.uploaded_by_display_name || '-'}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{relativeTime(m.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
-
-        {/* ──────── Teacher Quizzes ──────── */}
-        <section style={{ marginBottom: '32px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <h2 style={{ ...sectionHeadStyle, marginBottom: 0 }}>Teacher Quizzes</h2>
-            <SearchBox value={quizSearch} onChange={setQuizSearch} placeholder="Search by title or teacher..." />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" onClick={() => refetchQuizzes()} style={refreshBtnStyle}>
-                <ArrowClockwise size={14} /> Refresh
-              </button>
-              <button type="button" onClick={() => setView('quiz-builder')} style={ctaBtnStyle}>
-                <Plus size={14} /> Create
-              </button>
-            </div>
-          </div>
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            {!quizzes || quizzes.length === 0 ? (
-              <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <ClipboardText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} />
-                <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No quizzes yet</div>
-                <div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>
-                  Create quizzes and assign them to your students to consolidate what you have taught.
-                </div>
-                <button type="button" onClick={() => setView('quiz-builder')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}>
-                  <Plus size={14} /> Create first quiz
-                </button>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    {['Title', 'Subject', 'Questions', 'Created by', 'Assigned to'].map(h => (
-                      <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredQuizzes.length === 0 ? (
-                    <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No quizzes match your search.</td></tr>
-                  ) : filteredQuizzes.slice(0, 8).map((q, i) => (
-                    <tr key={q.id} style={{ borderBottom: i < Math.min(filteredQuizzes.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.title}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.subject || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{Array.isArray(q.questions) ? q.questions.length : '—'}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{q.created_by_username || q.created_by_display_name || '-'}</td>
-                      <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.assigned_to === 'all' ? 'All students' : 'Selected'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
-
-        {/* ──────── All students ──────── */}
-        <section>
-          <h2 style={sectionHeadStyle}>All Students</h2>
-          <div style={{
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            overflow: 'hidden',
-            overflowX: 'auto',
-          }}>
-            {isLoading ? (
-              <p style={{ padding: 16, color: 'var(--color-text-muted)' }}>Loading...</p>
-            ) : allStudents.length === 0 ? (
-              <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                <ChalkboardTeacher size={36} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 10 }} />
-                <div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 8, color: 'var(--color-text)' }}>No students yet</div>
-                <div style={{ fontSize: '0.9rem', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>
-                  Use Connect Students to show the current QR code and classroom address for your WiFi hotspot.
-                </div>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                    {['', 'Name', 'Language', 'Grade', 'Mastery Avg', 'Level', 'Last Active'].map(h => (
-                      <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {allStudents.map((s, i) => (
-                    <tr
-                      key={s.id}
-                      onClick={() => navigate(`/teacher/student/${s.id}`)}
-                      style={{
-                        borderBottom: i < allStudents.length - 1 ? '1px solid var(--color-border)' : 'none',
-                        cursor: 'pointer',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = '' }}
-                    >
-                      <td style={{ padding: '12px 8px 12px 14px', width: 30 }}>
-                        <AlertDot alerts={s.alerts} />
-                      </td>
-                      <td style={{ padding: '12px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {s.name}
-                      </td>
-                      <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.language}</td>
-                      <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.grade_level}</td>
-                      <td style={{ padding: '12px 14px' }}>{Math.round((s.mastery_avg || 0) * 100)}%</td>
-                      <td style={{ padding: '12px 14px' }}>
-                        {s.mastery_summary?.length > 0
-                          ? <MasteryBadge level={s.mastery_summary[0]?.level} />
-                          : <span style={{ color: 'var(--color-text-hint)' }}>—</span>
-                        }
-                      </td>
-                      <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-                        {relativeTime(s.last_active)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
-      </main>
+        </header>
       )}
+
+      {isMobile && menuOpen && (
+        <>
+          <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.32)', zIndex: 150 }} />
+          <aside className="student-sidebar-scroll" style={{ position: 'fixed', top: 0, left: 0, width: '84vw', height: '100vh', background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', zIndex: 160, overflowY: 'auto', boxSizing: 'border-box' }}>
+            <div className="surface-card" style={{ color: 'var(--text)', textDecoration: 'none', minHeight: 70, display: 'inline-flex', alignItems: 'center', gap: 12, padding: 12 }}>
+              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}><Student size={24} weight="duotone" /></span>
+              <span style={{ display: 'grid', gap: 2 }}><span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span></span>
+            </div>
+            <div className="surface-card" style={{ padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: '1.2rem', flexShrink: 0 }}>{(teacher?.display_name || teacher?.username || 'T').slice(0, 1).toUpperCase()}</span>
+              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{teacher?.display_name || teacher?.username || 'Teacher'}</div><div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{teacher?.is_admin ? 'Admin teacher' : 'Teacher'}</div></div>
+            </div>
+            <NetworkStatusPill variant="inline" fullWidth dropdownAlign="left" />
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button type="button" onClick={() => { setView('overview'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'overview')}><span style={sidebarIconStyle}><Student size={22} weight="duotone" /></span><span>Overview</span></button>
+              {teacher?.is_admin && (<button type="button" onClick={() => { setView('manage'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'manage')}><span style={sidebarIconStyle}><ShieldCheck size={22} weight="duotone" /></span><span>Manage Users</span></button>)}
+              {teacher?.is_admin && (<button type="button" onClick={() => { setView('diagnostics'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'diagnostics')}><span style={sidebarIconStyle}><ClipboardText size={22} weight="duotone" /></span><span>Diagnostics</span></button>)}
+              <button type="button" onClick={() => { setView('connect'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'connect')}><span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span><span>Connect Students</span></button>
+              <button type="button" onClick={() => { setView('materials'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'materials')}><span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span><span>Upload Materials</span></button>
+              <button type="button" onClick={() => { setView('quiz-builder'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'quiz-builder')}><span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span><span>Quiz Builder</span></button>
+              <button type="button" onClick={() => { setCalendarOpen(true); setMenuOpen(false); }} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
+              <div style={sidebarSectionStyle}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
+                <select value={masterLang} onChange={e => handleLangChange(e.target.value)} disabled={!canUpdateSettings} title={canUpdateSettings ? 'Change report language' : 'Only admin teachers can change this setting'} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}>
+                  {allLanguages.map(l => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)}
+                </select>
+                {langSaved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600 }}>Saved</span>}
+              </div>
+              <div style={sidebarSectionStyle}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Weekly Report</span>
+                <input type="week" value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: 'pointer', width: '100%', boxSizing: 'border-box' }} />
+                <button type="button" onClick={handleDownloadReport} disabled={reportLoading} style={{ ...ctaBtnStyle, justifyContent: 'center', minHeight: 42, fontWeight: 700, opacity: reportLoading ? 0.72 : 1 }}>{reportLoading && <Spinner size={14} color="#fff" />}{reportLoading ? 'Generating…' : 'Download Class Report'}</button>
+              </div>
+            </div>
+            <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
+              <button type="button" onClick={toggleTheme} className="pill-button">{theme === 'dark' ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}<span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>
+              <button type="button" onClick={() => setPasswordOpen(true)} className="pill-button"><Key size={18} weight="duotone" /><span>Change Password</span></button>
+              <button type="button" onClick={handleSignOut} className="pill-button"><SignOut size={18} weight="duotone" /><span>Sign Out</span></button>
+            </div>
+            {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
+            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textAlign: 'center', opacity: 0.7 }}>{dataUpdatedAt ? (secsAgo < 5 ? 'Just updated' : `Updated ${secsAgo}s ago`) : (isLoading ? 'Loading...' : '—')}</span>
+          </aside>
+        </>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `${sidebarWidth}px minmax(0, 1fr)`, minHeight: '100vh', alignItems: 'start' }}>
+        {!isMobile && (
+          <aside className="student-sidebar-scroll" style={{ position: 'sticky', top: 0, height: '100vh', background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
+            <div className="surface-card" style={{ color: 'var(--text)', textDecoration: 'none', minHeight: 70, display: 'inline-flex', alignItems: 'center', gap: 12, padding: 12 }}>
+              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}><Student size={24} weight="duotone" /></span>
+              <span style={{ display: 'grid', gap: 2 }}><span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span></span>
+            </div>
+            <div className="surface-card" style={{ padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--accent)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: '1.2rem', flexShrink: 0 }}>{(teacher?.display_name || teacher?.username || 'T').slice(0, 1).toUpperCase()}</span>
+              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{teacher?.display_name || teacher?.username || 'Teacher'}</div><div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{teacher?.is_admin ? 'Admin teacher' : 'Teacher'}</div></div>
+            </div>
+            <NetworkStatusPill variant="inline" fullWidth dropdownAlign="left" />
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button type="button" onClick={() => setView('overview')} style={sidebarNavStyle(view === 'overview')}><span style={sidebarIconStyle}><Student size={22} weight="duotone" /></span><span>Overview</span></button>
+              {teacher?.is_admin && (<button type="button" onClick={() => setView('manage')} style={sidebarNavStyle(view === 'manage')}><span style={sidebarIconStyle}><ShieldCheck size={22} weight="duotone" /></span><span>Manage Users</span></button>)}
+              {teacher?.is_admin && (<button type="button" onClick={() => setView('diagnostics')} style={sidebarNavStyle(view === 'diagnostics')}><span style={sidebarIconStyle}><ClipboardText size={22} weight="duotone" /></span><span>Diagnostics</span></button>)}
+              <button type="button" onClick={() => setView('connect')} style={sidebarNavStyle(view === 'connect')}><span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span><span>Connect Students</span></button>
+              <button type="button" onClick={() => setView('materials')} style={sidebarNavStyle(view === 'materials')}><span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span><span>Upload Materials</span></button>
+              <button type="button" onClick={() => setView('quiz-builder')} style={sidebarNavStyle(view === 'quiz-builder')}><span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span><span>Quiz Builder</span></button>
+              <button type="button" onClick={() => setCalendarOpen(true)} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
+              <div style={sidebarSectionStyle}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
+                <select value={masterLang} onChange={e => handleLangChange(e.target.value)} disabled={!canUpdateSettings} title={canUpdateSettings ? 'Change report language' : 'Only admin teachers can change this setting'} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}>
+                  {allLanguages.map(l => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)}
+                </select>
+                {langSaved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600 }}>Saved</span>}
+              </div>
+              <div style={sidebarSectionStyle}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Weekly Report</span>
+                <input type="week" value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: 'pointer', width: '100%', boxSizing: 'border-box' }} />
+                <button type="button" onClick={handleDownloadReport} disabled={reportLoading} style={{ ...ctaBtnStyle, justifyContent: 'center', minHeight: 42, fontWeight: 700, opacity: reportLoading ? 0.72 : 1 }}>{reportLoading && <Spinner size={14} color="#fff" />}{reportLoading ? 'Generating…' : 'Download Class Report'}</button>
+              </div>
+            </div>
+            <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
+              <button type="button" onClick={toggleTheme} className="pill-button">{theme === 'dark' ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}<span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>
+              <button type="button" onClick={() => setPasswordOpen(true)} className="pill-button"><Key size={18} weight="duotone" /><span>Change Password</span></button>
+              <button type="button" onClick={handleSignOut} className="pill-button"><SignOut size={18} weight="duotone" /><span>Sign Out</span></button>
+            </div>
+            {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
+            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textAlign: 'center', opacity: 0.7 }}>{dataUpdatedAt ? (secsAgo < 5 ? 'Just updated' : `Updated ${secsAgo}s ago`) : (isLoading ? 'Loading...' : '—')}</span>
+          </aside>
+        )}
+
+        <main style={{ minWidth: 0, padding: isMobile ? '20px 16px' : '32px 20px', boxSizing: 'border-box' }}>
+          {view === 'manage' && teacher?.is_admin ? (
+            <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} />
+          ) : view === 'diagnostics' && teacher?.is_admin ? (
+            <DiagnosticsPanel />
+          ) : view === 'connect' ? (
+            <ConnectStudentsView isMobile={isMobile} />
+          ) : view === 'materials' ? (
+            <MaterialUpload embedded />
+          ) : view === 'quiz-builder' ? (
+            <TeacherQuizBuilder embedded />
+          ) : (
+            <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+              <section style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: isMobile ? '1.2rem' : '1.35rem', color: 'var(--color-text)' }}>Overview</h1>
+                  <p style={{ margin: '5px 0 0', color: 'var(--color-text-muted)', fontSize: isMobile ? '0.85rem' : '0.9rem' }}>Share classroom link, QR code, and hotspot status from one place.</p>
+                </div>
+                {isMobile && <button type="button" onClick={() => setView('connect')} style={{ ...ctaBtnStyle, minHeight: 42, fontWeight: 700, whiteSpace: 'nowrap' }}><QrCode size={16} weight="duotone" />Connect</button>}
+              </section>
+
+              {error && <p style={{ color: 'var(--color-danger)', marginBottom: 16 }}>Error loading dashboard: {error.message}</p>}
+
+              <div style={{ display: 'flex', gap: isMobile ? '12px' : '16px', marginBottom: isMobile ? '24px' : '28px', flexWrap: 'wrap' }}>
+                <div style={metricCardStyle}><div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)' }}>{isLoading ? '—' : allStudents.length}</div><div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Total students</div></div>
+                <div style={metricCardStyle}><div style={{ fontSize: '2rem', fontWeight: 800, color: alertedStudents.length > 0 ? '#EF9F27' : 'var(--color-success)' }}>{isLoading ? '—' : alertedStudents.length}</div><div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Flagged students</div></div>
+                <div style={metricCardStyle}><div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)' }}>{isLoading ? '—' : (heatmapData?.topics?.length ?? '—')}</div><div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Topics tracked</div></div>
+              </div>
+
+              {alertedStudents.length > 0 && (
+                <section style={{ marginBottom: isMobile ? '24px' : '32px' }}>
+                  <h2 style={sectionHeadStyle}>Alerts</h2>
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {alertedStudents.map((student, i) => (
+                      <div key={student.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', flexWrap: 'wrap', borderBottom: i < alertedStudents.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                        <AlertDot alerts={student.alerts} />
+                        <Link to={`/teacher/student/${student.id}`} style={{ fontWeight: 600, flex: 1, minWidth: 80, color: 'var(--color-text)', textDecoration: 'none' }}>{student.name}</Link>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{student.alerts.map(a => <AlertBadge key={a} type={a} />)}</div>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{Math.round((student.mastery_avg || 0) * 100)}% avg mastery</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section style={{ marginBottom: isMobile ? '24px' : '32px' }}>
+                <h2 style={sectionHeadStyle}>Topic Heatmap</h2>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '20px 16px' }}>{isLoading ? <p style={{ color: 'var(--color-text-muted)' }}>Loading...</p> : heatmapData ? <HeatmapFromApi data={heatmapData} /> : <TopicHeatmap students={allStudents} />}<HeatmapLegend /></div>
+              </section>
+
+              <section style={{ marginBottom: isMobile ? '24px' : '32px' }}>
+                <div style={{ display: isMobile ? 'grid' : 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap', gridTemplateColumns: isMobile ? '1fr' : undefined }}>
+                  <h2 style={{ ...sectionHeadStyle, marginBottom: 0 }}>Uploaded Materials</h2>
+                  <SearchBox value={materialSearch} onChange={setMaterialSearch} placeholder="Search by title or teacher..." />
+                  <div style={{ display: 'flex', gap: 8 }}><button type="button" onClick={() => refetchMaterials()} style={refreshBtnStyle}><ArrowClockwise size={14} /> Refresh</button><button type="button" onClick={() => setView('materials')} style={ctaBtnStyle}><UploadSimple size={14} /> Upload</button></div>
+                </div>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                  {!materials || materials.length === 0 ? <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><FileText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No materials uploaded yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Upload PDFs or images to expand the AI tutor curriculum for your class.</div><button type="button" onClick={() => setView('materials')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><UploadSimple size={14} /> Upload first material</button></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? '100%' : 760 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['Title', 'Subject', 'Pages', 'Uploaded by', 'Uploaded'].map(h => <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{filteredMaterials.length === 0 ? <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No materials match your search.</td></tr> : filteredMaterials.slice(0, 8).map((m, i) => <tr key={m.id} style={{ borderBottom: i < Math.min(filteredMaterials.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}><td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.subject || '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.page_count || 1}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{m.uploaded_by_username || m.uploaded_by_display_name || '-'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{relativeTime(m.created_at)}</td></tr>)}</tbody></table>}
+                </div>
+              </section>
+
+              <section style={{ marginBottom: isMobile ? '24px' : '32px' }}>
+                <div style={{ display: isMobile ? 'grid' : 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap', gridTemplateColumns: isMobile ? '1fr' : undefined }}>
+                  <h2 style={{ ...sectionHeadStyle, marginBottom: 0 }}>Teacher Quizzes</h2>
+                  <SearchBox value={quizSearch} onChange={setQuizSearch} placeholder="Search by title or teacher..." />
+                  <div style={{ display: 'flex', gap: 8 }}><button type="button" onClick={() => refetchQuizzes()} style={refreshBtnStyle}><ArrowClockwise size={14} /> Refresh</button><button type="button" onClick={() => setView('quiz-builder')} style={ctaBtnStyle}><Plus size={14} /> Create</button></div>
+                </div>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'auto' }}>
+                  {!quizzes || quizzes.length === 0 ? <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ClipboardText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No quizzes yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Create quizzes and assign them to your students to consolidate what you have taught.</div><button type="button" onClick={() => setView('quiz-builder')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><Plus size={14} /> Create first quiz</button></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? '100%' : 760 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['Title', 'Subject', 'Questions', 'Created by', 'Assigned to'].map(h => <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{filteredQuizzes.length === 0 ? <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No quizzes match your search.</td></tr> : filteredQuizzes.slice(0, 8).map((q, i) => <tr key={q.id} style={{ borderBottom: i < Math.min(filteredQuizzes.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}><td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.title}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.subject || '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{Array.isArray(q.questions) ? q.questions.length : '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{q.created_by_username || q.created_by_display_name || '-'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.assigned_to === 'all' ? 'All students' : 'Selected'}</td></tr>)}</tbody></table>}
+                </div>
+              </section>
+
+              <section>
+                <h2 style={sectionHeadStyle}>All Students</h2>
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', overflowX: 'auto' }}>
+                  {isLoading ? <p style={{ padding: 16, color: 'var(--color-text-muted)' }}>Loading...</p> : allStudents.length === 0 ? <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ChalkboardTeacher size={36} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 10 }} /><div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 8, color: 'var(--color-text)' }}>No students yet</div><div style={{ fontSize: '0.9rem', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>Use Connect Students to show the current QR code and classroom address for your WiFi hotspot.</div></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['', 'Name', 'Language', 'Grade', 'Mastery Avg', 'Level', 'Last Active'].map(h => <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{allStudents.map((s, i) => <tr key={s.id} onClick={() => navigate(`/teacher/student/${s.id}`)} style={{ borderBottom: i < allStudents.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: 'pointer' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }} onMouseLeave={e => { e.currentTarget.style.background = '' }}><td style={{ padding: '12px 8px 12px 14px', width: 30 }}><AlertDot alerts={s.alerts} /></td><td style={{ padding: '12px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>{s.name}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.language}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.grade_level}</td><td style={{ padding: '12px 14px' }}>{Math.round((s.mastery_avg || 0) * 100)}%</td><td style={{ padding: '12px 14px' }}>{s.mastery_summary?.length > 0 ? <MasteryBadge level={s.mastery_summary[0]?.level} /> : <span style={{ color: 'var(--color-text-hint)' }}>—</span>}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{relativeTime(s.last_active)}</td></tr>)}</tbody></table>}
+                </div>
+              </section>
+            </div>
+          )}
+        </main>
+      </div>
 
       {calendarOpen && <TeacherCalendarModal onClose={() => setCalendarOpen(false)} />}
 
-      {/* ──────── AI Assistant — floating button ──────── */}
-      <button
-        ref={chatBtnRef}
-        onClick={() => setChatOpen(o => !o)}
-        title="OptiLearn Assistant"
-        style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 1000,
-          width: 56, height: 56, borderRadius: '50%',
-          background: 'var(--color-primary)', border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', boxShadow: '0 4px 14px rgba(42,141,191,0.42)',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.07)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(42,141,191,0.5)' }}
-        onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 4px 14px rgba(42,141,191,0.42)' }}
-      >
+      <button ref={chatBtnRef} onClick={() => setChatOpen(o => !o)} title="OptiLearn Assistant" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1000, width: 56, height: 56, borderRadius: '50%', background: 'var(--color-primary)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 4px 14px rgba(42,141,191,0.42)', transition: 'transform 0.15s, box-shadow 0.15s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.07)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(42,141,191,0.5)' }} onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '0 4px 14px rgba(42,141,191,0.42)' }}>
         <Sparkle size={24} weight="fill" />
       </button>
 
-      {/* ──────── AI Chat panel ──────── */}
       {chatOpen && (
-        <div
-          ref={chatPanelRef}
-          style={{
-            position: 'fixed', bottom: 90, right: 24, zIndex: 999,
-            width: 380, height: 520,
-            background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-            borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.16)',
-            display: 'flex', flexDirection: 'column',
-            animation: 'olSlideUp 0.2s ease-out',
-          }}
-        >
-          {/* Header */}
-          <div style={{
-            height: 48, display: 'flex', alignItems: 'center', gap: 8,
-            padding: '0 14px', borderBottom: '1px solid var(--color-border)', flexShrink: 0,
-            background: 'var(--color-surface)', borderRadius: '16px 16px 0 0',
-          }}>
+        <div ref={chatPanelRef} style={{ position: 'fixed', bottom: 90, right: 24, zIndex: 999, width: 380, height: 520, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.16)', display: 'flex', flexDirection: 'column', animation: 'olSlideUp 0.2s ease-out' }}>
+          <div style={{ height: 48, display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', borderBottom: '1px solid var(--color-border)', flexShrink: 0, background: 'var(--color-surface)', borderRadius: '16px 16px 0 0' }}>
             <Sparkle size={18} weight="fill" color="var(--color-primary)" />
-            <span style={{ fontWeight: 700, fontSize: '0.9rem', flex: 1, color: 'var(--color-text)' }}>
-              OptiLearn Assistant
-            </span>
-            {e4bAvailable && (
-              <div style={{
-                display: 'flex', borderRadius: 20, border: '1px solid var(--color-border)',
-                overflow: 'hidden', fontSize: '0.73rem',
-              }}>
-                {['fast', 'deep'].map(mode => (
-                  <button key={mode} onClick={() => setModelPref(mode)} style={{
-                    padding: '3px 11px', border: 'none', cursor: 'pointer', fontWeight: 600,
-                    background: modelPref === mode ? 'var(--color-primary)' : 'transparent',
-                    color: modelPref === mode ? '#fff' : 'var(--color-text-muted)',
-                    textTransform: 'capitalize',
-                  }}>
-                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => setChatOpen(false)}
-              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: 4 }}
-            >
-              <X size={18} />
-            </button>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem', flex: 1, color: 'var(--color-text)' }}>OptiLearn Assistant</span>
+            {e4bAvailable && (<div style={{ display: 'flex', borderRadius: 20, border: '1px solid var(--color-border)', overflow: 'hidden', fontSize: '0.73rem' }}>{['fast', 'deep'].map(mode => (<button key={mode} onClick={() => setModelPref(mode)} style={{ padding: '3px 11px', border: 'none', cursor: 'pointer', fontWeight: 600, background: modelPref === mode ? 'var(--color-primary)' : 'transparent', color: modelPref === mode ? '#fff' : 'var(--color-text-muted)', textTransform: 'capitalize' }}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</button>))}</div>)}
+            <button onClick={() => setChatOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', padding: 4 }}><X size={18} /></button>
           </div>
-
-          {/* Messages */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 4px' }}>
-            {chatMessages.map((msg, i) => (
-              <div key={i} style={{
-                background: msg.role === 'user' ? 'var(--accent-soft)' : 'var(--color-surface-2)',
-                borderRadius: 8, padding: '10px 12px', marginBottom: 8,
-                fontSize: '0.87rem', lineHeight: 1.55, color: 'var(--color-text)',
-                wordBreak: 'break-word',
-              }}>
-                {msg.role === 'assistant' && !msg.content && msg.streaming ? (
-                  <span style={{ color: 'var(--color-primary)', display: 'inline-flex', alignItems: 'center' }}>
-                    <Spinner size={16} />
-                  </span>
-                ) : msg.role === 'assistant' ? (
-                  renderMarkdown(msg.content)
-                ) : (
-                  msg.content
-                )}
-              </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Input */}
-          <div style={{
-            height: 56, display: 'flex', alignItems: 'center',
-            borderTop: '1px solid var(--color-border)', padding: '0 8px 0 14px',
-            flexShrink: 0, gap: 6, background: 'var(--color-surface)',
-            borderRadius: '0 0 16px 16px',
-          }}>
-            <input
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage() } }}
-              disabled={chatStreaming}
-              placeholder="Ask anything..."
-              style={{
-                flex: 1, border: 'none', outline: 'none',
-                fontSize: '0.87rem', background: 'transparent', color: 'var(--color-text)',
-              }}
-            />
-            <button
-              onClick={sendChatMessage}
-              disabled={chatStreaming || !chatInput.trim()}
-              style={{
-                width: 36, height: 36, borderRadius: '50%', border: 'none',
-                background: chatInput.trim() && !chatStreaming ? 'var(--color-primary)' : 'var(--color-surface-2)',
-                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0, transition: 'background 0.15s',
-                cursor: chatInput.trim() && !chatStreaming ? 'pointer' : 'default',
-              }}
-            >
-              <ArrowRight size={16} weight="bold" />
-            </button>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 4px' }}>{chatMessages.map((msg, i) => (<div key={i} style={{ background: msg.role === 'user' ? 'var(--accent-soft)' : 'var(--color-surface-2)', borderRadius: 8, padding: '10px 12px', marginBottom: 8, fontSize: '0.87rem', lineHeight: 1.55, color: 'var(--color-text)', wordBreak: 'break-word' }}>{msg.role === 'assistant' && !msg.content && msg.streaming ? <span style={{ color: 'var(--color-primary)', display: 'inline-flex', alignItems: 'center' }}><Spinner size={16} /></span> : msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}</div>))}<div ref={chatEndRef} /></div>
+          <div style={{ height: 56, display: 'flex', alignItems: 'center', borderTop: '1px solid var(--color-border)', padding: '0 8px 0 14px', flexShrink: 0, gap: 6, background: 'var(--color-surface)', borderRadius: '0 0 16px 16px' }}>
+            <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage() } }} disabled={chatStreaming} placeholder="Ask anything..." style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.87rem', background: 'transparent', color: 'var(--color-text)' }} />
+            <button onClick={sendChatMessage} disabled={chatStreaming || !chatInput.trim()} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: chatInput.trim() && !chatStreaming ? 'var(--color-primary)' : 'var(--color-surface-2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s', cursor: chatInput.trim() && !chatStreaming ? 'pointer' : 'default' }}><ArrowRight size={16} weight="bold" /></button>
           </div>
         </div>
       )}

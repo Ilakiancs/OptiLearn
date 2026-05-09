@@ -306,6 +306,61 @@ export async function downloadWeeklyReport(week) {
   URL.revokeObjectURL(url)
 }
 
+export async function requestFormData(path, form, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: options.method || 'POST',
+    headers: authHeaders(options.headers || {}),
+    body: form,
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      message = body.detail || body.message || message
+    } catch (_) {}
+    const err = new Error(message)
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+export async function exportStudentArchive(studentId) {
+  const blob = await requestBlob(`/api/students/${encodeURIComponent(studentId)}/export`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `optilearn_student_${studentId}.zip`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function exportStudentWithPin(studentId, pin) {
+  const blob = await requestBlob(`/api/students/${encodeURIComponent(studentId)}/export?pin=${encodeURIComponent(pin)}`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `optilearn_student_${studentId}.zip`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export function deleteStudent(studentId) {
+  return request(`/api/students/${encodeURIComponent(studentId)}`, { method: 'DELETE' })
+}
+
+export function importStudentArchive({ file, pin, targetStudentId = null }) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('pin', pin)
+  if (targetStudentId) form.append('target_student_id', targetStudentId)
+  return requestFormData('/api/students/import', form)
+}
+
 export function getSubjects() {
   return request('/api/materials/subjects')
 }

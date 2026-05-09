@@ -259,7 +259,7 @@ export default function CoursePage() {
           <div style={{ display: 'grid', gap: 8 }}>
             {subjectMastery.map(m => {
               const pct = Math.round(m.mastery * 100)
-              const bar = m.mastery < 0.40 ? '#E24B4A' : m.mastery < 0.75 ? '#EF9F27' : '#639922'
+              const bar = m.mastery < 0.40 ? '#FF9800' : m.mastery < 0.75 ? '#EF9F27' : '#639922'
               return (
                 <div key={m.topic}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: 3 }}>

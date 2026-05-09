@@ -81,7 +81,7 @@ export default function SubjectComboInput({ value, onChange, required, error }) 
 
   const inputStyle = {
     width: '100%', padding: '8px 12px', borderRadius: 'var(--radius-md)',
-    border: `1px solid ${error ? '#dc2626' : 'var(--color-border)'}`,
+    border: `1px solid ${error ? '#FF9800' : 'var(--color-border)'}`,
     background: 'var(--color-surface)', color: 'var(--color-text)',
     fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none',
   }
@@ -111,7 +111,7 @@ export default function SubjectComboInput({ value, onChange, required, error }) 
         autoComplete="off"
       />
 
-      {error && <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: 4 }}>{error}</div>}
+  {error && <div style={{ color: '#FF9800', fontSize: '0.8rem', marginTop: 4 }}>{error}</div>}
 
       {open && filtered.length > 0 && (
         <div style={{
