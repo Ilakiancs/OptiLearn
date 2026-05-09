@@ -2,7 +2,7 @@
 
 **Offline-first multilingual adaptive AI learning agent for refugee and underserved classrooms.**
 
-Built for the [Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/gemma-4-good) by Opti5 Labs. The teacher laptop becomes a local AI tutoring server — students connect via WiFi hotspot with no internet required.
+Built for the [Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/gemma-4-good-hackathon/overview) by Opti5 Labs. The teacher laptop becomes a local AI tutoring server — students connect via WiFi hotspot with no internet required.
 
 ---
 
