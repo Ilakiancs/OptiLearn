@@ -532,7 +532,11 @@ export default function StudentSession() {
             <select
               className="tutor-select"
               value={conversationLanguage}
-              onChange={e => setConversationLanguage(e.target.value)}
+              onChange={e => {
+                const lang = e.target.value
+                setConversationLanguage(lang)
+                startFreshChat({ ...student, language: lang })
+              }}
               disabled={isThinking}
             >
               {languageOptions.map(lang => (

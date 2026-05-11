@@ -551,12 +551,17 @@ export default function LiveTranslator() {
       }
       if (status?.error && !status.loading) {
         setTranslatorPreparing(false)
-        setMicError('Speech recognition is not ready yet. Please restart the server after the model finishes installing.')
+        // Show the backend error if it gives actionable detail, otherwise generic fallback
+        const detail = status.error || ''
+        const msg = detail.includes('whisper') || detail.includes('model') || detail.includes('No such file')
+          ? `Speech recognition model not found. Run: pip install transformers torch and place a Whisper model in ./models/whisper/, then restart the server.`
+          : `Speech recognition failed: ${detail.slice(0, 120)}`
+        setMicError(msg)
         return false
       } else if (status?.error) {
-        setTranslatorStatusText('Still preparing speech recognition')
+        setTranslatorStatusText('Still preparing speech recognition…')
       } else if (status?.loading) {
-        setTranslatorStatusText(`Loading ${status.model || 'speech model'}`)
+        setTranslatorStatusText(`Loading ${status.model || 'speech model'}…`)
       }
       await sleep(1000)
     }
