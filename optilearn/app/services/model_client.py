@@ -110,6 +110,9 @@ _USER_SETTINGS_PATH = Path(settings.DB_PATH).resolve().parent / "user_settings.j
 _runtime_network_mode: str | None = None
 _OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 
+_API_MAX_RETRIES = 3
+_API_RETRY_DELAY = (1.5, 3.0, 6.0)
+
 
 # ──────────────────────────────────────────────────────────────
 # Friendly error shown to users when Ollama is not reachable
@@ -243,6 +246,16 @@ def get_network_mode() -> str:
 
 def _is_force_offline() -> bool:
     return get_network_mode() == "offline"
+
+
+def is_force_offline() -> bool:
+    """Public alias for _is_force_offline — use this for cross-module imports."""
+    return _is_force_offline()
+
+
+def has_26b_api_key() -> bool:
+    """Public alias for _has_26b_api_key — use this for cross-module imports."""
+    return _has_26b_api_key()
 
 
 def set_network_mode(mode: str) -> dict:
@@ -435,10 +448,7 @@ async def stream_26b(
         len(prompt),
         bool(image_b64),
     )
-    _MAX_RETRIES = 3
-    _RETRY_DELAY = (1.5, 3.0, 6.0)
-
-    for attempt in range(_MAX_RETRIES):
+    for attempt in range(_API_MAX_RETRIES):
         try:
             stream = await asyncio.to_thread(
                 client.models.generate_content_stream,
@@ -463,9 +473,9 @@ async def stream_26b(
         except Exception as exc:
             msg = str(exc)
             is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
-            if is_transient and attempt < _MAX_RETRIES - 1:
-                delay = _RETRY_DELAY[attempt]
-                logger.warning("26B transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+            if is_transient and attempt < _API_MAX_RETRIES - 1:
+                delay = _API_RETRY_DELAY[attempt]
+                logger.warning("26B transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                 await asyncio.sleep(delay)
                 continue
             logger.error("26B API stream error: {}", exc)
@@ -1177,10 +1187,7 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content(**kwargs)
 
-        _MAX_RETRIES = 3
-        _RETRY_DELAY = (1.5, 3.0, 6.0)
-
-        for attempt in range(_MAX_RETRIES):
+        for attempt in range(_API_MAX_RETRIES):
             try:
                 response = await loop.run_in_executor(None, _call)
                 for candidate in response.candidates:
@@ -1197,9 +1204,9 @@ class ModelClient:
             except Exception as exc:
                 msg = str(exc)
                 is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
-                if is_transient and attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_DELAY[attempt]
-                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+                if is_transient and attempt < _API_MAX_RETRIES - 1:
+                    delay = _API_RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                     await asyncio.sleep(delay)
                     continue
                 raise
@@ -1210,7 +1217,6 @@ class ModelClient:
         messages: list[dict],
         tools: list[dict],
         image_b64: str | None,
-        _retry: int = 0,
     ) -> AsyncGenerator[str, None]:
         from google.genai import types as genai_types
 
@@ -1233,16 +1239,13 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content_stream(**kwargs)
 
-        _MAX_RETRIES = 3
-        _RETRY_DELAY = (1.5, 3.0, 6.0)
-
         def _call_non_stream() -> Any:
             kwargs: dict[str, Any] = {"model": settings.GEMINI_MODEL, "contents": contents}
             if config:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content(**kwargs)
 
-        for attempt in range(_MAX_RETRIES):
+        for attempt in range(_API_MAX_RETRIES):
             try:
                 # Use non-streaming with retry, then yield the full text at once.
                 # Streaming iterators surface errors mid-iteration after tokens are
@@ -1265,9 +1268,9 @@ class ModelClient:
             except Exception as exc:
                 msg = str(exc)
                 is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
-                if is_transient and attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_DELAY[attempt]
-                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+                if is_transient and attempt < _API_MAX_RETRIES - 1:
+                    delay = _API_RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                     await asyncio.sleep(delay)
                     continue
                 raise

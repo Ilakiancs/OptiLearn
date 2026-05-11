@@ -1,18 +1,21 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowSquareOut, PhoneDisconnect, X } from '@phosphor-icons/react'
 
-/**
- * PersonaVoiceChat — floating panel that embeds the Beyond Presence hosted
- * call page in an iframe. If the host blocks framing, shows an open-in-tab
- * fallback button. Either way the user gets to the live avatar conversation.
- */
 export default function PersonaVoiceChat({ callData, onClose }) {
   const { call_url, persona } = callData
   const iframeRef = useRef(null)
+  // X-Frame-Options blocks iframes silently — we detect it via a load timeout.
+  // bey.chat loads in ~2s; if the iframe fires no load event within 4s we assume blocked.
+  const [blocked, setBlocked] = useState(false)
 
-  // Clean up on unmount
   useEffect(() => {
+    const timer = setTimeout(() => setBlocked(true), 4000)
+    function onLoad() { clearTimeout(timer) }
+    const el = iframeRef.current
+    if (el) el.addEventListener('load', onLoad)
     return () => {
+      clearTimeout(timer)
+      if (el) el.removeEventListener('load', onLoad)
       if (iframeRef.current) iframeRef.current.src = 'about:blank'
     }
   }, [])
@@ -71,21 +74,56 @@ export default function PersonaVoiceChat({ callData, onClose }) {
         </button>
       </div>
 
-      {/* Iframe */}
+      {/* Iframe / fallback */}
       <div style={{ position: 'relative', width: '100%', height: 480, flexShrink: 0 }}>
-        <iframe
-          ref={iframeRef}
-          src={call_url}
-          title={`Talk with ${persona.name}`}
-          allow="camera; microphone; autoplay; display-capture"
-          style={{
-            width: '100%', height: '100%',
-            border: 'none',
-            display: 'block',
-          }}
-        />
-        {/* Fallback overlay — shown if iframe fails to load (X-Frame-Options) */}
-        <IframeFallback callUrl={call_url} persona={persona} />
+        {blocked ? (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            background: `linear-gradient(135deg, ${persona.color || '#6366f1'}22, #00000044)`,
+            gap: 16,
+          }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%',
+              background: persona.color || 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '2.2rem',
+            }}>
+              {persona.emoji || '🤝'}
+            </div>
+            <a
+              href={call_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 20px', borderRadius: 999,
+                background: 'var(--accent)', color: '#fff',
+                fontWeight: 700, fontSize: '0.9rem',
+                textDecoration: 'none',
+              }}
+            >
+              <ArrowSquareOut size={16} weight="bold" />
+              Open {persona.name}'s room
+            </a>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem', textAlign: 'center', maxWidth: 220, padding: '0 16px' }}>
+              Your browser blocked the embedded view. Click above to open in a new tab.
+            </span>
+          </div>
+        ) : (
+          <iframe
+            ref={iframeRef}
+            src={call_url}
+            title={`Talk with ${persona.name}`}
+            allow="camera; microphone; autoplay; display-capture"
+            style={{
+              width: '100%', height: '100%',
+              border: 'none',
+              display: 'block',
+            }}
+          />
+        )}
       </div>
 
       {/* End call button */}
@@ -110,66 +148,6 @@ export default function PersonaVoiceChat({ callData, onClose }) {
           End call
         </button>
       </div>
-    </div>
-  )
-}
-
-/**
- * Detects if the iframe was blocked by X-Frame-Options and shows a fallback.
- * Uses a load error heuristic — if the iframe src is still about:blank after
- * a short delay we assume blocking and show the open-in-tab CTA.
- */
-function IframeFallback({ callUrl, persona }) {
-  const fallbackRef = useRef(null)
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      // If parent iframe failed to load, the fallback div becomes clickable
-      // We can't detect X-Frame-Options directly so we show it softly on top
-      // and let it fade once the iframe loads successfully
-    }, 2000)
-    return () => clearTimeout(timer)
-  }, [])
-
-  return (
-    <div
-      ref={fallbackRef}
-      style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: `linear-gradient(135deg, ${persona.color || '#6366f1'}22, #00000044)`,
-        gap: 16,
-        pointerEvents: 'none',
-        opacity: 0,
-      }}
-    >
-      <div style={{
-        width: 72, height: 72, borderRadius: '50%',
-        background: persona.color || 'var(--accent)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '2.2rem',
-      }}>
-        {persona.emoji || '🤝'}
-      </div>
-      <a
-        href={callUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 20px', borderRadius: 999,
-          background: 'var(--accent)', color: '#fff',
-          fontWeight: 700, fontSize: '0.9rem',
-          textDecoration: 'none', pointerEvents: 'auto',
-        }}
-      >
-        <ArrowSquareOut size={16} weight="bold" />
-        Open {persona.name}'s room
-      </a>
-      <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem', textAlign: 'center', maxWidth: 220 }}>
-        Your browser blocked the embedded view. Click above to open in a new tab.
-      </span>
     </div>
   )
 }

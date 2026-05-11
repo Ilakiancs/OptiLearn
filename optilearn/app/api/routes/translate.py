@@ -35,7 +35,7 @@ from app.core.config import settings
 from app.core.grades import normalize_grade_level
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store, generated_cache, job_manager
-from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, route_generate_with_fallback
+from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, has_26b_api_key, is_force_offline, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
     transcribe_chunk,
@@ -54,8 +54,7 @@ _live_warmup_task: asyncio.Task | None = None
 
 
 def _translation_model_status() -> dict:
-    from app.services.model_client import _has_26b_api_key, _is_force_offline
-    if not _is_force_offline() and _has_26b_api_key():
+    if not is_force_offline() and has_26b_api_key():
         return {
             "ready": True,
             "loading": False,
@@ -89,9 +88,9 @@ def _live_translation_status() -> dict:
 
 async def warmup_translation_model() -> dict:
     global _translation_model_error, _translation_model_loading, _translation_model_ready  # noqa: PLW0603
-    from app.services.model_client import _has_26b_api_key, _is_force_offline
-    if not _is_force_offline() and _has_26b_api_key():
+    if not is_force_offline() and has_26b_api_key():
         _translation_model_ready = True
+        _translation_model_error = ""
         return _translation_model_status()
 
     async with _translation_model_lock:

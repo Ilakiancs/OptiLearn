@@ -211,9 +211,14 @@ export default function StudentSession() {
   }, [])
 
   useEffect(() => {
-    getHealth()
-      .then(s => setIsOnline(s.network?.use_26b === true))
-      .catch(() => setIsOnline(false))
+    function refreshOnlineStatus() {
+      getHealth()
+        .then(s => setIsOnline(s.network?.use_26b === true))
+        .catch(() => setIsOnline(false))
+    }
+    refreshOnlineStatus()
+    window.addEventListener('optilearn:model-switch', refreshOnlineStatus)
+    return () => window.removeEventListener('optilearn:model-switch', refreshOnlineStatus)
   }, [])
 
   async function loadSavedChats() {
