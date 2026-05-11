@@ -35,7 +35,7 @@ from app.core.config import settings
 from app.core.grades import normalize_grade_level
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store, generated_cache, job_manager
-from app.services.model_client import MODEL_SWITCH_TOKEN, get_network_status, route_generate_with_fallback
+from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, has_26b_api_key, is_force_offline, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
     transcribe_chunk,
@@ -54,8 +54,7 @@ _live_warmup_task: asyncio.Task | None = None
 
 
 def _translation_model_status() -> dict:
-    key = (settings.GEMMA_26B_API_KEY or "").strip()
-    if not settings.USE_LOCAL_OLLAMA and key and not key.startswith("<"):
+    if not is_force_offline() and has_26b_api_key():
         return {
             "ready": True,
             "loading": False,
@@ -89,9 +88,9 @@ def _live_translation_status() -> dict:
 
 async def warmup_translation_model() -> dict:
     global _translation_model_error, _translation_model_loading, _translation_model_ready  # noqa: PLW0603
-    status = await get_network_status()
-    if status["use_26b"]:
+    if not is_force_offline() and has_26b_api_key():
         _translation_model_ready = True
+        _translation_model_error = ""
         return _translation_model_status()
 
     async with _translation_model_lock:
@@ -100,21 +99,28 @@ async def warmup_translation_model() -> dict:
         _translation_model_loading = True
         _translation_model_error = ""
         try:
-            payload = {
-                "model": settings.OLLAMA_MODEL_FAST,
-                "prompt": "ready",
-                "stream": False,
-                "keep_alive": "60m",
-                "options": {"num_predict": 1, "temperature": 0},
-            }
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
-            ) as client:
-                response = await client.post(f"{settings.OLLAMA_HOST}/api/generate", json=payload)
-            if response.status_code != 200:
-                raise RuntimeError(f"Ollama warmup failed with status {response.status_code}")
-            _translation_model_ready = True
-            logger.info("Live translation text model ready: {}", settings.OLLAMA_MODEL_FAST)
+            present = await ensure_ollama_model(settings.OLLAMA_MODEL_FAST)
+            if not present:
+                # Online mode and model not local — API will handle requests
+                _translation_model_ready = True
+                logger.info("Local model not present; will use API for translation")
+            else:
+                # Model is present — send a cheap keep-alive ping to load it into RAM
+                payload = {
+                    "model": settings.OLLAMA_MODEL_FAST,
+                    "prompt": "ready",
+                    "stream": False,
+                    "keep_alive": "60m",
+                    "options": {"num_predict": 1, "temperature": 0},
+                }
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
+                ) as client:
+                    response = await client.post(f"{settings.OLLAMA_HOST}/api/generate", json=payload)
+                if response.status_code != 200:
+                    raise RuntimeError(f"Ollama warmup failed with status {response.status_code}")
+                _translation_model_ready = True
+                logger.info("Live translation text model ready: {}", settings.OLLAMA_MODEL_FAST)
         except Exception as exc:
             _translation_model_error = repr(exc)
             logger.error("Live translation text model warmup error: {!r}", exc)
@@ -759,7 +765,7 @@ async def translate_text_chunk(body: TextChunkRequest) -> dict:
         raise HTTPException(status_code=400, detail="Text chunk must not be empty.")
 
     student = await db.get_student(body.student_id) or {}
-    grade = int(student.get("grade_level") or 1)
+    grade = normalize_grade_level(student.get("grade_level") or "1")
     age = int(student.get("age") or 10)
     translated, model_switched = await _translate_text(original, body.target_language, grade, age)
     if not translated:

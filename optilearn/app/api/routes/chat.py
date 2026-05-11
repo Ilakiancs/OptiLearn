@@ -145,7 +145,6 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                             image_b64=body.image_b64,
                             model_preference=model_preference,
                             ollama_options={"num_ctx": 4096, "num_predict": 128},
-                            force_local=True,  # FUTURE: replace with fine-tuned model
                             lane="student_chat",
                             feature="chat.tool_planning",
                             profile="tutor_fast",
@@ -165,7 +164,6 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                     model_preference=model_preference,
                     enable_thinking=False,
                     ollama_options={"num_ctx": 4096, "num_predict": 384},
-                    force_local=True,
                     lane="student_chat",
                     feature="chat.direct_stream",
                     profile="tutor_fast",
@@ -200,7 +198,6 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                         tools=TOOL_SCHEMAS,
                         image_b64=None,
                         model_preference=model_preference,
-                        force_local=True,  # FUTURE: replace with fine-tuned model
                         lane="student_chat",
                         feature="chat.tool_followup",
                         profile="tutor_fast",
@@ -247,8 +244,10 @@ async def chat(body: ChatRequest) -> StreamingResponse:
                 friendly = "API key is invalid or missing. Check GEMMA_API_KEY in your .env file."
             elif "ConnectionRefused" in msg or "ConnectError" in msg or "11434" in msg:
                 friendly = "The local AI model is not running. Please start Ollama and try again."
+            elif "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg:
+                friendly = "The AI service is temporarily busy. Please try again in a moment."
             else:
-                friendly = f"Something went wrong: {msg}"
+                friendly = "Something went wrong. Please try again."
             yield _sse({"type": "error", "message": friendly})
 
     return StreamingResponse(

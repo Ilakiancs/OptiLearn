@@ -20,9 +20,9 @@ class Settings(BaseSettings):
 
     # Gemini API (online fallback when USE_LOCAL_OLLAMA=false and internet available)
     GEMMA_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemma-4-e2b-it"
+    GEMINI_MODEL: str = "gemma-4-31b-it"
     GEMMA_26B_API_KEY: str = ""
-    GEMMA_26B_MODEL: str = "gemma-4-26b-a4b-it"
+    GEMMA_26B_MODEL: str = "gemma-4-31b-it"
     GEMMA_26B_BASE_URL: str = "https://generativelanguage.googleapis.com"
     LATENCY_THRESHOLD_MS: int = 200
 
@@ -51,6 +51,9 @@ class Settings(BaseSettings):
 
     # Materials storage
     MATERIALS_DIR: str = "./data/materials"
+
+    # Beyond Presence (AI avatar video — online only)
+    BEY_API_KEY: str = ""
 
     # Whisper / TTS (Phase 2–3, not used yet)
     WHISPER_BINARY: str = "./bin/whisper"

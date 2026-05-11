@@ -110,6 +110,9 @@ _USER_SETTINGS_PATH = Path(settings.DB_PATH).resolve().parent / "user_settings.j
 _runtime_network_mode: str | None = None
 _OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 
+_API_MAX_RETRIES = 3
+_API_RETRY_DELAY = (1.5, 3.0, 6.0)
+
 
 # ──────────────────────────────────────────────────────────────
 # Friendly error shown to users when Ollama is not reachable
@@ -140,18 +143,101 @@ def _has_26b_api_key() -> bool:
     return bool(key and not key.startswith("<"))
 
 
+async def is_model_present(model_name: str) -> bool:
+    """Check if a model is already pulled in Ollama (no download triggered)."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.OLLAMA_HOST}/api/tags")
+        if r.status_code != 200:
+            return False
+        names = [m.get("name", "") for m in r.json().get("models", [])]
+        # Exact match, or tagless lookup (e.g. "gemma4" matches "gemma4:latest")
+        has_tag = ":" in model_name
+        return any(
+            n == model_name or (not has_tag and n.split(":")[0] == model_name)
+            for n in names
+        )
+    except Exception:
+        return False
+
+
+async def pull_model(model_name: str) -> bool:
+    """Pull a model from Ollama registry. Streams progress to logs. Returns success."""
+    logger.info("Pulling Ollama model {} (not present locally)…", model_name)
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=1800.0, write=30.0, pool=10.0)
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.OLLAMA_HOST}/api/pull",
+                json={"name": model_name, "stream": True},
+            ) as response:
+                if response.status_code != 200:
+                    logger.error("Ollama pull failed: status={}", response.status_code)
+                    return False
+                async for raw in response.aiter_lines():
+                    if not raw.strip():
+                        continue
+                    try:
+                        chunk = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    status = chunk.get("status", "")
+                    total = chunk.get("total", 0)
+                    completed = chunk.get("completed", 0)
+                    if total and completed:
+                        pct = int(completed / total * 100)
+                        logger.info("Pulling {}: {}% ({})", model_name, pct, status)
+                    elif status:
+                        logger.info("Pulling {}: {}", model_name, status)
+        logger.info("Ollama model {} ready", model_name)
+        return True
+    except Exception as exc:
+        logger.error("Ollama pull error for {}: {}", model_name, exc)
+        return False
+
+
+async def ensure_ollama_model(model_name: str) -> bool:
+    """
+    Check if the model is present in Ollama.
+    - If present: return True immediately (no warmup, no download).
+    - If missing and offline mode: pull it, then return result.
+    - If missing and online/auto mode: skip pull, return False (API will be used).
+    """
+    present = await is_model_present(model_name)
+    if present:
+        logger.info("Ollama model {} found locally", model_name)
+        return True
+    if _is_force_offline():
+        logger.warning("Model {} not found — pulling (offline mode requires it)", model_name)
+        return await pull_model(model_name)
+    logger.info("Model {} not in Ollama — skipping pull (online/auto mode active)", model_name)
+    return False
+
+
 def load_user_network_settings() -> None:
-    """Load persisted network-mode preference at server startup."""
+    """Load persisted network-mode preference at server startup.
+
+    Dashboard toggle always wins: a teacher-set offline/auto preference
+    persists across restarts. .env sets the default only when no saved
+    preference exists.
+    """
     global _runtime_network_mode  # noqa: PLW0603
     try:
         if not _USER_SETTINGS_PATH.exists():
+            # No saved preference — fall back to .env default
+            _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
             return
         data = json.loads(_USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         mode = data.get("network_mode")
         if mode in {"auto", "offline"}:
             _runtime_network_mode = mode
+        else:
+            _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
     except Exception as exc:
         logger.warning("Could not load user network settings: {}", exc)
+        _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
 
 
 def get_network_mode() -> str:
@@ -162,6 +248,16 @@ def get_network_mode() -> str:
 
 def _is_force_offline() -> bool:
     return get_network_mode() == "offline"
+
+
+def is_force_offline() -> bool:
+    """Public alias for _is_force_offline — use this for cross-module imports."""
+    return _is_force_offline()
+
+
+def has_26b_api_key() -> bool:
+    """Public alias for _has_26b_api_key — use this for cross-module imports."""
+    return _has_26b_api_key()
 
 
 def set_network_mode(mode: str) -> dict:
@@ -354,29 +450,38 @@ async def stream_26b(
         len(prompt),
         bool(image_b64),
     )
-    try:
-        stream = await asyncio.to_thread(
-            client.models.generate_content_stream,
-            model=settings.GEMMA_26B_MODEL,
-            contents=contents,
-            config=config,
-        )
-        chunk_count = 0
-        char_count = 0
-        for chunk in stream:
-            if getattr(chunk, "text", None):
-                chunk_count += 1
-                char_count += len(chunk.text)
-                yield chunk.text
-        logger.info(
-            "26B API stream complete -> model={} chunks={} chars={}",
-            settings.GEMMA_26B_MODEL,
-            chunk_count,
-            char_count,
-        )
-    except Exception as exc:
-        logger.error("26B API stream error: {}", exc)
-        raise
+    for attempt in range(_API_MAX_RETRIES):
+        try:
+            stream = await asyncio.to_thread(
+                client.models.generate_content_stream,
+                model=settings.GEMMA_26B_MODEL,
+                contents=contents,
+                config=config,
+            )
+            chunk_count = 0
+            char_count = 0
+            for chunk in stream:
+                if getattr(chunk, "text", None):
+                    chunk_count += 1
+                    char_count += len(chunk.text)
+                    yield chunk.text
+            logger.info(
+                "26B API stream complete -> model={} chunks={} chars={}",
+                settings.GEMMA_26B_MODEL,
+                chunk_count,
+                char_count,
+            )
+            return
+        except Exception as exc:
+            msg = str(exc)
+            is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+            if is_transient and attempt < _API_MAX_RETRIES - 1:
+                delay = _API_RETRY_DELAY[attempt]
+                logger.warning("26B transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                await asyncio.sleep(delay)
+                continue
+            logger.error("26B API stream error: {}", exc)
+            raise
 
 
 async def _ollama_stream(
@@ -687,10 +792,9 @@ async def get_active_model(preferred: str = "fast") -> str:
 
 
 async def should_use_gemini() -> bool:
-    """True only when USE_LOCAL_OLLAMA=false AND internet is reachable."""
-    if settings.USE_LOCAL_OLLAMA:
-        return False
-    return await check_connectivity()
+    """True only when not force-offline, 26B key configured, and latency is acceptable."""
+    status = await get_network_status()
+    return status["use_26b"]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -795,6 +899,7 @@ class ModelClient:
             logger.warning("Gemini client init failed: {} — Ollama only", exc)
 
     # ── Public interface ───────────────────────────────────────
+    # TUTOR route always uses local Ollama — trauma-aware model stays offline.
     async def stream_chat(
         self,
         messages: list[dict],
@@ -811,33 +916,18 @@ class ModelClient:
     ) -> AsyncGenerator[str, None]:
         model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
         lane_name = lane or model_profile.lane
-        if not force_local and await should_use_gemini():
-            async def api_stream() -> AsyncGenerator[str, None]:
-                async for piece in self._gemma_stream(messages, tools, image_b64):
-                    yield piece
-
-            async for token in model_scheduler.stream_with_lane(
-                lane=lane_name,
-                feature=feature,
-                route_type=ROUTE_TUTOR,
-                input_size=sum(len(str(m.get("content", ""))) for m in messages),
-                cache_status=cache_status,
-                generator_factory=api_stream,
-            ):
-                yield token
-        else:
-            async for token in self._ollama_stream(
-                messages,
-                image_b64,
-                model_preference,
-                enable_thinking,
-                ollama_options,
-                lane=lane_name,
-                feature=feature,
-                cache_status=cache_status,
-                profile=model_profile.name,
-            ):
-                yield token
+        async for token in self._ollama_stream(
+            messages,
+            image_b64,
+            model_preference,
+            enable_thinking,
+            ollama_options,
+            lane=lane_name,
+            feature=feature,
+            cache_status=cache_status,
+            profile=model_profile.name,
+        ):
+            yield token
 
     async def complete_with_tools(
         self,
@@ -854,15 +944,6 @@ class ModelClient:
     ) -> "ToolCallEvent | str":
         model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
         lane_name = lane or model_profile.lane
-        if not force_local and await should_use_gemini():
-            return await model_scheduler.run_with_lane(
-                lane=lane_name,
-                feature=feature,
-                route_type=ROUTE_TUTOR,
-                input_size=sum(len(str(m.get("content", ""))) for m in messages),
-                cache_status=cache_status,
-                call_factory=lambda: self._gemma_complete(messages, tools, image_b64),
-            )
         return await self._ollama_complete(
             messages,
             image_b64,
@@ -1108,15 +1189,30 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content(**kwargs)
 
-        response = await loop.run_in_executor(None, _call)
-
-        for candidate in response.candidates:
-            for part in candidate.content.parts:
-                if part.function_call:
-                    fn = part.function_call
-                    return ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
-
-        return response.text or ""
+        for attempt in range(_API_MAX_RETRIES):
+            try:
+                response = await loop.run_in_executor(None, _call)
+                for candidate in response.candidates:
+                    for part in candidate.content.parts:
+                        if getattr(part, "thought", False):
+                            continue
+                        if part.function_call:
+                            fn = part.function_call
+                            return ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
+                text = response.text or ""
+                return _strip_thinking(text)
+            except ToolCallEvent:
+                raise
+            except Exception as exc:
+                msg = str(exc)
+                is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+                if is_transient and attempt < _API_MAX_RETRIES - 1:
+                    delay = _API_RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        return ""
 
     async def _gemma_stream(
         self,
@@ -1145,20 +1241,41 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content_stream(**kwargs)
 
-        stream = await loop.run_in_executor(None, _call)
+        def _call_non_stream() -> Any:
+            kwargs: dict[str, Any] = {"model": settings.GEMINI_MODEL, "contents": contents}
+            if config:
+                kwargs["config"] = config
+            return self._genai_client.models.generate_content(**kwargs)
 
-        for chunk in stream:
-            if not chunk.candidates:
-                continue
-            for candidate in chunk.candidates:
-                if not candidate.content or not candidate.content.parts:
+        for attempt in range(_API_MAX_RETRIES):
+            try:
+                # Use non-streaming with retry, then yield the full text at once.
+                # Streaming iterators surface errors mid-iteration after tokens are
+                # already sent, making retry impossible. Non-streaming is safe to retry.
+                response = await loop.run_in_executor(None, _call_non_stream)
+                for candidate in response.candidates:
+                    if not candidate.content or not candidate.content.parts:
+                        continue
+                    for part in candidate.content.parts:
+                        if part.function_call:
+                            fn = part.function_call
+                            raise ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
+                        if getattr(part, "thought", False):
+                            continue
+                        if part.text:
+                            yield part.text
+                return
+            except ToolCallEvent:
+                raise
+            except Exception as exc:
+                msg = str(exc)
+                is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+                if is_transient and attempt < _API_MAX_RETRIES - 1:
+                    delay = _API_RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                    await asyncio.sleep(delay)
                     continue
-                for part in candidate.content.parts:
-                    if part.function_call:
-                        fn = part.function_call
-                        raise ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
-                    if part.text:
-                        yield part.text
+                raise
 
 
 # ── Singleton ──────────────────────────────────────────────────

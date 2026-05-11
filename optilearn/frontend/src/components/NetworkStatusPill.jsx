@@ -14,7 +14,7 @@ function readDisplay(status) {
   }
   if (network.connected) {
     return {
-      label: 'Offline',
+      label: 'Local',
       dot: 'var(--color-primary)',
       pulse: false,
     }
@@ -70,7 +70,7 @@ export default function NetworkStatusPill({
     refreshStatus()
     const interval = setInterval(refreshStatus, POLL_MS)
     const onModelSwitch = () => {
-      showToast('Offline mode on')
+      showToast('Switched to local model')
       refreshStatus()
     }
     const onPointerDown = (event) => {

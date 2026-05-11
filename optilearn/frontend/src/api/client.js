@@ -583,3 +583,21 @@ export function getLiveGameResults(gameId) {
 export function findGameByCode(joinCode) {
   return request(`/api/live-quiz/find/${encodeURIComponent(joinCode.replace(/\s/g, ''))}`)
 }
+
+// ── Persona voice chat (Beyond Presence — online only) ──────────
+export function getPersonas() {
+  return request('/api/persona/list')
+}
+
+export function startPersonaCall(personaId, studentName) {
+  return request('/api/persona/call', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ persona_id: personaId, student_name: studentName }),
+  })
+}
+
+export function endPersonaCall() {
+  // No server-side cleanup needed for hosted BEY calls (free tier)
+  return Promise.resolve()
+}
