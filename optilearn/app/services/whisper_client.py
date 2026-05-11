@@ -29,10 +29,15 @@ _TARGET_SAMPLE_RATE = 16000
 
 
 def _offline_env() -> None:
-    """Tell Hugging Face libraries not to use the network in classroom mode."""
-    if settings.HF_LOCAL_FILES_ONLY:
+    """Block HF network access only when the runtime mode is force-offline (classroom)."""
+    from app.services.model_client import is_force_offline
+    if is_force_offline():
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    else:
+        # Online/auto mode — allow HF to download or use cached models
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        os.environ.pop("TRANSFORMERS_OFFLINE", None)
 
 
 def _resolve_hf_asr_model() -> str:
@@ -151,17 +156,19 @@ async def _get_asr_pipeline():
 
         def load_pipeline():
             from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+            from app.services.model_client import is_force_offline
 
             _offline_env()
+            local_only = is_force_offline()
             model_ref = _resolve_hf_asr_model()
-            logger.info("Loading fallback Whisper ASR model: {}", model_ref)
+            logger.info("Loading Whisper ASR model: {} (local_only={})", model_ref, local_only)
             model = AutoModelForSpeechSeq2Seq.from_pretrained(
                 model_ref,
-                local_files_only=settings.HF_LOCAL_FILES_ONLY,
+                local_files_only=local_only,
             )
             processor = AutoProcessor.from_pretrained(
                 model_ref,
-                local_files_only=settings.HF_LOCAL_FILES_ONLY,
+                local_files_only=local_only,
             )
             return pipeline(
                 "automatic-speech-recognition",
