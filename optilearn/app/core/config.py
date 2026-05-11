@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # Whisper / TTS (Phase 2–3, not used yet)
     WHISPER_BINARY: str = "./bin/whisper"
     WHISPER_MODEL: str = "./data/whisper-models/ggml-base.bin"
-    WHISPER_HF_MODEL: str = "openai/whisper-base"
+    WHISPER_HF_MODEL: str = "openai/whisper-tiny"
     PIPER_BINARY: str = "./bin/piper"
     VOICES_DIR: str = "./data/voices"
 
