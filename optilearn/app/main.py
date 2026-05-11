@@ -263,8 +263,11 @@ async def health() -> dict:
                 ollama_ok = True
                 model_names = [m.get("name", "") for m in r.json().get("models", [])]
                 def _model_present(name: str) -> bool:
-                    base = name.split(":")[0]
-                    return any(n == name or n.split(":")[0] == base for n in model_names)
+                    has_tag = ":" in name
+                    return any(
+                        n == name or (not has_tag and n.split(":")[0] == name)
+                        for n in model_names
+                    )
                 tutor_model_present = _model_present(settings.OLLAMA_TUTOR_MODEL)
                 e4b_available = _model_present(settings.OLLAMA_MODEL_DEEP)
     except Exception:
