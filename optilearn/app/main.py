@@ -30,7 +30,7 @@ from app.services import db, faiss_store, job_manager, model_scheduler, telemetr
 from app.services.client_tracker import record_client
 from app.services.dns_server import start_captive_portal, stop_captive_portal
 from app.services.mdns_server import start_mdns, stop_mdns
-from app.services.model_client import get_model_profiles, get_network_mode, get_network_status, load_user_network_settings
+from app.services.model_client import ensure_ollama_model, get_model_profiles, get_network_mode, get_network_status, load_user_network_settings
 from app.services.whisper_client import get_transcriber_status
 from app.services.network import get_cached_hotspot_ip, get_server_url
 
@@ -165,6 +165,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Warm live translation models first, then embeddings. Running FAISS model
     # loading beside ASR made classroom startup painfully slow on teacher laptops.
     async def _warmup_background_models() -> None:
+        # Check tutor model presence; pull only if offline mode requires it
+        try:
+            await ensure_ollama_model(settings.OLLAMA_TUTOR_MODEL)
+        except Exception as exc:
+            logger.warning("Tutor model check skipped: {}", exc)
         try:
             await translate_routes.warmup_live_translation_models()
         except Exception as exc:
@@ -249,15 +254,19 @@ async def health() -> dict:
     import subprocess
 
     ollama_ok = False
+    tutor_model_present = False
     e4b_available = False
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{settings.OLLAMA_HOST}/api/tags")
             if r.status_code == 200:
                 ollama_ok = True
-                tags = r.json()
-                model_names = [m.get("name", "") for m in tags.get("models", [])]
-                e4b_available = settings.OLLAMA_MODEL_DEEP in model_names
+                model_names = [m.get("name", "") for m in r.json().get("models", [])]
+                def _model_present(name: str) -> bool:
+                    base = name.split(":")[0]
+                    return any(n == name or n.split(":")[0] == base for n in model_names)
+                tutor_model_present = _model_present(settings.OLLAMA_TUTOR_MODEL)
+                e4b_available = _model_present(settings.OLLAMA_MODEL_DEEP)
     except Exception:
         pass
 
@@ -287,6 +296,7 @@ async def health() -> dict:
         "speech": get_transcriber_status(),
         "tts": tts_client.get_tts_status(),
         "use_local_ollama": not network_status["use_26b"],
+        "tutor_model_present": tutor_model_present,
         "e4b_available": e4b_available,
         "active_model": settings.OLLAMA_MODEL_FAST,
         "model_profiles": get_model_profiles(),

@@ -35,7 +35,7 @@ from app.core.config import settings
 from app.core.grades import normalize_grade_level
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.services import db, faiss_store, generated_cache, job_manager
-from app.services.model_client import MODEL_SWITCH_TOKEN, get_network_status, route_generate_with_fallback
+from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
     transcribe_chunk,
@@ -100,21 +100,28 @@ async def warmup_translation_model() -> dict:
         _translation_model_loading = True
         _translation_model_error = ""
         try:
-            payload = {
-                "model": settings.OLLAMA_MODEL_FAST,
-                "prompt": "ready",
-                "stream": False,
-                "keep_alive": "60m",
-                "options": {"num_predict": 1, "temperature": 0},
-            }
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
-            ) as client:
-                response = await client.post(f"{settings.OLLAMA_HOST}/api/generate", json=payload)
-            if response.status_code != 200:
-                raise RuntimeError(f"Ollama warmup failed with status {response.status_code}")
-            _translation_model_ready = True
-            logger.info("Live translation text model ready: {}", settings.OLLAMA_MODEL_FAST)
+            present = await ensure_ollama_model(settings.OLLAMA_MODEL_FAST)
+            if not present:
+                # Online mode and model not local — API will handle requests
+                _translation_model_ready = True
+                logger.info("Local model not present; will use API for translation")
+            else:
+                # Model is present — send a cheap keep-alive ping to load it into RAM
+                payload = {
+                    "model": settings.OLLAMA_MODEL_FAST,
+                    "prompt": "ready",
+                    "stream": False,
+                    "keep_alive": "60m",
+                    "options": {"num_predict": 1, "temperature": 0},
+                }
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(connect=5.0, read=90.0, write=10.0, pool=5.0)
+                ) as client:
+                    response = await client.post(f"{settings.OLLAMA_HOST}/api/generate", json=payload)
+                if response.status_code != 200:
+                    raise RuntimeError(f"Ollama warmup failed with status {response.status_code}")
+                _translation_model_ready = True
+                logger.info("Live translation text model ready: {}", settings.OLLAMA_MODEL_FAST)
         except Exception as exc:
             _translation_model_error = repr(exc)
             logger.error("Live translation text model warmup error: {!r}", exc)

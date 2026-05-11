@@ -140,6 +140,76 @@ def _has_26b_api_key() -> bool:
     return bool(key and not key.startswith("<"))
 
 
+async def is_model_present(model_name: str) -> bool:
+    """Check if a model is already pulled in Ollama (no download triggered)."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.OLLAMA_HOST}/api/tags")
+        if r.status_code != 200:
+            return False
+        names = [m.get("name", "") for m in r.json().get("models", [])]
+        # Match exact name or name without tag (e.g. "gemma4:e2b" or "gemma4")
+        base = model_name.split(":")[0]
+        return any(n == model_name or n.split(":")[0] == base for n in names)
+    except Exception:
+        return False
+
+
+async def pull_model(model_name: str) -> bool:
+    """Pull a model from Ollama registry. Streams progress to logs. Returns success."""
+    logger.info("Pulling Ollama model {} (not present locally)…", model_name)
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=1800.0, write=30.0, pool=10.0)
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.OLLAMA_HOST}/api/pull",
+                json={"name": model_name, "stream": True},
+            ) as response:
+                if response.status_code != 200:
+                    logger.error("Ollama pull failed: status={}", response.status_code)
+                    return False
+                async for raw in response.aiter_lines():
+                    if not raw.strip():
+                        continue
+                    try:
+                        chunk = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    status = chunk.get("status", "")
+                    total = chunk.get("total", 0)
+                    completed = chunk.get("completed", 0)
+                    if total and completed:
+                        pct = int(completed / total * 100)
+                        logger.info("Pulling {}: {}% ({})", model_name, pct, status)
+                    elif status:
+                        logger.info("Pulling {}: {}", model_name, status)
+        logger.info("Ollama model {} ready", model_name)
+        return True
+    except Exception as exc:
+        logger.error("Ollama pull error for {}: {}", model_name, exc)
+        return False
+
+
+async def ensure_ollama_model(model_name: str) -> bool:
+    """
+    Check if the model is present in Ollama.
+    - If present: return True immediately (no warmup, no download).
+    - If missing and offline mode: pull it, then return result.
+    - If missing and online/auto mode: skip pull, return False (API will be used).
+    """
+    present = await is_model_present(model_name)
+    if present:
+        logger.info("Ollama model {} found locally", model_name)
+        return True
+    if _is_force_offline():
+        logger.warning("Model {} not found — pulling (offline mode requires it)", model_name)
+        return await pull_model(model_name)
+    logger.info("Model {} not in Ollama — skipping pull (online/auto mode active)", model_name)
+    return False
+
+
 def load_user_network_settings() -> None:
     """Load persisted network-mode preference at server startup.
 
