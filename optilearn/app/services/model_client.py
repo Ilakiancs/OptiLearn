@@ -219,23 +219,25 @@ async def ensure_ollama_model(model_name: str) -> bool:
 def load_user_network_settings() -> None:
     """Load persisted network-mode preference at server startup.
 
-    .env always wins: if USE_LOCAL_OLLAMA is explicitly set to false (online mode),
-    we never load a stale 'offline' override from a previous session.
+    Dashboard toggle always wins: a teacher-set offline/auto preference
+    persists across restarts. .env sets the default only when no saved
+    preference exists.
     """
     global _runtime_network_mode  # noqa: PLW0603
-    # If .env says online, don't let a stale settings file force offline
-    if not settings.USE_LOCAL_OLLAMA:
-        _runtime_network_mode = "auto"
-        return
     try:
         if not _USER_SETTINGS_PATH.exists():
+            # No saved preference — fall back to .env default
+            _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
             return
         data = json.loads(_USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         mode = data.get("network_mode")
         if mode in {"auto", "offline"}:
             _runtime_network_mode = mode
+        else:
+            _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
     except Exception as exc:
         logger.warning("Could not load user network settings: {}", exc)
+        _runtime_network_mode = "offline" if settings.USE_LOCAL_OLLAMA else "auto"
 
 
 def get_network_mode() -> str:
