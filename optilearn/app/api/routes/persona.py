@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -84,13 +85,41 @@ PERSONAS: list[dict[str, str]] = [
 
 _PERSONA_BY_ID = {p["id"]: p for p in PERSONAS}
 
-# Cache: persona_id → bey agent_id (created once per server lifetime)
+# In-memory cache: persona_id → bey agent_id
 _agent_cache: dict[str, str] = {}
 _agent_cache_lock = asyncio.Lock()
 
-# Cached external API id for Google AI Studio (registered once)
+# In-memory cache: external API id for Google AI Studio (registered once)
 _external_api_id: str | None = None
 _external_api_lock = asyncio.Lock()
+
+# Disk-persisted agent IDs so server restarts don't re-create agents
+_AGENT_CACHE_PATH = Path(settings.DB_PATH).resolve().parent / "bey_agents.json"
+
+
+def _load_agent_cache() -> None:
+    """Load persisted BEY agent IDs from disk into memory at startup."""
+    global _external_api_id  # noqa: PLW0603
+    try:
+        if not _AGENT_CACHE_PATH.exists():
+            return
+        data = json.loads(_AGENT_CACHE_PATH.read_text(encoding="utf-8"))
+        _agent_cache.update(data.get("agents", {}))
+        _external_api_id = data.get("external_api_id") or None
+        logger.info("BEY agent cache loaded: {} agents", len(_agent_cache))
+    except Exception as exc:
+        logger.warning("Could not load BEY agent cache: {}", exc)
+
+
+def _save_agent_cache() -> None:
+    try:
+        _AGENT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _AGENT_CACHE_PATH.write_text(
+            json.dumps({"agents": _agent_cache, "external_api_id": _external_api_id}, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Could not persist BEY agent cache: {}", exc)
 
 
 def _bey_headers() -> dict[str, str]:
@@ -122,6 +151,7 @@ async def _get_or_create_external_api() -> str:
             for api in resp.json().get("data", []):
                 if "Google" in api.get("name", "") or "gemma" in api.get("name", "").lower():
                     _external_api_id = api["id"]
+                    _save_agent_cache()
                     logger.info("BEY reusing existing external API id={}", _external_api_id)
                     return _external_api_id
 
@@ -143,17 +173,25 @@ async def _get_or_create_external_api() -> str:
             raise HTTPException(status_code=502, detail="Could not register AI provider with persona service.")
 
         _external_api_id = resp.json()["id"]
+        _save_agent_cache()
         logger.info("BEY external API registered id={}", _external_api_id)
         return _external_api_id
 
 
 async def _get_or_create_agent(persona: dict[str, str]) -> str:
-    """Return cached BEY agent_id, creating it on first call."""
+    """Return cached BEY agent_id, creating it on first call per server lifetime."""
     pid = persona["id"]
+
+    # Fast path: already in memory (no lock needed for read after startup load)
+    if pid in _agent_cache:
+        return _agent_cache[pid]
+
     async with _agent_cache_lock:
+        # Re-check inside lock — another coroutine may have populated it
         if pid in _agent_cache:
             return _agent_cache[pid]
 
+        # External API registration happens outside this lock to avoid nesting
         api_id = await _get_or_create_external_api()
 
         payload = {
@@ -181,6 +219,7 @@ async def _get_or_create_agent(persona: dict[str, str]) -> str:
 
         agent_id: str = resp.json()["id"]
         _agent_cache[pid] = agent_id
+        _save_agent_cache()
         logger.info("BEY agent created: persona={} agent_id={}", pid, agent_id)
         return agent_id
 

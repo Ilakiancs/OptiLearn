@@ -54,8 +54,8 @@ _live_warmup_task: asyncio.Task | None = None
 
 
 def _translation_model_status() -> dict:
-    key = (settings.GEMMA_26B_API_KEY or "").strip()
-    if not settings.USE_LOCAL_OLLAMA and key and not key.startswith("<"):
+    from app.services.model_client import _has_26b_api_key, _is_force_offline
+    if not _is_force_offline() and _has_26b_api_key():
         return {
             "ready": True,
             "loading": False,
@@ -89,8 +89,8 @@ def _live_translation_status() -> dict:
 
 async def warmup_translation_model() -> dict:
     global _translation_model_error, _translation_model_loading, _translation_model_ready  # noqa: PLW0603
-    status = await get_network_status()
-    if status["use_26b"]:
+    from app.services.model_client import _has_26b_api_key, _is_force_offline
+    if not _is_force_offline() and _has_26b_api_key():
         _translation_model_ready = True
         return _translation_model_status()
 

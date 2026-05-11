@@ -707,10 +707,9 @@ async def get_active_model(preferred: str = "fast") -> str:
 
 
 async def should_use_gemini() -> bool:
-    """True only when USE_LOCAL_OLLAMA=false AND internet is reachable."""
-    if settings.USE_LOCAL_OLLAMA:
-        return False
-    return await check_connectivity()
+    """True only when not force-offline, 26B key configured, and latency is acceptable."""
+    status = await get_network_status()
+    return status["use_26b"]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -815,6 +814,7 @@ class ModelClient:
             logger.warning("Gemini client init failed: {} — Ollama only", exc)
 
     # ── Public interface ───────────────────────────────────────
+    # TUTOR route always uses local Ollama — trauma-aware model stays offline.
     async def stream_chat(
         self,
         messages: list[dict],
@@ -831,33 +831,18 @@ class ModelClient:
     ) -> AsyncGenerator[str, None]:
         model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
         lane_name = lane or model_profile.lane
-        if not force_local and await should_use_gemini():
-            async def api_stream() -> AsyncGenerator[str, None]:
-                async for piece in self._gemma_stream(messages, tools, image_b64):
-                    yield piece
-
-            async for token in model_scheduler.stream_with_lane(
-                lane=lane_name,
-                feature=feature,
-                route_type=ROUTE_TUTOR,
-                input_size=sum(len(str(m.get("content", ""))) for m in messages),
-                cache_status=cache_status,
-                generator_factory=api_stream,
-            ):
-                yield token
-        else:
-            async for token in self._ollama_stream(
-                messages,
-                image_b64,
-                model_preference,
-                enable_thinking,
-                ollama_options,
-                lane=lane_name,
-                feature=feature,
-                cache_status=cache_status,
-                profile=model_profile.name,
-            ):
-                yield token
+        async for token in self._ollama_stream(
+            messages,
+            image_b64,
+            model_preference,
+            enable_thinking,
+            ollama_options,
+            lane=lane_name,
+            feature=feature,
+            cache_status=cache_status,
+            profile=model_profile.name,
+        ):
+            yield token
 
     async def complete_with_tools(
         self,
@@ -874,15 +859,6 @@ class ModelClient:
     ) -> "ToolCallEvent | str":
         model_profile = resolve_model_profile(profile, ROUTE_TUTOR)
         lane_name = lane or model_profile.lane
-        if not force_local and await should_use_gemini():
-            return await model_scheduler.run_with_lane(
-                lane=lane_name,
-                feature=feature,
-                route_type=ROUTE_TUTOR,
-                input_size=sum(len(str(m.get("content", ""))) for m in messages),
-                cache_status=cache_status,
-                call_factory=lambda: self._gemma_complete(messages, tools, image_b64),
-            )
         return await self._ollama_complete(
             messages,
             image_b64,
