@@ -34,3 +34,4 @@ frontend/package-lock.json
 
 # Claude Code
 .claude/
+data/bey_agents.json
