@@ -141,8 +141,16 @@ def _has_26b_api_key() -> bool:
 
 
 def load_user_network_settings() -> None:
-    """Load persisted network-mode preference at server startup."""
+    """Load persisted network-mode preference at server startup.
+
+    .env always wins: if USE_LOCAL_OLLAMA is explicitly set to false (online mode),
+    we never load a stale 'offline' override from a previous session.
+    """
     global _runtime_network_mode  # noqa: PLW0603
+    # If .env says online, don't let a stale settings file force offline
+    if not settings.USE_LOCAL_OLLAMA:
+        _runtime_network_mode = "auto"
+        return
     try:
         if not _USER_SETTINGS_PATH.exists():
             return
@@ -354,29 +362,41 @@ async def stream_26b(
         len(prompt),
         bool(image_b64),
     )
-    try:
-        stream = await asyncio.to_thread(
-            client.models.generate_content_stream,
-            model=settings.GEMMA_26B_MODEL,
-            contents=contents,
-            config=config,
-        )
-        chunk_count = 0
-        char_count = 0
-        for chunk in stream:
-            if getattr(chunk, "text", None):
-                chunk_count += 1
-                char_count += len(chunk.text)
-                yield chunk.text
-        logger.info(
-            "26B API stream complete -> model={} chunks={} chars={}",
-            settings.GEMMA_26B_MODEL,
-            chunk_count,
-            char_count,
-        )
-    except Exception as exc:
-        logger.error("26B API stream error: {}", exc)
-        raise
+    _MAX_RETRIES = 3
+    _RETRY_DELAY = (1.5, 3.0, 6.0)
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            stream = await asyncio.to_thread(
+                client.models.generate_content_stream,
+                model=settings.GEMMA_26B_MODEL,
+                contents=contents,
+                config=config,
+            )
+            chunk_count = 0
+            char_count = 0
+            for chunk in stream:
+                if getattr(chunk, "text", None):
+                    chunk_count += 1
+                    char_count += len(chunk.text)
+                    yield chunk.text
+            logger.info(
+                "26B API stream complete -> model={} chunks={} chars={}",
+                settings.GEMMA_26B_MODEL,
+                chunk_count,
+                char_count,
+            )
+            return
+        except Exception as exc:
+            msg = str(exc)
+            is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+            if is_transient and attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_DELAY[attempt]
+                logger.warning("26B transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+                await asyncio.sleep(delay)
+                continue
+            logger.error("26B API stream error: {}", exc)
+            raise
 
 
 async def _ollama_stream(
@@ -1108,21 +1128,40 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content(**kwargs)
 
-        response = await loop.run_in_executor(None, _call)
+        _MAX_RETRIES = 3
+        _RETRY_DELAY = (1.5, 3.0, 6.0)
 
-        for candidate in response.candidates:
-            for part in candidate.content.parts:
-                if part.function_call:
-                    fn = part.function_call
-                    return ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
-
-        return response.text or ""
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = await loop.run_in_executor(None, _call)
+                for candidate in response.candidates:
+                    for part in candidate.content.parts:
+                        if getattr(part, "thought", False):
+                            continue
+                        if part.function_call:
+                            fn = part.function_call
+                            return ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
+                text = response.text or ""
+                return _strip_thinking(text)
+            except ToolCallEvent:
+                raise
+            except Exception as exc:
+                msg = str(exc)
+                is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+                if is_transient and attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        return ""
 
     async def _gemma_stream(
         self,
         messages: list[dict],
         tools: list[dict],
         image_b64: str | None,
+        _retry: int = 0,
     ) -> AsyncGenerator[str, None]:
         from google.genai import types as genai_types
 
@@ -1145,20 +1184,44 @@ class ModelClient:
                 kwargs["config"] = config
             return self._genai_client.models.generate_content_stream(**kwargs)
 
-        stream = await loop.run_in_executor(None, _call)
+        _MAX_RETRIES = 3
+        _RETRY_DELAY = (1.5, 3.0, 6.0)
 
-        for chunk in stream:
-            if not chunk.candidates:
-                continue
-            for candidate in chunk.candidates:
-                if not candidate.content or not candidate.content.parts:
+        def _call_non_stream() -> Any:
+            kwargs: dict[str, Any] = {"model": settings.GEMINI_MODEL, "contents": contents}
+            if config:
+                kwargs["config"] = config
+            return self._genai_client.models.generate_content(**kwargs)
+
+        for attempt in range(_MAX_RETRIES):
+            try:
+                # Use non-streaming with retry, then yield the full text at once.
+                # Streaming iterators surface errors mid-iteration after tokens are
+                # already sent, making retry impossible. Non-streaming is safe to retry.
+                response = await loop.run_in_executor(None, _call_non_stream)
+                for candidate in response.candidates:
+                    if not candidate.content or not candidate.content.parts:
+                        continue
+                    for part in candidate.content.parts:
+                        if part.function_call:
+                            fn = part.function_call
+                            raise ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
+                        if getattr(part, "thought", False):
+                            continue
+                        if part.text:
+                            yield part.text
+                return
+            except ToolCallEvent:
+                raise
+            except Exception as exc:
+                msg = str(exc)
+                is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
+                if is_transient and attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_DELAY[attempt]
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _MAX_RETRIES, delay, exc)
+                    await asyncio.sleep(delay)
                     continue
-                for part in candidate.content.parts:
-                    if part.function_call:
-                        fn = part.function_call
-                        raise ToolCallEvent(tool_name=fn.name, arguments=dict(fn.args) if fn.args else {})
-                    if part.text:
-                        yield part.text
+                raise
 
 
 # ── Singleton ──────────────────────────────────────────────────

@@ -17,12 +17,16 @@ import {
 import {
   feature1,
   getChatSessions,
+  getHealth,
   getSessionMessages,
   getStudent,
+  startPersonaCall,
   startSession,
   submitQuiz,
   uploadImage,
 } from '../api/client'
+import PersonaPickerPopup from '../components/PersonaPickerPopup'
+import PersonaVoiceChat from '../components/PersonaVoiceChat'
 import ChatMessage from '../components/ChatMessage'
 import MasteryBadge from '../components/MasteryBadge'
 import QuizCard from '../components/QuizCard'
@@ -186,6 +190,11 @@ export default function StudentSession() {
   const [openingChatId, setOpeningChatId] = useState(null)
   const [uiMessage, setUiMessage] = useState('')
 
+  const [isOnline, setIsOnline] = useState(false)
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false)
+  const [personaCallData, setPersonaCallData] = useState(null)
+  const [personaLoading, setPersonaLoading] = useState(false)
+
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const initialized = useRef(false)
@@ -199,6 +208,12 @@ export default function StudentSession() {
 
   useEffect(() => {
     feature1.getLanguages().then(setLanguages).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    getHealth()
+      .then(s => setIsOnline(s.network?.use_26b === true))
+      .catch(() => setIsOnline(false))
   }, [])
 
   async function loadSavedChats() {
@@ -459,6 +474,19 @@ export default function StudentSession() {
     setPendingAnswer(null)
   }
 
+  async function handlePersonaSelect(persona) {
+    setShowPersonaPicker(false)
+    setPersonaLoading(true)
+    try {
+      const data = await startPersonaCall(persona.id, student?.name || 'Student')
+      setPersonaCallData({ ...data, persona })
+    } catch (err) {
+      setUiMessage(err.message || 'Could not connect to learning companion.')
+    } finally {
+      setPersonaLoading(false)
+    }
+  }
+
   const languageOptions = languages.length
     ? languages
     : [{ code: conversationLanguage || 'en', name: (conversationLanguage || 'en').toUpperCase(), flag: '' }]
@@ -479,6 +507,21 @@ export default function StudentSession() {
             </div>
           </div>
           {currentTopic && <MasteryBadge level={topMastery?.level} />}
+          {isOnline && (
+            <button
+              type="button"
+              className="tutor-icon-button"
+              onClick={() => setShowPersonaPicker(true)}
+              disabled={personaLoading}
+              title="Talk with a learning companion"
+              style={{ gap: 6, paddingInline: 12, minWidth: 'auto', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+            >
+              {personaLoading
+                ? <span style={{ fontSize: '0.78rem' }}>Connecting…</span>
+                : <><ChatCircleText size={18} weight="duotone" /><span style={{ fontSize: '0.78rem', fontWeight: 700 }}>Talk</span></>
+              }
+            </button>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.86rem' }}>
             <Translate size={18} weight="duotone" />
             <select
@@ -732,6 +775,20 @@ export default function StudentSession() {
       <style>{css}</style>
       {renderChatPanel()}
       {renderSavedChats()}
+
+      {showPersonaPicker && (
+        <PersonaPickerPopup
+          onSelect={handlePersonaSelect}
+          onDismiss={() => setShowPersonaPicker(false)}
+        />
+      )}
+
+      {personaCallData && (
+        <PersonaVoiceChat
+          callData={personaCallData}
+          onClose={() => setPersonaCallData(null)}
+        />
+      )}
     </div>
   )
 }

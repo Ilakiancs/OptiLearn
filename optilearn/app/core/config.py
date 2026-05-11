@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Materials storage
     MATERIALS_DIR: str = "./data/materials"
 
+    # Beyond Presence (AI avatar video — online only)
+    BEY_API_KEY: str = ""
+
     # Whisper / TTS (Phase 2–3, not used yet)
     WHISPER_BINARY: str = "./bin/whisper"
     WHISPER_MODEL: str = "./data/whisper-models/ggml-base.bin"

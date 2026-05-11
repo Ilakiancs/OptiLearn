@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, network, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, network, persona, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.auth import get_current_admin
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
@@ -237,6 +237,7 @@ app.include_router(tts_router)
 app.include_router(translate_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(live_quiz.router)
+app.include_router(persona.router)
 
 
 @app.get("/api/health", tags=["system"])
