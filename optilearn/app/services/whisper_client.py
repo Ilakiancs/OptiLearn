@@ -29,13 +29,11 @@ _TARGET_SAMPLE_RATE = 16000
 
 
 def _offline_env() -> None:
-    """Block HF network access only when the runtime mode is force-offline (classroom)."""
-    from app.services.model_client import is_force_offline
-    if is_force_offline():
+    """Block HF network access only in explicit classroom-offline config (HF_LOCAL_FILES_ONLY=true)."""
+    if settings.HF_LOCAL_FILES_ONLY:
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
     else:
-        # Online/auto mode — allow HF to download or use cached models
         os.environ.pop("HF_HUB_OFFLINE", None)
         os.environ.pop("TRANSFORMERS_OFFLINE", None)
 
@@ -155,26 +153,15 @@ async def _get_asr_pipeline():
             return _asr_pipeline
 
         def load_pipeline():
-            from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-            from app.services.model_client import is_force_offline
+            from transformers import pipeline
 
             _offline_env()
-            local_only = is_force_offline()
             model_ref = _resolve_hf_asr_model()
-            logger.info("Loading Whisper ASR model: {} (local_only={})", model_ref, local_only)
-            model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                model_ref,
-                local_files_only=local_only,
-            )
-            processor = AutoProcessor.from_pretrained(
-                model_ref,
-                local_files_only=local_only,
-            )
+            logger.info("Loading Whisper ASR model: {}", model_ref)
+            # pipeline() downloads model + processor together, avoiding partial-cache issues
             return pipeline(
                 "automatic-speech-recognition",
-                model=model,
-                tokenizer=processor.tokenizer,
-                feature_extractor=processor.feature_extractor,
+                model=model_ref,
                 device=-1,
             )
 
