@@ -20,13 +20,7 @@ git clone https://github.com/Ilakiancs/OptiLearn
 cd OptiLearn/optilearn
 ```
 
-### 2. Pull the Ollama model
-
-```bash
-ollama pull gemma4:e2b
-```
-
-### 3. Configure environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
@@ -35,21 +29,23 @@ cp .env.example .env
 Open `.env` and set your values:
 
 ```env
-# Offline only (classroom mode)
+# Offline only (classroom, no internet)
 USE_LOCAL_OLLAMA=true
 OLLAMA_MODEL=gemma4:e2b
 OLLAMA_MODEL_FAST=gemma4:e2b
 
-# Online mode (uses Gemma 26B API when internet is available)
+# Online mode (uses Gemma API when internet is available)
 USE_LOCAL_OLLAMA=false
 GEMMA_26B_API_KEY=your_google_ai_studio_key_here
 GEMMA_26B_MODEL=gemma-4-31b-it
 
-# Persona voice chat (optional — requires Beyond Presence account)
+# Persona voice chat (optional)
 BEY_API_KEY=your_bey_api_key_here
 ```
 
 Get a free Google AI Studio key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+
+> **Ollama model:** You do not need to pull the model manually. On startup, OptiLearn checks if the model is already present in Ollama. If it is missing and you are in offline mode (`USE_LOCAL_OLLAMA=true`), it pulls it automatically. In online/auto mode, the API is used instead and no local model is downloaded.
 
 ---
 
@@ -142,11 +138,13 @@ taskkill /PID <PID> /F
 ollama serve
 ```
 
-**Model not found**
+**Model not found / not downloading**
+In offline mode (`USE_LOCAL_OLLAMA=true`) the server pulls the model automatically on first start. If it fails, pull manually:
 ```bash
 ollama pull gemma4:e2b
 ollama list  # verify tag matches OLLAMA_MODEL in .env
 ```
+In online mode (`USE_LOCAL_OLLAMA=false`) no local model is needed — the API handles it.
 
 **Frontend changes not showing**
 ```bash
