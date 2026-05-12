@@ -584,7 +584,7 @@ export function findGameByCode(joinCode) {
   return request(`/api/live-quiz/find/${encodeURIComponent(joinCode.replace(/\s/g, ''))}`)
 }
 
-// ── Persona voice chat (Beyond Presence — online only) ──────────
+// Persona voice chat (Beyond Presence, online only)
 export function getPersonas() {
   return request('/api/persona/list')
 }
@@ -600,4 +600,45 @@ export function startPersonaCall(personaId, studentName) {
 export function endPersonaCall() {
   // No server-side cleanup needed for hosted BEY calls (free tier)
   return Promise.resolve()
+}
+
+// Shared Live Class
+export function startLiveClass(body) {
+  return request('/api/live-class/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+
+export function getActiveLiveClasses() {
+  return request('/api/live-class/active')
+}
+
+export function joinLiveClass(sessionId, body) {
+  return request(`/api/live-class/${sessionId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+
+export function setLiveClassLanguage(sessionId, body) {
+  return request(`/api/live-class/${sessionId}/language`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+
+export function leaveLiveClass(sessionId, studentId) {
+  return request(`/api/live-class/${sessionId}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ student_id: studentId }) })
+}
+
+export function pauseLiveClass(sessionId) {
+  return request(`/api/live-class/${sessionId}/pause`, { method: 'POST' })
+}
+
+export function resumeLiveClass(sessionId) {
+  return request(`/api/live-class/${sessionId}/resume`, { method: 'POST' })
+}
+
+export function endLiveClass(sessionId) {
+  return request(`/api/live-class/${sessionId}/end`, { method: 'POST' })
+}
+
+export function getLiveClassStreamToken(sessionId) {
+  return request(`/api/live-class/${sessionId}/stream-token`, { method: 'POST' })
+}
+
+export function getLiveClassNotes(sessionId, targetLanguage) {
+  return request(`/api/live-class/${sessionId}/notes?target_language=${encodeURIComponent(targetLanguage)}`)
 }

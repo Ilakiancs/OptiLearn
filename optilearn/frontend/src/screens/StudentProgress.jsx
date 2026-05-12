@@ -117,7 +117,7 @@ export default function StudentProgress() {
       setExportPin('')
       setDeletePromptOpen(true)
     } catch (err) {
-      setExportError(err.message || 'Export failed')
+      setExportError(err.message || 'Export could not be completed.')
     } finally {
       setExportBusy(false)
     }
@@ -132,7 +132,7 @@ export default function StudentProgress() {
       // Deletion successful, navigate back to dashboard
       navigate('/teacher?view=manage', { replace: true })
     } catch (err) {
-      setDeletePromptError(err.message || 'Delete failed')
+      setDeletePromptError(err.message || 'Record could not be removed.')
     } finally {
       setDeletePromptBusy(false)
     }

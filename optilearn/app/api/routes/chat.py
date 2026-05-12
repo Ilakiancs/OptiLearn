@@ -239,15 +239,15 @@ async def chat(body: ChatRequest) -> StreamingResponse:
             logger.error("Chat endpoint error: {}\n{}", exc, traceback.format_exc())
             msg = str(exc)
             if "429" in msg or "quota" in msg or "RESOURCE_EXHAUSTED" in msg:
-                friendly = "API quota reached. Wait a minute and try again, or check your Google AI Studio usage limits."
+                friendly = "API quota reached. Wait a minute, then continue, or check your Google AI Studio usage limits."
             elif "401" in msg or "403" in msg or "API_KEY" in msg.upper():
                 friendly = "API key is invalid or missing. Check GEMMA_API_KEY in your .env file."
             elif "ConnectionRefused" in msg or "ConnectError" in msg or "11434" in msg:
-                friendly = "The local AI model is not running. Please start Ollama and try again."
+                friendly = "The local AI model is not running. Please start Ollama, then continue."
             elif "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg:
-                friendly = "The AI service is temporarily busy. Please try again in a moment."
+                friendly = "The AI service is temporarily busy. Please continue in a moment."
             else:
-                friendly = "Something went wrong. Please try again."
+                friendly = "The request could not be completed right now. Please continue in a moment."
             yield _sse({"type": "error", "message": friendly})
 
     return StreamingResponse(

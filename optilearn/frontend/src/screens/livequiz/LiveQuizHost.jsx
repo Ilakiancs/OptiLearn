@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft } from '@phosphor-icons/react'
 import {
   getLiveGameState,
   getLiveGameResults,
@@ -219,12 +220,27 @@ export default function LiveQuizHost() {
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-            <div>
-              <h1 style={{ margin: '0 0 6px', fontSize: '1.8rem', fontWeight: 800 }}>
-                🎮 {gameInfo?.quiz_title || 'Live Quiz'}
-              </h1>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                {totalQ} questions • Waiting for players…
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <button
+                onClick={() => navigate('/teacher')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 10, padding: '8px 14px',
+                  color: 'var(--text-muted)', cursor: 'pointer',
+                  fontSize: '0.85rem', fontWeight: 600,
+                }}
+              >
+                <ArrowLeft size={15} weight="bold" />
+                Dashboard
+              </button>
+              <div>
+                <h1 style={{ margin: '0 0 6px', fontSize: '1.8rem', fontWeight: 800 }}>
+                  🎮 {gameInfo?.quiz_title || 'Live Quiz'}
+                </h1>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  {totalQ} questions • Waiting for players…
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -377,6 +393,20 @@ export default function LiveQuizHost() {
           alignItems: 'center',
           gap: 16,
         }}>
+          <button
+            onClick={() => navigate('/teacher')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '6px 12px',
+              color: 'var(--text-muted)', cursor: 'pointer',
+              fontSize: '0.82rem', fontWeight: 600,
+            }}
+          >
+            <ArrowLeft size={14} weight="bold" />
+            Dashboard
+          </button>
+
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: '1rem' }}>
               {gameInfo?.quiz_title || 'Live Quiz'}
@@ -669,9 +699,13 @@ export default function LiveQuizHost() {
                 fontWeight: 700,
                 cursor: 'pointer',
                 fontSize: '0.95rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              ← Back to Dashboard
+              <ArrowLeft size={16} weight="bold" />
+              Back to Dashboard
             </button>
           </div>
         </div>

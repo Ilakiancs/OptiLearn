@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createTeacherQuiz, listTeacherQuizzes, listStudents, createLiveGame } from '../api/client'
 import { ClipboardText } from '@phosphor-icons/react'
@@ -120,6 +121,7 @@ function QuizPreview({ title, subject, questions }) {
 }
 
 export default function TeacherQuizBuilder({ embedded = false }) {
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const [title, setTitle] = useState('')
@@ -198,7 +200,7 @@ export default function TeacherQuizBuilder({ embedded = false }) {
     setLaunchingId(quizId)
     try {
       const result = await createLiveGame(quizId)
-      window.open(`/teacher/live-quiz/${result.game_id}`, '_blank', 'noopener,noreferrer')
+      navigate(`/teacher/live-quiz/${result.game_id}`)
     } catch (err) {
       alert(err.message || 'Could not create live game.')
     } finally {

@@ -181,7 +181,7 @@ async def export_student_archive(
         # Verify PIN matches
         stored_pin = student.get("pin_visible") or ""
         if pin != stored_pin:
-            raise HTTPException(status_code=401, detail="Incorrect PIN.")
+            raise HTTPException(status_code=401, detail="That PIN did not match.")
         
         logger.info(f"Exporting student {student_id}")
         bundle = await build_student_bundle(student_id)
@@ -193,8 +193,8 @@ async def export_student_archive(
     except HTTPException:
         raise
     except Exception as err:
-        logger.error(f"Export failed for {student_id}: {err}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(err)}")
+        logger.error(f"Export error for {student_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Export could not be completed.")
 
 @router.post("/import")
 async def import_student_archive(
@@ -221,11 +221,11 @@ async def import_student_archive(
         result = await import_zip_bytes(contents, pin, target_student_id, imported_by=imported_by or "signup")
         logger.info(f"Import successful for student {result.get('student_id')}")
     except ValueError as exc:
-        logger.error(f"Import failed: {exc}")
+        logger.error(f"Import validation error: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error(f"Import error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(exc)}")
+        raise HTTPException(status_code=500, detail="Import could not be completed.")
     return result
 
 
@@ -255,5 +255,5 @@ async def delete_student(student_id: str, teacher: dict = Depends(get_current_te
     except HTTPException:
         raise
     except Exception as err:
-        logger.error(f"Delete failed for {student_id}: {err}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(err)}")
+        logger.error(f"Delete error for {student_id}: {err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Record could not be removed.")

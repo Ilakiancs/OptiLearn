@@ -237,50 +237,193 @@ def _render_translation_pdf(
         </html>
     """
 
-    def find_browser() -> str | None:
-        env_browser = os.getenv("OPTILEARN_PDF_BROWSER")
-        candidates = [
-            env_browser,
-            shutil.which("chrome"),
-            shutil.which("chrome.exe"),
-            shutil.which("msedge"),
-            shutil.which("msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-        ]
-        for candidate in candidates:
-            if candidate and Path(candidate).exists():
-                return candidate
-        return None
+    def render_reportlab_pdf(reason: str) -> bytes:
+        logger.info("Generating PDF with ReportLab: {}", reason)
+        try:
+            import io
+            from reportlab.lib.colors import HexColor, white
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.units import mm
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            from reportlab.platypus import (
+                HRFlowable,
+                Paragraph,
+                SimpleDocTemplate,
+                Spacer,
+                Table,
+                TableStyle,
+            )
+        except ImportError as exc:
+            raise RuntimeError("ReportLab is not installed.") from exc
 
-    browser = find_browser()
-    if browser is None:
-        raise HTTPException(
-            status_code=500,
-            detail="PDF export needs Chrome or Edge installed for multilingual text rendering.",
+        script_font_files = {
+            "si": "NotoSansSinhala-Regular.ttf",
+            "ta": "NotoSansTamil-Regular.ttf",
+            "ar": "NotoSansArabic-Regular.ttf",
+            "fa": "NotoSansArabic-Regular.ttf",
+            "ur": "NotoSansArabic-Regular.ttf",
+            "am": "NotoSansEthiopic-Regular.ttf",
+            "ti": "NotoSansEthiopic-Regular.ttf",
+            "hi": "NotoSansDevanagari-Regular.ttf",
+            "mr": "NotoSansDevanagari-Regular.ttf",
+            "ne": "NotoSansDevanagari-Regular.ttf",
+            "bn": "NotoSansBengali-Regular.ttf",
+            "my": "NotoSansMyanmar-Regular.ttf",
+            "th": "NotoSansThai-Regular.ttf",
+        }
+
+        def try_register(font_name: str, font_path: Path) -> bool:
+            try:
+                if font_path.exists() and font_name not in pdfmetrics.getRegisteredFontNames():
+                    pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+                return font_path.exists()
+            except Exception:
+                logger.warning("Could not register PDF font: {}", font_path)
+                return False
+
+        noto_regular = fonts_dir / "NotoSans-Regular.ttf"
+        noto_bold = fonts_dir / "NotoSans-Bold.ttf"
+        base_font = "Helvetica"
+        bold_font = "Helvetica-Bold"
+        if try_register("NotoSans", noto_regular):
+            base_font = "NotoSans"
+        if try_register("NotoSans-Bold", noto_bold):
+            bold_font = "NotoSans-Bold"
+
+        script_file = script_font_files.get(target_language)
+        if script_file:
+            script_font_name = f"NotoScript-{target_language}"
+            if try_register(script_font_name, fonts_dir / script_file):
+                base_font = script_font_name
+
+        is_rtl = target_language in {"ar", "fa", "ur", "he"}
+        text_align = TA_RIGHT if is_rtl else TA_LEFT
+        safe_title = html.escape(doc_title)
+        safe_subtitle = html.escape(subtitle)
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=22 * mm,
+            rightMargin=22 * mm,
+            topMargin=20 * mm,
+            bottomMargin=20 * mm,
+            title=f"OptiLearn Translation - {student_name}",
+            author="OptiLearn",
         )
 
-    with tempfile.TemporaryDirectory(prefix="optilearn_pdf_") as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        html_path = tmp_path / "translation.html"
-        pdf_path = tmp_path / "translation.pdf"
-        html_path.write_text(html_doc, encoding="utf-8")
-        cmd = [
-            browser,
-            "--headless=new",
-            "--disable-gpu",
-            "--allow-file-access-from-files",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}",
-            html_path.as_uri(),
+        header_data = [[
+            Paragraph("OptiLearn", ParagraphStyle(
+                "header_left",
+                fontName=bold_font,
+                fontSize=10,
+                textColor=white,
+            )),
+            Paragraph("Translated Material", ParagraphStyle(
+                "header_right",
+                fontName=base_font,
+                fontSize=10,
+                textColor=white,
+                alignment=TA_RIGHT,
+            )),
+        ]]
+        header_table = Table(header_data, colWidths=[83 * mm, 83 * mm])
+        header_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#2a8dbf")),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (0, -1), 8),
+            ("RIGHTPADDING", (-1, 0), (-1, -1), 8),
+        ]))
+
+        title_style = ParagraphStyle(
+            "title",
+            fontName=bold_font,
+            fontSize=22,
+            leading=28,
+            textColor=HexColor("#202124"),
+            spaceAfter=5,
+            alignment=text_align,
+        )
+        subtitle_style = ParagraphStyle(
+            "subtitle",
+            fontName=base_font,
+            fontSize=10,
+            leading=15,
+            textColor=HexColor("#5f6368"),
+            spaceAfter=14,
+            alignment=text_align,
+        )
+        body_style = ParagraphStyle(
+            "body",
+            fontName=base_font,
+            fontSize=11,
+            leading=19,
+            textColor=HexColor("#202124"),
+            spaceAfter=7,
+            alignment=text_align,
+        )
+        heading_style = ParagraphStyle(
+            "heading",
+            fontName=bold_font,
+            fontSize=13,
+            leading=18,
+            textColor=HexColor("#202124"),
+            spaceBefore=10,
+            spaceAfter=4,
+            alignment=text_align,
+        )
+        footer_style = ParagraphStyle(
+            "footer",
+            fontName=base_font,
+            fontSize=8,
+            textColor=HexColor("#9aa0a6"),
+            alignment=TA_CENTER,
+        )
+
+        story = [
+            header_table,
+            Spacer(1, 6 * mm),
+            Paragraph(safe_title, title_style),
+            Paragraph(safe_subtitle, subtitle_style),
+            HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"), spaceAfter=6 * mm),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-        if result.returncode != 0 or not pdf_path.exists():
-            logger.error("Browser PDF export failed: {}", result.stderr or result.stdout)
-            raise HTTPException(status_code=500, detail="PDF export failed.")
-        pdf_bytes = pdf_path.read_bytes()
+
+        paragraphs = [p.strip() for p in translated_text.splitlines() if p.strip()]
+        if not paragraphs:
+            paragraphs = [translated_text.strip()]
+        for paragraph in paragraphs:
+            safe = html.escape(paragraph)
+            if paragraph.startswith("##"):
+                story.append(Paragraph(html.escape(paragraph.lstrip("#").strip()), heading_style))
+            else:
+                story.append(Paragraph(safe, body_style))
+
+        story.extend([
+            Spacer(1, 8 * mm),
+            HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"), spaceBefore=4 * mm, spaceAfter=3 * mm),
+            Paragraph("Generated by OptiLearn | Gemma 4 Good Hackathon 2026 | Opti5 Labs", footer_style),
+        ])
+        doc.build(story)
+        pdf_data = buffer.getvalue()
+        if not pdf_data:
+            raise RuntimeError("ReportLab produced an empty PDF.")
+        return pdf_data
+
+    try:
+        pdf_bytes = render_reportlab_pdf("primary renderer")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("PDF generation failed: {}\n{}", exc, traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail="PDF could not be created on this device. Please try again or ask the teacher to reopen OptiLearn.",
+        ) from exc
 
     filename_base = "_".join(
         [
@@ -523,14 +666,14 @@ Explain the following material clearly and engagingly:
 - Use examples relevant to everyday life where possible
 - Use ## headings for each major concept
 - Keep total length appropriate for grade {grade_level}
-- Never use the words: wrong, incorrect, failed, mistake
+- Use gentle, non-judgmental correction language. Avoid labels that shame or blame the learner.
 Material:
 {translated_text}"""
 
 _ASK_PROMPT = """\
 You are a patient tutor for {name}, age {age}, grade {grade_level}.
 Respond in {language}.
-Never use: wrong, incorrect, failed, mistake.
+Use gentle, non-judgmental correction language. Avoid labels that shame or blame the learner.
 Context from the student's material:
 {context}
 Student's question: {question}

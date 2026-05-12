@@ -16,8 +16,6 @@ import asyncio
 import html
 import json
 import re
-import subprocess
-import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -1260,133 +1258,141 @@ def _render_notes_pdf(
     target_language: str,
     student: dict,
 ) -> Response:
-    import os
-    import shutil
+    import io as _io
+
+    try:
+        from reportlab.lib.colors import HexColor, white
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.platypus import (
+            HRFlowable, ListFlowable, ListItem,
+            Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+        )
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="PDF library not available.") from exc
 
     app_root = Path(__file__).resolve().parents[3]
     fonts_dir = app_root / "data" / "fonts"
 
-    script_fonts = {
-        "ar": ("NotoArabic", "NotoSansArabic-Regular.ttf"),
-        "fa": ("NotoArabic", "NotoSansArabic-Regular.ttf"),
-        "ur": ("NotoArabic", "NotoSansArabic-Regular.ttf"),
-        "ta": ("NotoTamil", "NotoSansTamil-Regular.ttf"),
-        "si": ("NotoSinhala", "NotoSansSinhala-Regular.ttf"),
-        "bn": ("NotoBengali", "NotoSansBengali-Regular.ttf"),
-        "am": ("NotoEthiopic", "NotoSansEthiopic-Regular.ttf"),
-        "ti": ("NotoEthiopic", "NotoSansEthiopic-Regular.ttf"),
-        "hi": ("NotoDevanagari", "NotoSansDevanagari-Regular.ttf"),
-        "my": ("NotoMyanmar", "NotoSansMyanmar-Regular.ttf"),
-        "th": ("NotoThai", "NotoSansThai-Regular.ttf"),
+    _SCRIPT_FONTS = {
+        "si": "NotoSansSinhala-Regular.ttf",
+        "ta": "NotoSansTamil-Regular.ttf",
+        "ar": "NotoSansArabic-Regular.ttf",
+        "fa": "NotoSansArabic-Regular.ttf",
+        "ur": "NotoSansArabic-Regular.ttf",
+        "am": "NotoSansEthiopic-Regular.ttf",
+        "ti": "NotoSansEthiopic-Regular.ttf",
+        "hi": "NotoSansDevanagari-Regular.ttf",
+        "mr": "NotoSansDevanagari-Regular.ttf",
+        "ne": "NotoSansDevanagari-Regular.ttf",
+        "bn": "NotoSansBengali-Regular.ttf",
+        "my": "NotoSansMyanmar-Regular.ttf",
+        "th": "NotoSansThai-Regular.ttf",
     }
-    script_font_family, script_font_file = script_fonts.get(
-        target_language, ("NotoSans", "NotoSans-Regular.ttf")
-    )
 
-    def font_face(name: str, filename: str, weight: str = "400") -> str:
-        fp = fonts_dir / filename
-        if fp.exists():
-            return f"@font-face {{ font-family: '{name}'; src: url('{fp.as_uri()}'); font-weight: {weight}; }}"
-        return ""
+    def _try_register(font_name: str, font_path: Path) -> bool:
+        try:
+            if font_path.exists() and font_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+            return font_path.exists()
+        except Exception:
+            logger.warning("Could not register PDF font: {}", font_path)
+            return False
 
-    script_font_css = "" if script_font_family == "NotoSans" else font_face(script_font_family, script_font_file)
-    font_stack = f"'{script_font_family}', 'NotoSans', sans-serif"
+    base_font = "Helvetica"
+    bold_font = "Helvetica-Bold"
+    if _try_register("NotoSans", fonts_dir / "NotoSans-Regular.ttf"):
+        base_font = "NotoSans"
+    if _try_register("NotoSans-Bold", fonts_dir / "NotoSans-Bold.ttf"):
+        bold_font = "NotoSans-Bold"
+
+    script_file = _SCRIPT_FONTS.get(target_language)
+    if script_file:
+        script_font_name = f"NotoScript-{target_language}"
+        if _try_register(script_font_name, fonts_dir / script_file):
+            base_font = script_font_name
+
+    is_rtl = target_language in {"ar", "fa", "ur", "he"}
+    text_align = TA_RIGHT if is_rtl else TA_LEFT
 
     lang_display = _lang_name(target_language)
     student_name = str(student.get("name") or "Student")
-    grade = str(student.get("grade_level") or "")
+    grade = str(student.get("grade_level") or "").strip()
     subtitle_parts = [f"Student: {student_name}"]
     if grade:
         subtitle_parts.append(f"Grade {grade}")
     subtitle_parts.append(f"Language: {lang_display}")
     subtitle = " | ".join(subtitle_parts)
 
+    buffer = _io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=22 * mm, rightMargin=22 * mm,
+        topMargin=20 * mm, bottomMargin=20 * mm,
+        title=f"OptiLearn Notes - {student_name}", author="OptiLearn",
+    )
+
+    header_table = Table([[
+        Paragraph("OptiLearn", ParagraphStyle("hl", fontName=bold_font, fontSize=10, textColor=white)),
+        Paragraph(
+            "Study Notes" if content_type == "notes" else "Class Transcript",
+            ParagraphStyle("hr", fontName=base_font, fontSize=10, textColor=white, alignment=TA_RIGHT),
+        ),
+    ]], colWidths=[83 * mm, 83 * mm])
+    header_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#2a8dbf")),
+        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (0, -1), 8), ("RIGHTPADDING", (-1, 0), (-1, -1), 8),
+    ]))
+
+    title_style    = ParagraphStyle("title",    fontName=bold_font, fontSize=22, leading=28, textColor=HexColor("#202124"), spaceAfter=5,  alignment=text_align)
+    subtitle_style = ParagraphStyle("subtitle", fontName=base_font, fontSize=10, leading=15, textColor=HexColor("#5f6368"), spaceAfter=14, alignment=text_align)
+    body_style     = ParagraphStyle("body",     fontName=base_font, fontSize=11, leading=19, textColor=HexColor("#202124"), spaceAfter=6,  alignment=text_align)
+    heading_style  = ParagraphStyle("heading",  fontName=bold_font, fontSize=13, leading=18, textColor=HexColor("#202124"), spaceBefore=10, spaceAfter=4, alignment=text_align)
+    bullet_style   = ParagraphStyle("bullet",   fontName=base_font, fontSize=11, leading=18, textColor=HexColor("#202124"), leftIndent=14, spaceAfter=3, alignment=text_align)
+    footer_style   = ParagraphStyle("footer",   fontName=base_font, fontSize=8,  textColor=HexColor("#9aa0a6"), alignment=TA_CENTER)
+
+    story = [
+        header_table,
+        Spacer(1, 6 * mm),
+        Paragraph(html.escape(title), title_style),
+        Paragraph(html.escape(subtitle), subtitle_style),
+        HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"), spaceAfter=6 * mm),
+    ]
+
     if content_type == "notes":
-        parts = []
         for line in content_text.splitlines():
             line = line.rstrip()
             if not line:
-                parts.append("<br>")
+                story.append(Spacer(1, 3 * mm))
             elif line.startswith("## "):
-                parts.append(f'<h2 dir="auto">{html.escape(line[3:])}</h2>')
+                story.append(Paragraph(html.escape(line[3:]), heading_style))
+            elif line.startswith("# "):
+                story.append(Paragraph(html.escape(line[2:]), heading_style))
             elif line.startswith("- ") or line.startswith("* "):
-                parts.append(f'<li dir="auto">{html.escape(line[2:])}</li>')
+                story.append(Paragraph(f"• {html.escape(line[2:])}", bullet_style))
             else:
-                parts.append(f'<p dir="auto">{html.escape(line)}</p>')
-        content_html = "\n".join(parts)
+                story.append(Paragraph(html.escape(line), body_style))
     else:
-        content_html = "\n".join(
-            f'<p dir="auto">{html.escape(p.strip())}</p>'
-            for p in content_text.split("\n\n")
-            if p.strip()
-        )
+        for para in content_text.split("\n\n"):
+            para = para.strip()
+            if para:
+                story.append(Paragraph(html.escape(para), body_style))
 
-    css = f"""
-        {font_face("NotoSans", "NotoSans-Regular.ttf")}
-        {font_face("NotoSans", "NotoSans-Bold.ttf", "700")}
-        {script_font_css}
-        @page {{ size: A4; margin: 18mm 20mm; }}
-        * {{ box-sizing: border-box; }}
-        body {{ margin: 0; color: #202124; font-family: {font_stack}; font-size: 11.5pt; line-height: 1.75; }}
-        .banner {{ background: #2a8dbf; color: white; -webkit-print-color-adjust: exact;
-                   print-color-adjust: exact; font-weight: 700; font-size: 13pt;
-                   padding: 8pt 12pt; margin-bottom: 24pt; }}
-        h1 {{ margin: 0 0 6pt; color: #202124; font-size: 22pt; font-weight: 700; }}
-        h2 {{ font-size: 14pt; color: #202124; border-bottom: 1px solid #dadce0;
-              padding-bottom: 4pt; margin: 16pt 0 6pt; }}
-        .meta {{ color: #5f6368; font-size: 9.5pt; margin-bottom: 16pt;
-                 padding-bottom: 11pt; border-bottom: 1px solid #dadce0; }}
-        p {{ margin: 4pt 0; }}
-        li {{ margin-left: 16pt; margin-bottom: 4pt; }}
-        .footer {{ color: #9aa0a6; font-size: 8pt; margin-top: 24pt; padding-top: 10pt;
-                   border-top: 1px solid #dadce0; text-align: center; }}
-    """
+    story.extend([
+        Spacer(1, 8 * mm),
+        HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"), spaceBefore=4 * mm, spaceAfter=3 * mm),
+        Paragraph("Generated by OptiLearn | Gemma 4 Good Hackathon 2026 | Opti5 Labs", footer_style),
+    ])
 
-    html_doc = f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>{html.escape(title)}</title><style>{css}</style></head>
-<body>
-  <div class="banner">OptiLearn</div>
-  <h1 dir="auto">{html.escape(title)}</h1>
-  <div class="meta">{html.escape(subtitle)}</div>
-  <div class="content">{content_html}</div>
-  <div class="footer">Generated by OptiLearn | Gemma 4 Good Hackathon 2026 | Opti5 Labs</div>
-</body></html>"""
-
-    def find_browser() -> str | None:
-        env_browser = os.getenv("OPTILEARN_PDF_BROWSER")
-        candidates = [
-            env_browser,
-            shutil.which("chrome"), shutil.which("chrome.exe"),
-            shutil.which("msedge"), shutil.which("msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-        ]
-        for c in candidates:
-            if c and Path(c).exists():
-                return c
-        return None
-
-    browser = find_browser()
-    if browser is None:
-        raise HTTPException(status_code=500, detail="PDF export needs Chrome or Edge installed.")
-
-    with tempfile.TemporaryDirectory(prefix="optilearn_notes_") as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        html_path = tmp_path / "notes.html"
-        pdf_path = tmp_path / "notes.pdf"
-        html_path.write_text(html_doc, encoding="utf-8")
-        cmd = [
-            browser, "--headless=new", "--disable-gpu",
-            "--allow-file-access-from-files", "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}", html_path.as_uri(),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-        if result.returncode != 0 or not pdf_path.exists():
-            logger.error("PDF export failed: {}", result.stderr or result.stdout)
-            raise HTTPException(status_code=500, detail="PDF export failed.")
-        pdf_bytes = pdf_path.read_bytes()
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    if not pdf_bytes:
+        raise HTTPException(status_code=500, detail="PDF could not be generated. Please try again.")
 
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", title).strip("._") or "OptiLearn_notes"
     filename = f"{safe}.pdf"

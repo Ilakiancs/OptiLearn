@@ -6,6 +6,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from '@phosphor-icons/react'
 import { findGameByCode } from '../../api/client'
 
 export default function LiveQuizCodeEntry() {
@@ -39,7 +40,7 @@ export default function LiveQuizCodeEntry() {
       // Go straight to the nickname screen
       navigate(`/live-quiz/join/${result.game_id}`)
     } catch (err) {
-      setError(err.message || 'Game not found. Check the code and try again.')
+      setError(err.message || 'Game not found. Check the code and continue.')
       setLoading(false)
     }
   }
@@ -57,7 +58,24 @@ export default function LiveQuizCodeEntry() {
       justifyContent: 'center',
       padding: 24,
       fontFamily: "'Inter', 'Segoe UI', sans-serif",
+      position: 'relative',
     }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate('/')}
+        style={{
+          position: 'absolute', top: 20, left: 20,
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '8px 14px',
+          color: 'var(--text-muted)', cursor: 'pointer',
+          fontSize: '0.85rem', fontWeight: 600,
+        }}
+      >
+        <ArrowLeft size={15} weight="bold" />
+        Back
+      </button>
+
       <div style={{ width: '100%', maxWidth: 420, textAlign: 'center' }}>
 
         {/* Hero icon */}

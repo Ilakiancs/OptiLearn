@@ -218,7 +218,7 @@ async def setup_first_admin(body: SetupRequest) -> dict:
 async def teacher_login(body: TeacherLoginRequest) -> dict:
     teacher = await db.get_teacher_by_username(body.username)
     if teacher is None or not _verify_secret(body.password, teacher.get("password_hash")):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
+        raise HTTPException(status_code=401, detail="Those details did not match.")
     return await _create_login_session(teacher)
 
 
@@ -246,7 +246,7 @@ async def teacher_change_password(
     token = _bearer_token(authorization)
     teacher = await _teacher_from_token(token)
     if not _verify_secret(body.current_password, teacher.get("password_hash")):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
+        raise HTTPException(status_code=401, detail="Those details did not match.")
     if body.new_password != body.confirm_password:
         raise HTTPException(status_code=422, detail="New passwords do not match.")
     _validate_password(body.new_password)
@@ -361,7 +361,7 @@ async def student_signup(body: StudentSignupRequest) -> dict:
 async def student_login(body: StudentLoginRequest) -> dict:
     student = await db.get_student_by_username(body.username)
     if student is None or not _verify_secret(body.pin, student.get("password_hash")):
-        raise HTTPException(status_code=401, detail="Incorrect username or PIN")
+        raise HTTPException(status_code=401, detail="That PIN did not match.")
     await db.update_last_active(student["id"])
     return {
         "student_id": student["id"],
@@ -379,7 +379,7 @@ async def student_change_pin(body: StudentChangePinRequest) -> dict:
         raise HTTPException(status_code=422, detail="PINs do not match.")
     student = await db.get_student(body.student_id)
     if student is None or not _verify_secret(body.current_pin, student.get("password_hash")):
-        raise HTTPException(status_code=401, detail="Incorrect username or PIN")
+        raise HTTPException(status_code=401, detail="That PIN did not match.")
     await db.reset_student_pin(body.student_id, _hash_secret(body.new_pin), body.new_pin)
     return {"success": True}
 

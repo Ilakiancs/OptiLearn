@@ -226,6 +226,68 @@ CREATE TABLE IF NOT EXISTS generated_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_generated_cache_feature ON generated_cache(feature);
+
+-- ── Shared Teacher-Led Live Class ─────────────────────────────
+CREATE TABLE IF NOT EXISTS live_classes (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    teacher_id      TEXT REFERENCES teachers(id),
+    title           TEXT NOT NULL,
+    subject         TEXT,
+    source_language TEXT NOT NULL DEFAULT 'en',
+    audience_type   TEXT NOT NULL DEFAULT 'all',
+    audience_ids    TEXT DEFAULT '[]',
+    join_code       TEXT UNIQUE NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active',
+    created_at      TEXT DEFAULT (datetime('now')),
+    started_at      TEXT DEFAULT (datetime('now')),
+    ended_at        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS live_class_chunks (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    session_id      TEXT NOT NULL REFERENCES live_classes(id),
+    chunk_index     INTEGER NOT NULL,
+    source_text     TEXT NOT NULL,
+    detected_language TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    UNIQUE(session_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS live_class_translations (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    session_id      TEXT NOT NULL REFERENCES live_classes(id),
+    chunk_index     INTEGER NOT NULL,
+    target_language TEXT NOT NULL,
+    translated_text TEXT DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT DEFAULT (datetime('now')),
+    UNIQUE(session_id, chunk_index, target_language)
+);
+
+CREATE TABLE IF NOT EXISTS live_class_notes (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    session_id      TEXT NOT NULL REFERENCES live_classes(id),
+    target_language TEXT NOT NULL,
+    notes_text      TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT DEFAULT (datetime('now')),
+    UNIQUE(session_id, target_language)
+);
+
+CREATE TABLE IF NOT EXISTS live_class_participants (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(8)))),
+    session_id      TEXT NOT NULL REFERENCES live_classes(id),
+    student_id      TEXT,
+    target_language TEXT NOT NULL,
+    joined_at       TEXT DEFAULT (datetime('now')),
+    last_seen_at    TEXT DEFAULT (datetime('now')),
+    left_at         TEXT,
+    UNIQUE(session_id, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_class_chunks_session ON live_class_chunks(session_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_live_class_translations_session ON live_class_translations(session_id, target_language, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_live_class_participants_session ON live_class_participants(session_id);
 """
 
 

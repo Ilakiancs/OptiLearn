@@ -4,6 +4,7 @@ import { getNetworkMode, setNetworkMode } from '../api/client'
 const POLL_MS = 30000
 
 function readDisplay(status) {
+  if (!status) return { label: 'Connecting…', dot: 'var(--border)', pulse: false }
   const network = status?.network || {}
   if (network.use_26b) {
     return {

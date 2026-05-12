@@ -230,7 +230,7 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
         <div style={{ fontSize: '1rem', fontStyle: 'italic', color: 'var(--color-text)', marginBottom: 24 }}>
           {result.score === 1 ? 'Perfect score! Outstanding work.' :
            result.score >= 0.75 ? 'Great job! Keep it up.' :
-           result.score >= 0.4 ? 'Good effort. Review the material and try again.' :
+           result.score >= 0.4 ? 'Good effort. Review the material and continue when ready.' :
            "Let's go over this topic together."}
         </div>
         <button

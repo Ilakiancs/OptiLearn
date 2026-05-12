@@ -16,8 +16,10 @@ from app.services.network import get_arp_clients, get_cached_hotspot_ip, get_ser
 router = APIRouter(tags=["network"])
 
 THEME_BLUE = "#2a8dbf"
-LIVE_CLIENT_WINDOW_SECONDS = 30
+LIVE_CLIENT_WINDOW_SECONDS = 15
 _seen_network_ips: set[str] = set()
+_heartbeat_ips: dict[str, float] = {}  # ip → last heartbeat timestamp
+HEARTBEAT_WINDOW_SECONDS = 20
 
 _CAPTIVE_HOST_HINTS = (
     "captive.apple.com",
@@ -113,6 +115,7 @@ async def firefox_captive(request: Request) -> Response:
 
 
 async def _network_payload() -> dict:
+    import time as _time
     hotspot_ip = get_cached_hotspot_ip()
     browser_clients = active_clients(window_seconds=LIVE_CLIENT_WINDOW_SECONDS)
     arp_clients = get_arp_clients()
@@ -120,6 +123,12 @@ async def _network_payload() -> dict:
     browser_ips = {client["ip"] for client in browser_clients}
     browser_ips.discard(hotspot_ip)
     _seen_network_ips.update(browser_ips)
+
+    # Live count: prefer heartbeat-filtered IPs (students actively on the page)
+    now = _time.time()
+    live_heartbeat_ips = {ip for ip, ts in _heartbeat_ips.items() if now - ts <= HEARTBEAT_WINDOW_SECONDS}
+    live_count = len(live_heartbeat_ips & browser_ips) if live_heartbeat_ips else len(browser_ips)
+
     return {
         "hotspot_ip": hotspot_ip,
         "server_url": get_server_url(),
@@ -128,8 +137,8 @@ async def _network_payload() -> dict:
         "captive_portal_active": is_captive_portal_active(),
         "port": settings.PORT,
         "student_count": db_student_count,
-        "network_client_count": len(browser_ips),
-        "current_network_client_count": len(browser_ips),
+        "network_client_count": live_count,
+        "current_network_client_count": live_count,
         "seen_network_client_count": len(_seen_network_ips),
         "live_window_seconds": LIVE_CLIENT_WINDOW_SECONDS,
         "recent_student_count": db_student_count,
@@ -148,7 +157,12 @@ async def network_status() -> dict:
 
 
 @router.post("/api/network/heartbeat")
-async def network_heartbeat() -> dict:
+async def network_heartbeat(request: Request) -> dict:
+    import time as _time
+    from app.services.client_tracker import _is_trackable_ip  # noqa: PLC0415
+    client_ip = request.client.host if request.client else None
+    if client_ip and _is_trackable_ip(client_ip):
+        _heartbeat_ips[client_ip] = _time.time()
     return await _network_payload()
 
 

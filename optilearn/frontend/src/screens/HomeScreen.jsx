@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle, Eye, EyeSlash, LockKey, Student, UserCircle, UserPlus, WarningCircle, FileZip, ArrowRight, Info } from '@phosphor-icons/react'
 import { checkStudentUsername, feature1, getSetupRequired, loginStudent, loginTeacher, signupStudent, importStudentArchive } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import GetAppBanner from '../components/GetAppBanner'
 
 const GRADES = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
 
@@ -10,11 +11,11 @@ const FALLBACK_LANGUAGES = [{ code: 'en', name: 'English', flag: 'GB' }]
 
 const inputStyle = {
   minHeight: 46,
-  border: '1px solid #dadce0',
+  border: '1px solid var(--border)',
   borderRadius: 12,
   padding: '10px 12px',
-  background: '#fff',
-  color: '#202124',
+  background: 'var(--surface)',
+  color: 'var(--text)',
   width: '100%',
 }
 
@@ -30,10 +31,10 @@ const secretInputProps = {
 function Field({ label, hint, children, status }) {
   return (
     <label style={{ display: 'grid', gap: 5 }}>
-      <span style={{ color: '#5f6368', fontSize: '0.84rem', fontWeight: 600 }}>{label}</span>
+      <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem', fontWeight: 600 }}>{label}</span>
       {children}
       {(hint || status) && (
-        <span style={{ color: status?.tone || '#5f6368', fontSize: '0.78rem', minHeight: 18 }}>
+        <span style={{ color: status?.tone || 'var(--text-muted)', fontSize: '0.78rem', minHeight: 18 }}>
           {status?.text || hint}
         </span>
       )}
@@ -48,6 +49,7 @@ export default function HomeScreen() {
   const [tab, setTab] = useState('signin')
   const [showSecret, setShowSecret] = useState(false)
   const [checkingSetup, setCheckingSetup] = useState(true)
+
   const [signin, setSignin] = useState({ username: '', password: '' })
   const [signup, setSignup] = useState({ name: '', username: '', grade_level: '7th', language: 'en', pin: '', confirmPin: '' })
   const [languages, setLanguages] = useState([])
@@ -125,7 +127,7 @@ export default function HomeScreen() {
       storeStudent(student.student_id)
       navigate(`/student/${student.student_id}`, { replace: true })
     } catch (_) {
-      setError('Incorrect username or password. Please try again.')
+      setError('Those details did not match. Please check them and continue.')
       setBusy(false)
     }
   }
@@ -187,19 +189,19 @@ export default function HomeScreen() {
       setImportPin('')
     } catch (err) {
       setBusy(false)
-      setError(err.message || 'Import failed. Check the PIN and file.')
+      setError(err.message || 'Import needs a matching PIN and file.')
     }
   }
 
-  if (checkingSetup) return <div style={{ minHeight: '100vh', background: '#fff' }} />
+  if (checkingSetup) return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
 
   if (importSuccess) {
     return (
-      <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
+      <main style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
         <section style={{ width: '100%', maxWidth: 480, display: 'grid', gap: 20, textAlign: 'center' }}>
-          <div style={{ background: '#e8f5e9', color: '#2e7d32', padding: 32, borderRadius: 16, display: 'grid', gap: 16, boxShadow: '0 2px 8px rgba(46,125,50,0.1)' }}>
+          <div style={{ background: '#e8f5e9', color: 'var(--success)', padding: 32, borderRadius: 16, display: 'grid', gap: 16, boxShadow: '0 2px 8px rgba(46,125,50,0.1)' }}>
             <div style={{ margin: '0 auto' }}>
-              <CheckCircle size={56} weight="fill" style={{ color: '#2e7d32' }} />
+              <CheckCircle size={56} weight="fill" style={{ color: 'var(--success)' }} />
             </div>
             <div>
               <h2 style={{ margin: '0 0 8px', fontSize: '1.5rem', fontWeight: 800 }}>Import Successful</h2>
@@ -226,19 +228,17 @@ export default function HomeScreen() {
     )
   }
 
-  if (checkingSetup) return <div style={{ minHeight: '100vh', background: '#fff' }} />
-
   const usernameStatus = usernameState.status === 'ok'
-    ? { text: usernameState.message, tone: '#188038' }
+    ? { text: usernameState.message, tone: 'var(--success)' }
     : usernameState.status === 'taken'
-      ? { text: usernameState.message, tone: '#FF9800' }
+      ? { text: usernameState.message, tone: 'var(--warning)' }
       : usernameState.message
-        ? { text: usernameState.message, tone: '#5f6368' }
+        ? { text: usernameState.message, tone: 'var(--text-muted)' }
         : null
   const languageOptions = languages.length ? languages : FALLBACK_LANGUAGES
 
   return (
-    <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
+    <main style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
       <section style={{ width: '100%', maxWidth: 460, display: 'grid', gap: 18 }}>
         <header style={{ textAlign: 'center', display: 'grid', gap: 10 }}>
           <span style={{ margin: '0 auto', width: 64, height: 64, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
@@ -246,12 +246,12 @@ export default function HomeScreen() {
           </span>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.7rem', lineHeight: 1.15 }}>OptiLearn</h1>
-            <p style={{ margin: '7px 0 0', color: '#5f6368' }}>Offline learning for every classroom.</p>
+            <p style={{ margin: '7px 0 0', color: 'var(--text-muted)' }}>Offline learning for every classroom.</p>
           </div>
         </header>
 
-        <div style={{ border: '1px solid #dadce0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #dadce0' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--surface)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border)' }}>
             {[
               ['signin', 'Sign In', UserCircle],
               ['signup', 'Sign Up', UserPlus],
@@ -263,8 +263,8 @@ export default function HomeScreen() {
                 style={{
                   minHeight: 46,
                   border: 'none',
-                  background: tab === key ? 'rgba(42,141,191,0.12)' : '#fff',
-                  color: tab === key ? '#2a8dbf' : '#5f6368',
+                  background: tab === key ? 'rgba(42,141,191,0.12)' : 'var(--surface)',
+                  color: tab === key ? '#2a8dbf' : 'var(--text-muted)',
                   fontWeight: 700,
                   cursor: 'pointer',
                   display: 'inline-flex',
@@ -292,7 +292,7 @@ export default function HomeScreen() {
                   <input style={inputStyle} placeholder="Username" value={signin.username} onChange={(e) => setSignin((f) => ({ ...f, username: e.target.value }))} autoComplete="username" />
                 </Field>
                 <Field label="Password or PIN">
-                  <div style={{ display: 'flex', border: '1px solid #dadce0', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                     <input
                       {...secretInputProps}
                       name="optilearn_signin_secret"
@@ -301,7 +301,7 @@ export default function HomeScreen() {
                       value={signin.password}
                       onChange={(e) => setSignin((f) => ({ ...f, password: e.target.value }))}
                     />
-                    <button type="button" onClick={() => setShowSecret((v) => !v)} aria-label="Toggle password visibility" style={{ width: 48, border: 'none', background: '#f8fafd', color: '#5f6368', cursor: 'pointer' }}>
+                    <button type="button" onClick={() => setShowSecret((v) => !v)} aria-label="Toggle password visibility" style={{ width: 48, border: 'none', background: 'var(--surface-soft)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                       {showSecret ? <EyeSlash size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
@@ -315,7 +315,7 @@ export default function HomeScreen() {
                 <Field label="Username" hint="Use your name or a nickname - keep it simple" status={usernameStatus}>
                   <div style={{ position: 'relative' }}>
                     <input style={{ ...inputStyle, paddingRight: 42 }} value={signup.username} onChange={(e) => setSignup((f) => ({ ...f, username: e.target.value }))} placeholder="Choose a username" autoComplete="username" />
-                    {usernameState.status === 'ok' && <CheckCircle size={20} weight="fill" color="#188038" style={{ position: 'absolute', right: 12, top: 13 }} />}
+                    {usernameState.status === 'ok' && <CheckCircle size={20} weight="fill" color="var(--success)" style={{ position: 'absolute', right: 12, top: 13 }} />}
                   </div>
                 </Field>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -343,7 +343,7 @@ export default function HomeScreen() {
               </>
             )}
 
-            {error && <div style={{ color: '#FF9800', fontSize: '0.84rem' }}>{error}</div>}
+            {error && <div style={{ color: 'var(--warning)', fontSize: '0.84rem' }}>{error}</div>}
 
             <button
               type="submit"
@@ -356,7 +356,7 @@ export default function HomeScreen() {
 
             {tab === 'signup' && (
               <>
-                <div style={{ textAlign: 'center', color: '#5f6368', fontSize: '0.84rem', margin: '8px 0' }}>— or —</div>
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.84rem', margin: '8px 0' }}>— or —</div>
                 <button
                   type="button"
                   onClick={() => {
@@ -366,7 +366,7 @@ export default function HomeScreen() {
                     input.onchange = (e) => handleImportFileSelect(e.target.files?.[0] || null)
                     input.click()
                   }}
-                  style={{ minHeight: 48, border: '1px solid #2a8dbf', borderRadius: 12, background: '#fff', color: '#2a8dbf', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
+                  style={{ minHeight: 48, border: '1px solid #2a8dbf', borderRadius: 12, background: 'var(--surface)', color: '#2a8dbf', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
                 >
                   <FileZip size={18} weight="duotone" />
                   Import Student Data
@@ -376,6 +376,8 @@ export default function HomeScreen() {
           </form>
         </div>
 
+        <GetAppBanner />
+
         {importModal && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -383,7 +385,7 @@ export default function HomeScreen() {
             padding: 16,
           }}>
             <div style={{
-              background: '#fff', padding: 24, borderRadius: 16,
+              background: 'var(--surface)', padding: 24, borderRadius: 16,
               maxWidth: 420, width: '100%', display: 'grid', gap: 16,
               boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
             }}>
@@ -393,7 +395,7 @@ export default function HomeScreen() {
                 </div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Enter Student PIN</h3>
               </div>
-              <p style={{ margin: 0, color: '#5f6368', fontSize: '0.9rem', lineHeight: 1.5 }}>Enter the 4-digit PIN from your previous school account:</p>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>Enter the 4-digit PIN from your previous school account:</p>
               <input
                 type="text"
                 inputMode="numeric"
@@ -402,8 +404,8 @@ export default function HomeScreen() {
                 value={importPin}
                 onChange={(e) => setImportPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 style={{
-                  minHeight: 44, padding: '10px 12px', border: '2px solid #dadce0',
-                  borderRadius: 12, background: '#fff', color: '#202124', width: '100%', boxSizing: 'border-box',
+                  minHeight: 44, padding: '10px 12px', border: '2px solid var(--border)',
+                  borderRadius: 12, background: 'var(--surface)', color: 'var(--text)', width: '100%', boxSizing: 'border-box',
                   fontSize: '1rem', fontWeight: 600, textAlign: 'center', letterSpacing: '4px',
                 }}
               />
@@ -417,9 +419,9 @@ export default function HomeScreen() {
                 <button 
                   onClick={() => { setImportModal(false); setImportFile(null); setImportPin(''); setError('') }} 
                   disabled={busy}
-                  style={{ 
-                    minHeight: 42, border: '1px solid #dadce0', borderRadius: 12, background: '#fff', 
-                    color: '#202124', flex: 1, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
+                  style={{
+                    minHeight: 42, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)',
+                    color: 'var(--text)', flex: 1, fontWeight: 600, cursor: busy ? 'default' : 'pointer',
                     opacity: busy ? 0.6 : 1, transition: 'all 0.2s'
                   }}
                 >

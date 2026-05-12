@@ -7,10 +7,10 @@ import { useAuth } from '../context/AuthContext'
 const inputStyle = {
   minHeight: 46,
   borderRadius: 12,
-  border: '1px solid #dadce0',
+  border: '1px solid var(--border)',
   padding: '10px 12px',
-  background: '#fff',
-  color: '#202124',
+  background: 'var(--surface)',
+  color: 'var(--text)',
 }
 
 const secretInputProps = {
@@ -107,7 +107,7 @@ export default function SetupScreen() {
     ]
 
     return (
-      <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <main style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'grid', placeItems: 'center', padding: 20 }}>
         <section style={{ width: '100%', maxWidth: 760, display: 'grid', gap: 18 }}>
           <header style={{ textAlign: 'center', display: 'grid', gap: 8 }}>
             <span style={{ margin: '0 auto', width: 62, height: 62, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
@@ -115,18 +115,18 @@ export default function SetupScreen() {
             </span>
             <div>
               <h1 style={{ margin: 0, fontSize: '1.55rem' }}>One more thing before your first class</h1>
-              <p style={{ margin: '6px 0 0', color: '#5f6368' }}>Set up the classroom connection so students can join smoothly.</p>
+              <p style={{ margin: '6px 0 0', color: 'var(--text-muted)' }}>Set up the classroom connection so students can join smoothly.</p>
             </div>
           </header>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
             {steps.map(({ Icon, title, description, action }) => (
-              <section key={title} style={{ border: '1px solid #dadce0', borderRadius: 12, padding: 16, display: 'grid', gap: 10, alignContent: 'start' }}>
+              <section key={title} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'grid', gap: 10, alignContent: 'start' }}>
                 <span style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
                   <Icon size={24} weight="duotone" />
                 </span>
                 <h2 style={{ margin: 0, fontSize: '1rem' }}>{title}</h2>
-                <p style={{ margin: 0, color: '#5f6368', lineHeight: 1.55, fontSize: '0.9rem' }}>{description}</p>
+                <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.55, fontSize: '0.9rem' }}>{description}</p>
                 {action}
               </section>
             ))}
@@ -141,7 +141,7 @@ export default function SetupScreen() {
   }
 
   return (
-    <main style={{ minHeight: '100vh', background: '#fff', color: '#202124', display: 'grid', placeItems: 'center', padding: 20 }}>
+    <main style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'grid', placeItems: 'center', padding: 20 }}>
       <section style={{ width: '100%', maxWidth: 430, display: 'grid', gap: 18 }}>
         <header style={{ textAlign: 'center', display: 'grid', gap: 10 }}>
           <span style={{ margin: '0 auto', width: 62, height: 62, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
@@ -149,22 +149,22 @@ export default function SetupScreen() {
           </span>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.55rem' }}>Welcome to OptiLearn</h1>
-            <p style={{ margin: '6px 0 0', color: '#5f6368' }}>Create your admin teacher account to get started.</p>
+            <p style={{ margin: '6px 0 0', color: 'var(--text-muted)' }}>Create your admin teacher account to get started.</p>
           </div>
         </header>
 
-        <form onSubmit={submit} style={{ border: '1px solid #dadce0', borderRadius: 12, padding: 18, display: 'grid', gap: 12 }}>
+        <form onSubmit={submit} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 18, display: 'grid', gap: 12 }}>
           <label style={{ display: 'grid', gap: 5 }}>
-            <span style={{ color: '#5f6368', fontSize: '0.84rem' }}>Display Name</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Display Name</span>
             <input style={inputStyle} value={form.display_name} onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))} placeholder="Ms. Fatima" />
           </label>
           <label style={{ display: 'grid', gap: 5 }}>
-            <span style={{ color: '#5f6368', fontSize: '0.84rem' }}>Username</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Username</span>
             <input style={inputStyle} value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="admin" autoComplete="username" />
           </label>
           <label style={{ display: 'grid', gap: 5 }}>
-            <span style={{ color: '#5f6368', fontSize: '0.84rem' }}>Password</span>
-            <div style={{ display: 'flex', border: '1px solid #dadce0', borderRadius: 12, overflow: 'hidden' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Password</span>
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
               <input
                 {...secretInputProps}
                 name="optilearn_setup_password"
@@ -172,16 +172,16 @@ export default function SetupScreen() {
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               />
-              <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label="Toggle password visibility" style={{ width: 48, border: 'none', background: '#f8fafd', color: '#5f6368', cursor: 'pointer' }}>
+              <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label="Toggle password visibility" style={{ width: 48, border: 'none', background: 'var(--surface-soft)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </label>
           <label style={{ display: 'grid', gap: 5 }}>
-            <span style={{ color: '#5f6368', fontSize: '0.84rem' }}>Confirm Password</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Confirm Password</span>
             <input {...secretInputProps} name="optilearn_setup_password_confirm" style={{ ...inputStyle, WebkitTextSecurity: 'disc' }} value={form.confirm} onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))} />
           </label>
-          {error && <div style={{ color: '#FF9800', fontSize: '0.84rem' }}>{error}</div>}
+          {error && <div style={{ color: 'var(--warning)', fontSize: '0.84rem' }}>{error}</div>}
           <button type="submit" disabled={saving} style={{ minHeight: 46, border: 'none', borderRadius: 12, background: '#2a8dbf', color: '#fff', fontWeight: 700, cursor: saving ? 'default' : 'pointer', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
             <ChalkboardTeacher size={18} weight="duotone" />
             {saving ? 'Creating...' : 'Create Admin Account'}

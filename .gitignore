@@ -25,6 +25,7 @@ build_state.txt
 
 # Dev testing scratchpads
 optilearn/TEST.md
+optilearn-logo-*.png
 
 # Runtime data backups
 optilearn/data/*_backup_*.json
@@ -56,6 +57,7 @@ optilearn/data/curriculum.index
 optilearn/data/curriculum_meta.json
 optilearn/data/user_settings.json
 optilearn/data/materials/
+optilearn/data/ssl/
 optilearn/data/voices/
 optilearn/data/whisper-models/
 

@@ -203,6 +203,7 @@ def _piper_speak_sync(voice_path: str, text: str) -> bytes:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         timeout=30,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return raw_pcm_to_wav(result.stdout)
 

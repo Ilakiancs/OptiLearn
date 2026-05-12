@@ -339,6 +339,7 @@ def _ping_latency_ms() -> int | None:
             capture_output=True,
             text=True,
             timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return None
@@ -782,7 +783,8 @@ async def get_active_model(preferred: str = "fast") -> str:
     if preferred == "deep":
         try:
             result = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, timeout=5
+                ["ollama", "list"], capture_output=True, text=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if settings.OLLAMA_MODEL_DEEP in result.stdout:
                 return settings.OLLAMA_MODEL_DEEP
@@ -1045,6 +1047,13 @@ class ModelClient:
                                     yield token
                             if chunk.get("done"):
                                 break
+            except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "Ollama /api/chat HTTP {} — body={}",
+                    exc.response.status_code,
+                    exc.response.text[:500],
+                )
+                raise RuntimeError(_OLLAMA_DOWN_MSG) from exc
             except (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError):
                 logger.error("Ollama not reachable at {} (stream)", settings.OLLAMA_HOST)
                 raise RuntimeError(_OLLAMA_DOWN_MSG)
