@@ -14,7 +14,8 @@ import {
   X,
   XCircle,
 } from '@phosphor-icons/react'
-import { getMaterialsBySubject, getQuizzesBySubject, getMaterialFileUrl, submitQuiz, getStudentProgress } from '../api/client'
+import { getMaterialsBySubject, getQuizzesBySubject, submitQuiz, getStudentProgress } from '../api/client'
+import MaterialViewer from '../components/MaterialViewer'
 
 function fileExt(path) {
   return (path || '').split('.').pop().toLowerCase()
@@ -33,52 +34,6 @@ function TypeBadge({ path }) {
     <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-sm)', fontSize: '0.7rem', fontWeight: 700, background: bg, color, border: `1px solid ${border}` }}>
       {label}
     </span>
-  )
-}
-
-function MaterialViewer({ material, onClose }) {
-  const [txt, setTxt] = useState(null)
-  const url = getMaterialFileUrl(material.id)
-  const ext = fileExt(material.file_path)
-  const isPdf = ext === 'pdf'
-  const isImg = ['png', 'jpg', 'jpeg', 'webp'].includes(ext)
-  const isTxt = ext === 'txt'
-
-  if (isTxt && txt === null) {
-    fetch(url)
-      .then((r) => r.text())
-      .then(setTxt)
-      .catch(() => setTxt('Could not load file.'))
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', borderRadius: 'var(--radius-md)', padding: '6px 12px', cursor: 'pointer', fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <X size={14} />
-          <span>Close</span>
-        </button>
-        <span style={{ fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{material.title}</span>
-        <TypeBadge path={material.file_path} />
-        <a href={url} target="_blank" rel="noreferrer" style={{ padding: '6px 10px', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', textDecoration: 'none', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <ArrowSquareOut size={14} />
-          <span>Open</span>
-        </a>
-      </div>
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        {isPdf && <iframe src={url} style={{ width: '100%', height: '100%', border: 'none' }} title={material.title} />}
-        {isImg && (
-          <div style={{ height: '100%', overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 24 }}>
-            <img src={url} alt={material.title} style={{ maxWidth: '100%', borderRadius: 'var(--radius-lg)' }} />
-          </div>
-        )}
-        {isTxt && (
-          <div style={{ height: '100%', overflow: 'auto', padding: 24 }}>
-            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.95rem', lineHeight: 1.7, maxWidth: 760, margin: '0 auto', color: 'var(--color-text)' }}>{txt ?? 'Loading...'}</pre>
-          </div>
-        )}
-      </div>
-    </div>
   )
 }
 

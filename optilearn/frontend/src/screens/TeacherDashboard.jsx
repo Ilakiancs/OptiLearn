@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Bell, Warning, TrendDown,
   Sparkle, X, ArrowRight, ArrowClockwise,
-  UploadSimple, Plus, CalendarDots, Moon, Student, Sun,
+  UploadSimple, Plus, CalendarDots, Moon, Radio, Student, Sun,
   SignOut, Key, Eye, EyeSlash, Copy, ShieldCheck, UserPlus, MagnifyingGlass,
   WifiHigh, QrCode, CheckCircle, WarningCircle, ClipboardText, ChalkboardTeacher, FileText,
   FileZip, DownloadSimple,
@@ -31,6 +31,7 @@ import { useAuth } from '../context/AuthContext'
 import MaterialUpload from './MaterialUpload'
 import TeacherQuizBuilder from './TeacherQuizBuilder'
 import DiagnosticsPanel from './DiagnosticsPanel'
+import LiveClassTeacherPanel from './LiveClassTeacherPanel'
 
 const GRADE_LEVELS = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
 
@@ -270,7 +271,7 @@ function ConnectStudentsView({ isMobile = false }) {
       await load(options)
     }
     safeLoad()
-    const id = setInterval(() => safeLoad({ quiet: true }), 10000)
+    const id = setInterval(() => safeLoad({ quiet: true }), 5000)
     return () => {
       active = false
       clearInterval(id)
@@ -281,6 +282,8 @@ function ConnectStudentsView({ isMobile = false }) {
   const url = fallbackUrl.endsWith('/') ? fallbackUrl : `${fallbackUrl}/`
   const mdnsUrl = status?.mdns_url || 'http://optilearn.local:8000/'
   const connectionUrls = Array.from(new Set([url, mdnsUrl].filter(Boolean)))
+  // HTTPS URL for microphone-dependent features (Live Class personal mode, teacher broadcast)
+  const httpsUrl = url.replace(/^http:/, 'https:').replace(/:(\d+)\//, ':8443/')
   const portalActive = !!status?.captive_portal_active
   const connectedCount = Number(status?.network_client_count ?? status?.student_count ?? 0)
   const studentLabel = connectedCount === 1 ? 'student' : 'students'
@@ -408,7 +411,7 @@ function ChangePasswordModal({ onClose }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', padding: 18 }}>
-      <form onSubmit={submit} style={{ width: '100%', maxWidth: 390, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 18, display: 'grid', gap: 12 }}>
+      <form onSubmit={submit} style={{ width: '100%', maxWidth: 390, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 18, display: 'grid', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Key size={20} weight="duotone" />
           <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Change Password</h2>
@@ -441,7 +444,89 @@ function ChangePasswordModal({ onClose }) {
   )
 }
 
-function AdminManagement({ currentTeacher, allLanguages = [] }) {
+function ResetSecretModal({ kind, targetName, saving, error, onClose, onSubmit }) {
+  const isPin = kind === 'pin'
+  const [form, setForm] = useState({ value: '', confirm: '' })
+  const [localError, setLocalError] = useState('')
+
+  function updateValue(key, value) {
+    setLocalError('')
+    const next = isPin ? value.replace(/\D/g, '').slice(0, 4) : value
+    setForm((current) => ({ ...current, [key]: next }))
+  }
+
+  async function submit(e) {
+    e.preventDefault()
+    setLocalError('')
+    if (!form.value || !form.confirm) {
+      setLocalError('Please complete both fields.')
+      return
+    }
+    if (form.value !== form.confirm) {
+      setLocalError(isPin ? 'PINs do not match.' : 'Passwords do not match.')
+      return
+    }
+    if (isPin && !/^\d{4}$/.test(form.value)) {
+      setLocalError('PIN must be exactly 4 numbers.')
+      return
+    }
+    if (!isPin && form.value.length < 6) {
+      setLocalError('Password must be at least 6 characters.')
+      return
+    }
+    await onSubmit(form.value)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', padding: 16 }}>
+      <form onSubmit={submit} style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
+            <Key size={20} weight="duotone" />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{isPin ? 'Set Student PIN' : 'Set Teacher Password'}</h3>
+            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetName}</div>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--color-text-muted)', cursor: saving ? 'default' : 'pointer', display: 'inline-flex' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <label style={{ display: 'grid', gap: 6, color: 'var(--color-text-muted)', fontSize: '0.84rem', fontWeight: 700 }}>
+          {isPin ? 'New 4-digit PIN' : 'New password'}
+          <input
+            {...ignoredSecretProps}
+            value={form.value}
+            onChange={(e) => updateValue('value', e.target.value)}
+            inputMode={isPin ? 'numeric' : undefined}
+            maxLength={isPin ? 4 : undefined}
+            style={{ minHeight: 44, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '9px 11px', background: 'var(--color-surface-2)', color: 'var(--color-text)', width: '100%', boxSizing: 'border-box', textAlign: isPin ? 'center' : 'left', letterSpacing: isPin ? 4 : 0, WebkitTextSecurity: 'disc' }}
+          />
+        </label>
+        <label style={{ display: 'grid', gap: 6, color: 'var(--color-text-muted)', fontSize: '0.84rem', fontWeight: 700 }}>
+          {isPin ? 'Confirm PIN' : 'Confirm password'}
+          <input
+            {...ignoredSecretProps}
+            value={form.confirm}
+            onChange={(e) => updateValue('confirm', e.target.value)}
+            inputMode={isPin ? 'numeric' : undefined}
+            maxLength={isPin ? 4 : undefined}
+            style={{ minHeight: 44, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '9px 11px', background: 'var(--color-surface-2)', color: 'var(--color-text)', width: '100%', boxSizing: 'border-box', textAlign: isPin ? 'center' : 'left', letterSpacing: isPin ? 4 : 0, WebkitTextSecurity: 'disc' }}
+          />
+        </label>
+        {(localError || error) && <div style={{ color: 'var(--color-danger)', fontSize: '0.86rem' }}>{localError || error}</div>}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button type="button" onClick={onClose} disabled={saving} style={{ ...refreshBtnStyle, flex: '1 1 150px', minHeight: 44, justifyContent: 'center' }}>Cancel</button>
+          <button type="submit" disabled={saving} style={{ ...ctaBtnStyle, flex: '1 1 150px', minHeight: 44, justifyContent: 'center', opacity: saving ? 0.72 : 1 }}>
+            {saving ? 'Saving...' : isPin ? 'Save PIN' : 'Save Password'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function AdminManagement({ currentTeacher, allLanguages = [], isMobile = false }) {
   const [teachers, setTeachers] = useState([])
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -468,6 +553,9 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
   const [deletePromptTarget, setDeletePromptTarget] = useState(null)
   const [deletePromptBusy, setDeletePromptBusy] = useState(false)
   const [deletePromptError, setDeletePromptError] = useState('')
+  const [resetModal, setResetModal] = useState(null)
+  const [resetSaving, setResetSaving] = useState(false)
+  const [resetError, setResetError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -499,15 +587,11 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
     }
   }
 
-  async function resetTeacher(teacher) {
-    const newPassword = randomPassword()
-    try {
-      await resetAdminTeacherPassword(teacher.id, newPassword)
-      setNotice(`Password reset for ${teacher.display_name || teacher.username}: ${newPassword}`)
-      await load()
-    } catch (err) {
-      setError(err.message || 'Password reset could not be completed.')
-    }
+  function resetTeacher(teacher) {
+    setNotice('')
+    setError('')
+    setResetError('')
+    setResetModal({ kind: 'password', target: teacher })
   }
 
   async function toggleAdmin(teacher) {
@@ -528,14 +612,31 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
     }
   }
 
-  async function resetPin(student) {
-    const pin = randomPin()
+  function resetPin(student) {
+    setNotice('')
+    setError('')
+    setResetError('')
+    setResetModal({ kind: 'pin', target: student })
+  }
+
+  async function submitResetSecret(value) {
+    if (!resetModal) return
+    setResetSaving(true)
+    setResetError('')
     try {
-      await resetAdminStudentPin(student.id, pin)
-      setNotice(`PIN reset for ${student.name}: ${pin}`)
+      if (resetModal.kind === 'password') {
+        await resetAdminTeacherPassword(resetModal.target.id, value)
+        setNotice(`Password reset for ${resetModal.target.display_name || resetModal.target.username}.`)
+      } else {
+        await resetAdminStudentPin(resetModal.target.id, value)
+        setNotice(`PIN reset for ${resetModal.target.name || resetModal.target.username}.`)
+      }
+      setResetModal(null)
       await load()
     } catch (err) {
-      setError(err.message || 'PIN could not be reset.')
+      setResetError(err.message || (resetModal.kind === 'password' ? 'Password could not be reset.' : 'PIN could not be reset.'))
+    } finally {
+      setResetSaving(false)
     }
   }
 
@@ -677,6 +778,22 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
         onChange={(e) => handleImportFileSelect(e.target.files?.[0] || null)}
         style={{ display: 'none' }}
       />
+      {resetModal && (
+        <ResetSecretModal
+          kind={resetModal.kind}
+          targetName={resetModal.kind === 'password'
+            ? (resetModal.target.display_name || resetModal.target.username || 'Teacher')
+            : (resetModal.target.name || resetModal.target.username || 'Student')}
+          saving={resetSaving}
+          error={resetError}
+          onClose={() => {
+            if (resetSaving) return
+            setResetModal(null)
+            setResetError('')
+          }}
+          onSubmit={submitResetSecret}
+        />
+      )}
       <section style={{ display: 'grid', gap: 10 }}>
         <h1 style={{ margin: 0, fontSize: '1.3rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <ShieldCheck size={24} weight="duotone" />
@@ -862,6 +979,39 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
               <SearchBox value={teacherSearch} onChange={setTeacherSearch} placeholder="Search teachers..." />
             </div>
             <div style={tableWrap}>
+              {isMobile ? (
+                <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+                  {teacherRows.length === 0 ? (
+                    <div style={{ padding: 18, color: 'var(--color-text-muted)', textAlign: 'center' }}>No teachers match your search.</div>
+                  ) : teacherRows.map((teacher) => (
+                    <article key={teacher.id} style={{ border: '1px solid var(--color-border)', borderRadius: 12, background: 'var(--color-surface-2)', padding: 12, display: 'grid', gap: 10, opacity: teacher.is_active ? 1 : 0.55 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, wordBreak: 'break-word' }}>{teacher.display_name || teacher.username}</div>
+                          <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginTop: 2 }}>{teacher.username}</div>
+                        </div>
+                        <span style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--color-primary)', background: 'var(--accent-soft)', borderRadius: 999, padding: '4px 8px', flexShrink: 0 }}>{teacher.is_admin ? 'Admin' : 'Teacher'}</span>
+                      </div>
+                      <div style={{ display: 'grid', gap: 8, fontSize: '0.86rem' }}>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Initial password: </span><SecretCell value={teacher.initial_password} /></div>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Last login: </span>{relativeTime(teacher.last_login)}</div>
+                      </div>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <button type="button" onClick={() => resetTeacher(teacher)} style={{ ...compactBtn, justifyContent: 'center' }}>Reset Password</button>
+                        <button type="button" onClick={() => toggleAdmin(teacher)} style={{ ...compactBtn, justifyContent: 'center' }}>{teacher.is_admin ? 'Remove Admin' : 'Make Admin'}</button>
+                        <button
+                          type="button"
+                          disabled={teacher.id === currentTeacher?.teacher_id || !teacher.is_active}
+                          onClick={() => deactivateTeacherAccount(teacher)}
+                          style={{ ...compactBtn, justifyContent: 'center', opacity: teacher.id === currentTeacher?.teacher_id || !teacher.is_active ? 0.45 : 1 }}
+                        >
+                          Deactivate
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
               <thead>
                 <tr>{['Display Name', 'Username', 'Initial Password', 'Role', 'Last Login', 'Actions'].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
@@ -892,6 +1042,7 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
                 ))}
               </tbody>
             </table>
+              )}
             </div>
           </section>
 
@@ -906,6 +1057,35 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
               <SearchBox value={studentSearch} onChange={setStudentSearch} placeholder="Search students..." />
             </div>
             <div style={tableWrap}>
+              {isMobile ? (
+                <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+                  {studentRows.length === 0 ? (
+                    <div style={{ padding: 18, color: 'var(--color-text-muted)', textAlign: 'center' }}>No students match your search.</div>
+                  ) : studentRows.map((student) => (
+                    <article key={student.id} style={{ border: '1px solid var(--color-border)', borderRadius: 12, background: 'var(--color-surface-2)', padding: 12, display: 'grid', gap: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, wordBreak: 'break-word' }}>{student.name}</div>
+                          <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginTop: 2 }}>{student.username || 'No username'}</div>
+                        </div>
+                        <span style={{ fontSize: '0.76rem', fontWeight: 800, color: 'var(--color-primary)', background: 'var(--accent-soft)', borderRadius: 999, padding: '4px 8px', flexShrink: 0 }}>{student.grade_level}</span>
+                      </div>
+                      <div style={{ display: 'grid', gap: 8, fontSize: '0.86rem' }}>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>PIN: </span><SecretCell value={student.pin_visible} /></div>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Language: </span>{student.language}</div>
+                        <div><span style={{ color: 'var(--color-text-muted)' }}>Last active: </span>{relativeTime(student.last_active)}</div>
+                      </div>
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <button type="button" onClick={() => resetPin(student)} style={{ ...compactBtn, justifyContent: 'center' }}>Reset PIN</button>
+                        <button type="button" onClick={() => openExport(student)} style={{ ...compactBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                          <DownloadSimple size={14} weight="bold" />
+                          Export Student Data
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
                 <thead>
                   <tr>{['Name', 'Username', 'PIN', 'Grade', 'Language', 'Last Active', 'Actions'].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
@@ -934,12 +1114,13 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
           </section>
 
           {exportOpen && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16 }}>
-              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
                     <DownloadSimple size={20} weight="duotone" />
@@ -971,7 +1152,7 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
 
           {importOpen && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 9999, padding: 16 }}>
-              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ background: 'rgba(42,141,191,0.12)', color: 'var(--color-primary)', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
                     <FileZip size={20} weight="duotone" />
@@ -1003,7 +1184,7 @@ function AdminManagement({ currentTeacher, allLanguages = [] }) {
 
           {deletePromptOpen && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.52)', display: 'grid', placeItems: 'center', zIndex: 10000, padding: 16 }}>
-              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
+              <div style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 420, maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', boxShadow: '0 18px 48px rgba(0,0,0,0.28)', display: 'grid', gap: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ background: '#fef2f2', color: '#dc2626', padding: 10, borderRadius: 12, display: 'inline-flex' }}>
                     <WarningCircle size={20} weight="duotone" />
@@ -1040,12 +1221,13 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [materialSearch, setMaterialSearch] = useState('')
   const [quizSearch, setQuizSearch] = useState('')
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 980)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [menuOpen, setMenuOpen] = useState(false)
-  const sidebarWidth = 296
+  const isMobile = viewportWidth < 980
+  const sidebarWidth = viewportWidth < 1180 ? 260 : 296
 
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 980)
+    const onResize = () => setViewportWidth(window.innerWidth)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
@@ -1111,6 +1293,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   // ── Report state ──
   const [selectedWeek, setSelectedWeek] = useState(getISOWeekString)
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportToast, setReportToast] = useState(null) // { type: 'ok'|'error', message: string }
 
   // ── Calendar modal ──
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -1202,8 +1385,13 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
 
   async function handleDownloadReport() {
     setReportLoading(true)
+    setReportToast(null)
     try {
       await downloadWeeklyReport(selectedWeek || undefined)
+      setReportToast({ type: 'ok', message: 'Report downloaded' })
+      setTimeout(() => setReportToast(null), 3000)
+    } catch (err) {
+      setReportToast({ type: 'error', message: err.message || 'Report could not be downloaded.' })
     } finally {
       setReportLoading(false)
     }
@@ -1261,7 +1449,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
         const updated = [...prev]
         updated[updated.length - 1] = {
           role: 'assistant',
-          content: 'Something needs attention. Please try again.',
+          content: 'Something needs attention. Please continue in a moment.',
           streaming: false,
         }
         return updated
@@ -1300,7 +1488,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
     padding: '10px 12px',
     cursor: 'pointer',
     display: 'grid',
-    gridTemplateColumns: '66px 1fr',
+    gridTemplateColumns: sidebarWidth < 280 ? '52px 1fr' : '66px 1fr',
     alignItems: 'center',
     gap: 12,
     textDecoration: 'none',
@@ -1314,8 +1502,8 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 52,
-    height: 52,
+    width: sidebarWidth < 280 ? 44 : 52,
+    height: sidebarWidth < 280 ? 44 : 52,
     borderRadius: 14,
     border: 'none',
     background: 'transparent',
@@ -1335,7 +1523,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   // ── Render ──
 
   return (
-    <div className="app-shell" style={{ minHeight: '100vh', color: 'var(--color-text)' }}>
+    <div className="app-shell" style={{ height: isMobile ? 'auto' : '100vh', overflow: isMobile ? 'visible' : 'hidden', color: 'var(--color-text)' }}>
       {isMobile && (
         <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 100 }}>
           <button
@@ -1376,6 +1564,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
               <button type="button" onClick={() => { setView('connect'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'connect')}><span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span><span>Connect Students</span></button>
               <button type="button" onClick={() => { setView('materials'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'materials')}><span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span><span>Upload Materials</span></button>
               <button type="button" onClick={() => { setView('quiz-builder'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'quiz-builder')}><span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span><span>Quiz Builder</span></button>
+              <button type="button" onClick={() => { setView('live-class'); setMenuOpen(false); }} style={sidebarNavStyle(view === 'live-class')}><span style={sidebarIconStyle}><Radio size={22} weight="duotone" /></span><span>Live Class</span></button>
               <button type="button" onClick={() => { setCalendarOpen(true); setMenuOpen(false); }} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
               <div style={sidebarSectionStyle}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
@@ -1401,9 +1590,9 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
         </>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `${sidebarWidth}px minmax(0, 1fr)`, minHeight: '100vh', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : `${sidebarWidth}px minmax(0, 1fr)`, height: isMobile ? 'auto' : '100vh' }}>
         {!isMobile && (
-          <aside className="student-sidebar-scroll" style={{ position: 'sticky', top: 0, height: '100vh', background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
+          <aside className="student-sidebar-scroll" style={{ height: '100vh', minHeight: 0, background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div className="surface-card" style={{ color: 'var(--text)', textDecoration: 'none', minHeight: 70, display: 'inline-flex', alignItems: 'center', gap: 12, padding: 12 }}>
               <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}><Student size={24} weight="duotone" /></span>
               <span style={{ display: 'grid', gap: 2 }}><span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span></span>
@@ -1420,6 +1609,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
               <button type="button" onClick={() => setView('connect')} style={sidebarNavStyle(view === 'connect')}><span style={sidebarIconStyle}><WifiHigh size={22} weight="duotone" /></span><span>Connect Students</span></button>
               <button type="button" onClick={() => setView('materials')} style={sidebarNavStyle(view === 'materials')}><span style={sidebarIconStyle}><UploadSimple size={22} weight="duotone" /></span><span>Upload Materials</span></button>
               <button type="button" onClick={() => setView('quiz-builder')} style={sidebarNavStyle(view === 'quiz-builder')}><span style={sidebarIconStyle}><Plus size={22} weight="duotone" /></span><span>Quiz Builder</span></button>
+              <button type="button" onClick={() => setView('live-class')} style={sidebarNavStyle(view === 'live-class')}><span style={sidebarIconStyle}><Radio size={22} weight="duotone" /></span><span>Live Class</span></button>
               <button type="button" onClick={() => setCalendarOpen(true)} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
               <div style={sidebarSectionStyle}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
@@ -1444,9 +1634,9 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
           </aside>
         )}
 
-        <main style={{ minWidth: 0, padding: isMobile ? '20px 16px' : '32px 20px', boxSizing: 'border-box' }}>
+        <main style={{ minWidth: 0, minHeight: 0, height: isMobile ? 'auto' : '100vh', overflowY: isMobile ? 'visible' : 'auto', padding: isMobile ? '20px 16px' : '32px 20px', boxSizing: 'border-box' }}>
           {view === 'manage' && teacher?.is_admin ? (
-            <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} />
+            <AdminManagement currentTeacher={teacher} allLanguages={allLanguages} isMobile={isMobile} />
           ) : view === 'diagnostics' && teacher?.is_admin ? (
             <DiagnosticsPanel />
           ) : view === 'connect' ? (
@@ -1455,6 +1645,8 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
             <MaterialUpload embedded />
           ) : view === 'quiz-builder' ? (
             <TeacherQuizBuilder embedded />
+          ) : view === 'live-class' ? (
+            <LiveClassTeacherPanel onEnd={() => setView('overview')} />
           ) : (
             <div style={{ maxWidth: '960px', margin: '0 auto' }}>
               <section style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}>
@@ -1500,7 +1692,24 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
                   <SearchBox value={materialSearch} onChange={setMaterialSearch} placeholder="Search by title or teacher..." />
                   <div style={{ display: 'flex', gap: 8 }}><button type="button" onClick={() => refetchMaterials()} style={refreshBtnStyle}><ArrowClockwise size={14} /> Refresh</button><button type="button" onClick={() => setView('materials')} style={ctaBtnStyle}><UploadSimple size={14} /> Upload</button></div>
                 </div>
-                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                {isMobile && (
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {!materials || materials.length === 0 ? (
+                      <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><FileText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No materials uploaded yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Upload PDFs or images to expand the AI tutor curriculum for your class.</div><button type="button" onClick={() => setView('materials')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><UploadSimple size={14} /> Upload first material</button></div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+                        {filteredMaterials.length === 0 ? <div style={{ padding: 18, textAlign: 'center', color: 'var(--color-text-muted)' }}>No materials match your search.</div> : filteredMaterials.slice(0, 8).map((m) => (
+                          <article key={m.id} style={{ border: '1px solid var(--color-border)', borderRadius: 12, background: 'var(--color-surface-2)', padding: 12, display: 'grid', gap: 8 }}>
+                            <div style={{ fontWeight: 800, wordBreak: 'break-word' }}>{m.title}</div>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.84rem' }}>{m.subject || 'General'} - {m.page_count || 1} page{(m.page_count || 1) === 1 ? '' : 's'}</div>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>{m.uploaded_by_username || m.uploaded_by_display_name || '-'} - {relativeTime(m.created_at)}</div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', display: isMobile ? 'none' : 'block' }}>
                   {!materials || materials.length === 0 ? <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><FileText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No materials uploaded yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Upload PDFs or images to expand the AI tutor curriculum for your class.</div><button type="button" onClick={() => setView('materials')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><UploadSimple size={14} /> Upload first material</button></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? '100%' : 760 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['Title', 'Subject', 'Pages', 'Uploaded by', 'Uploaded'].map(h => <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{filteredMaterials.length === 0 ? <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No materials match your search.</td></tr> : filteredMaterials.slice(0, 8).map((m, i) => <tr key={m.id} style={{ borderBottom: i < Math.min(filteredMaterials.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}><td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.subject || '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{m.page_count || 1}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{m.uploaded_by_username || m.uploaded_by_display_name || '-'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{relativeTime(m.created_at)}</td></tr>)}</tbody></table>}
                 </div>
               </section>
@@ -1511,14 +1720,54 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
                   <SearchBox value={quizSearch} onChange={setQuizSearch} placeholder="Search by title or teacher..." />
                   <div style={{ display: 'flex', gap: 8 }}><button type="button" onClick={() => refetchQuizzes()} style={refreshBtnStyle}><ArrowClockwise size={14} /> Refresh</button><button type="button" onClick={() => setView('quiz-builder')} style={ctaBtnStyle}><Plus size={14} /> Create</button></div>
                 </div>
-                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'auto' }}>
+                {isMobile && (
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {!quizzes || quizzes.length === 0 ? (
+                      <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ClipboardText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No quizzes yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Create quizzes and assign them to your students to consolidate what you have taught.</div><button type="button" onClick={() => setView('quiz-builder')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><Plus size={14} /> Create first quiz</button></div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+                        {filteredQuizzes.length === 0 ? <div style={{ padding: 18, textAlign: 'center', color: 'var(--color-text-muted)' }}>No quizzes match your search.</div> : filteredQuizzes.slice(0, 8).map((q) => (
+                          <article key={q.id} style={{ border: '1px solid var(--color-border)', borderRadius: 12, background: 'var(--color-surface-2)', padding: 12, display: 'grid', gap: 8 }}>
+                            <div style={{ fontWeight: 800, wordBreak: 'break-word' }}>{q.title}</div>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.84rem' }}>{q.subject || 'General'} - {Array.isArray(q.questions) ? q.questions.length : 'No'} questions</div>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>Created by {q.created_by_username || q.created_by_display_name || '-'} - {q.assigned_to === 'all' ? 'All students' : 'Selected students'}</div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'auto', display: isMobile ? 'none' : 'block' }}>
                   {!quizzes || quizzes.length === 0 ? <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ClipboardText size={32} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 8 }} /><div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--color-text)' }}>No quizzes yet</div><div style={{ fontSize: '0.85rem', marginBottom: 16, maxWidth: 340, margin: '0 auto 16px' }}>Create quizzes and assign them to your students to consolidate what you have taught.</div><button type="button" onClick={() => setView('quiz-builder')} style={{ ...ctaBtnStyle, display: 'inline-flex' }}><Plus size={14} /> Create first quiz</button></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? '100%' : 760 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['Title', 'Subject', 'Questions', 'Created by', 'Assigned to'].map(h => <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{filteredQuizzes.length === 0 ? <tr><td colSpan={5} style={{ padding: '18px 14px', textAlign: 'center', color: 'var(--color-text-muted)' }}>No quizzes match your search.</td></tr> : filteredQuizzes.slice(0, 8).map((q, i) => <tr key={q.id} style={{ borderBottom: i < Math.min(filteredQuizzes.length, 8) - 1 ? '1px solid var(--color-border)' : 'none' }}><td style={{ padding: '10px 14px', fontWeight: 500, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.title}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.subject || '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{Array.isArray(q.questions) ? q.questions.length : '—'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{q.created_by_username || q.created_by_display_name || '-'}</td><td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{q.assigned_to === 'all' ? 'All students' : 'Selected'}</td></tr>)}</tbody></table>}
                 </div>
               </section>
 
               <section>
                 <h2 style={sectionHeadStyle}>All Students</h2>
-                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', overflowX: 'auto' }}>
+                {isMobile && (
+                  <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+                    {isLoading ? <p style={{ padding: 16, color: 'var(--color-text-muted)' }}>Loading...</p> : allStudents.length === 0 ? <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ChalkboardTeacher size={36} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 10 }} /><div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 8, color: 'var(--color-text)' }}>No students yet</div><div style={{ fontSize: '0.9rem', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>Use Connect Students to show the current QR code and classroom address for your WiFi hotspot.</div></div> : (
+                      <div style={{ display: 'grid', gap: 10, padding: 10 }}>
+                        {allStudents.map((s) => (
+                          <button key={s.id} type="button" onClick={() => navigate(`/teacher/student/${s.id}`)} style={{ border: '1px solid var(--color-border)', borderRadius: 12, background: 'var(--color-surface-2)', padding: 12, display: 'grid', gap: 8, textAlign: 'left', cursor: 'pointer', color: 'var(--color-text)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <AlertDot alerts={s.alerts} />
+                              <span style={{ fontWeight: 800, flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{s.name}</span>
+                              {s.mastery_summary?.length > 0 ? <MasteryBadge level={s.mastery_summary[0]?.level} /> : null}
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, color: 'var(--color-text-muted)', fontSize: '0.84rem' }}>
+                              <span>{s.language}</span>
+                              <span>Grade {s.grade_level}</span>
+                              <span>{Math.round((s.mastery_avg || 0) * 100)}% avg mastery</span>
+                            </div>
+                            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>{relativeTime(s.last_active)}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', overflowX: 'auto', display: isMobile ? 'none' : 'block' }}>
                   {isLoading ? <p style={{ padding: 16, color: 'var(--color-text-muted)' }}>Loading...</p> : allStudents.length === 0 ? <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--color-text-muted)' }}><ChalkboardTeacher size={36} weight="duotone" color="var(--color-primary)" style={{ marginBottom: 10 }} /><div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 8, color: 'var(--color-text)' }}>No students yet</div><div style={{ fontSize: '0.9rem', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>Use Connect Students to show the current QR code and classroom address for your WiFi hotspot.</div></div> : <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 540 }}><thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>{['', 'Name', 'Language', 'Grade', 'Mastery Avg', 'Level', 'Last Active'].map(h => <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead><tbody>{allStudents.map((s, i) => <tr key={s.id} onClick={() => navigate(`/teacher/student/${s.id}`)} style={{ borderBottom: i < allStudents.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: 'pointer' }} onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-surface-2)' }} onMouseLeave={e => { e.currentTarget.style.background = '' }}><td style={{ padding: '12px 8px 12px 14px', width: 30 }}><AlertDot alerts={s.alerts} /></td><td style={{ padding: '12px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>{s.name}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.language}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{s.grade_level}</td><td style={{ padding: '12px 14px' }}>{Math.round((s.mastery_avg || 0) * 100)}%</td><td style={{ padding: '12px 14px' }}>{s.mastery_summary?.length > 0 ? <MasteryBadge level={s.mastery_summary[0]?.level} /> : <span style={{ color: 'var(--color-text-hint)' }}>—</span>}</td><td style={{ padding: '12px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{relativeTime(s.last_active)}</td></tr>)}</tbody></table>}
                 </div>
               </section>
@@ -1533,8 +1782,26 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
         <Sparkle size={24} weight="fill" />
       </button>
 
+      {reportToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1100, display: 'flex', alignItems: 'center', gap: 10,
+          background: reportToast.type === 'ok' ? '#2e7d32' : '#c62828',
+          color: '#fff', borderRadius: 10, padding: '11px 18px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.22)', fontSize: '0.9rem', fontWeight: 600,
+          maxWidth: 380, animation: 'olSlideUp 0.2s ease-out',
+        }}>
+          <span style={{ flex: 1 }}>
+            {reportToast.type === 'ok' ? '✓ ' : '✕ '}{reportToast.message}
+          </span>
+          {reportToast.type === 'error' && (
+            <button onClick={() => setReportToast(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 6, width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1rem' }}>×</button>
+          )}
+        </div>
+      )}
+
       {chatOpen && (
-        <div ref={chatPanelRef} style={{ position: 'fixed', bottom: 90, right: 24, zIndex: 999, width: 380, height: 520, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.16)', display: 'flex', flexDirection: 'column', animation: 'olSlideUp 0.2s ease-out' }}>
+        <div ref={chatPanelRef} style={{ position: 'fixed', bottom: isMobile ? 82 : 90, right: isMobile ? 12 : 24, left: isMobile ? 12 : 'auto', zIndex: 999, width: isMobile ? 'auto' : 380, height: isMobile ? 'min(520px, calc(100dvh - 112px))' : 520, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.16)', display: 'flex', flexDirection: 'column', animation: 'olSlideUp 0.2s ease-out' }}>
           <div style={{ height: 48, display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', borderBottom: '1px solid var(--color-border)', flexShrink: 0, background: 'var(--color-surface)', borderRadius: '16px 16px 0 0' }}>
             <Sparkle size={18} weight="fill" color="var(--color-primary)" />
             <span style={{ fontWeight: 700, fontSize: '0.9rem', flex: 1, color: 'var(--color-text)' }}>OptiLearn Assistant</span>

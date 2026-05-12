@@ -6,6 +6,7 @@
  */
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft } from '@phosphor-icons/react'
 import { joinLiveGame } from '../../api/client'
 
 const COLORS = ['#6c63ff', '#ff6584', '#43b89c', '#f9a825']
@@ -44,7 +45,24 @@ export default function LiveQuizJoin() {
       justifyContent: 'center',
       padding: '24px',
       fontFamily: "'Inter', 'Segoe UI', sans-serif",
+      position: 'relative',
     }}>
+      {/* Back button */}
+      <button
+        onClick={() => navigate('/join')}
+        style={{
+          position: 'absolute', top: 20, left: 20,
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '8px 14px',
+          color: 'var(--text-muted)', cursor: 'pointer',
+          fontSize: '0.85rem', fontWeight: 600,
+        }}
+      >
+        <ArrowLeft size={15} weight="bold" />
+        Back
+      </button>
+
       <div style={{
         width: '100%',
         maxWidth: 440,

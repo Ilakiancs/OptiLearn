@@ -26,6 +26,7 @@ import { getStudent, changeStudentPin, getHealth } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import NetworkStatusPill from './NetworkStatusPill'
+import GetAppBanner from './GetAppBanner'
 
 function ChangePinModal({ studentId, onClose }) {
   const [form, setForm] = useState({ current_pin: '', new_pin: '', confirm_pin: '' })
@@ -245,6 +246,7 @@ function Sidebar({ studentId, student, onNavigate }) {
       </nav>
 
       <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
+        <GetAppBanner compact />
         <button type="button" onClick={toggleTheme} className="pill-button" aria-label="Toggle theme">
           {theme === 'dark' ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}
           <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>

@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     PORT: int = 8000
     FRONTEND_DIST: str = "./frontend/dist"
 
+    # HTTPS (self-signed cert for student microphone access over LAN)
+    HTTPS_PORT: int = 8443
+    SSL_CERT_PATH: str = "./data/ssl/cert.pem"
+    SSL_KEY_PATH: str = "./data/ssl/key.pem"
+
 
 # Singleton — import this in all other modules
 settings = Settings()

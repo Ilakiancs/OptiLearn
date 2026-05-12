@@ -118,6 +118,7 @@ export default function TranslateLearn() {
   const [fileType, setFileType]                       = useState(null) // "pdf" | "image" | "text"
   const [playingPanel, setPlayingPanel]               = useState(null) // "upload"|"translate"|"explain"|null
   const [isDownloadingPdf, setIsDownloadingPdf]       = useState(false)
+  const [pdfToast, setPdfToast]                       = useState(null)
   const [pastSessions, setPastSessions]               = useState([])
   const [sessionsLoading, setSessionsLoading]         = useState(false)
   const [openingSession, setOpeningSession]           = useState(null)
@@ -132,8 +133,15 @@ export default function TranslateLearn() {
   const pdfDownloadRef = useRef(false)
   const activeTranslationRef = useRef(null)
   const activeExplanationRef = useRef(null)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const isCompact = viewportWidth < 860
 
   useEffect(() => { feature1.getLanguages().then(setLanguages).catch(() => {}) }, [])
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   useEffect(() => { if (student?.language) setTargetLanguage(student.language) }, [student])
   useEffect(() => {
     fetch('/api/health').then(r => r.json()).then(d => setE4bAvailable(!!d.e4b_available)).catch(() => {})
@@ -349,7 +357,7 @@ export default function TranslateLearn() {
             }
             setTranslationProgress(prev => ({ ...prev, current: event.page }))
           } else if (event.type === 'error') {
-            setError(event.message || 'Translation needs another try. Check your API key quota and try again.')
+            setError(event.message || 'Translation needs another pass. Check your API key quota and continue.')
           }
         },
         () => {
@@ -362,7 +370,7 @@ export default function TranslateLearn() {
             setTimeout(loadPastSessions, 900)
             startExplanation(mat, lang)
           } else {
-            setError(prev => prev || 'Translation returned no content. Please check your input and try again.')
+            setError(prev => prev || 'Translation returned no content. Please check your input and continue.')
             setAppState('idle')
           }
         }
@@ -636,7 +644,16 @@ export default function TranslateLearn() {
     const params = new URLSearchParams({ student_id: studentId, target_language: targetLanguage })
     try {
       const response = await fetch(`/api/feature1/materials/${material.material_id}/export?${params}`)
-      if (!response.ok) { console.error('PDF export failed:', response.status); return }
+      if (!response.ok) {
+        let message = 'The PDF could not be downloaded. Please continue in a moment.'
+        try {
+          const body = await response.json()
+          message = body.detail || body.message || message
+        } catch (_) {}
+        setPdfToast({ ok: false, msg: message })
+        setTimeout(() => setPdfToast(null), 5000)
+        return
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -647,8 +664,12 @@ export default function TranslateLearn() {
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 30000)
+      setPdfToast({ ok: true, msg: 'PDF saved' })
+      setTimeout(() => setPdfToast(null), 4000)
     } catch (e) {
       console.error('PDF export error:', e)
+      setPdfToast({ ok: false, msg: 'Could not save the PDF. Please continue in a moment.' })
+      setTimeout(() => setPdfToast(null), 4000)
     } finally {
       pdfDownloadRef.current = false
       setIsDownloadingPdf(false)
@@ -1047,6 +1068,65 @@ export default function TranslateLearn() {
     )
   }
 // -- Section --
+  const panelTabs = [
+    ['upload', 'Source', FileText],
+    ['translate', 'Translation', Languages],
+    ['explain', 'Tutor', Sparkles],
+  ]
+
+  const toast = pdfToast && (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      background: pdfToast.ok ? '#1e7e34' : '#c62828',
+      color: '#fff', borderRadius: 10, padding: '12px 20px',
+      fontSize: 14, fontWeight: 600, zIndex: 9999,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+      maxWidth: 'calc(100vw - 32px)', textAlign: 'center',
+    }}>
+      {pdfToast.msg}
+    </div>
+  )
+
+  if (isCompact) {
+    return (
+      <div style={{ position: 'relative', display: 'grid', gap: 10, minHeight: 'calc(100dvh - 116px)', background: C.surfaceAlt, borderRadius: 12, padding: 10, boxSizing: 'border-box' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, position: 'sticky', top: 0, zIndex: 5, background: C.surfaceAlt, paddingBottom: 2 }}>
+          {panelTabs.map(([key, label, Icon]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMainPanel(key)}
+              style={{
+                minHeight: 42,
+                borderRadius: 10,
+                border: `1px solid ${mainPanel === key ? C.primary : C.border}`,
+                background: mainPanel === key ? C.primaryLight : C.surface,
+                color: mainPanel === key ? C.primary : C.textSecondary,
+                fontWeight: 800,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                padding: '8px 6px',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              <Icon size={14} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minHeight: 'calc(100dvh - 174px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {mainPanel === 'upload' && renderUploadPanel()}
+          {mainPanel === 'translate' && renderTranslatePanel()}
+          {mainPanel === 'explain' && renderExplainPanel()}
+        </div>
+        {toast}
+      </div>
+    )
+  }
+
   return (
     <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)', gridTemplateAreas: '"topLeft main" "bottomLeft main"', height: '100%', minHeight: 0, overflow: 'hidden', gap: 10, padding: 12, boxSizing: 'border-box', background: C.surfaceAlt }}>
       {/* Upload panel */}
@@ -1063,6 +1143,8 @@ export default function TranslateLearn() {
       <div style={panelContainerStyle('explain')} onClick={gridAreaFor('explain') !== 'main' ? () => { setMainPanel('explain'); setTimeout(() => searchInputRef.current?.focus(), 450) } : undefined}>
         {renderExplainPanel()}
       </div>
+
+      {toast}
     </div>
   )
 }

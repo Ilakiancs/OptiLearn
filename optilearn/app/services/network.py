@@ -142,6 +142,7 @@ def get_arp_clients() -> list[str]:
             capture_output=True,
             text=True,
             timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
     except Exception as exc:
         logger.debug("ARP client scan unavailable: {}", exc)

@@ -166,7 +166,7 @@ async def import_zip_bytes(archive_bytes: bytes, password: str, target_student_i
             class_notes_data = json.loads(zf.read("class_notes.json").decode("utf-8"))
             materials_data = json.loads(zf.read("materials.json").decode("utf-8"))
     except RuntimeError as exc:
-        raise ValueError("unable to open archive — wrong password or corrupt archive") from exc
+        raise ValueError("The archive could not be opened — the PIN may not match or the file may be corrupt.") from exc
     except Exception as exc:
         raise ValueError(f"unable to read archive: {str(exc)}") from exc
 

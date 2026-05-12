@@ -58,6 +58,7 @@ python-dotenv==1.0.1
 dnslib>=0.9.23
 psutil>=5.9.0
 qrcode[pil]>=7.4
+Pillow>=10.0.0
 zeroconf>=0.131.0
 
 # PDF extraction (material upload)
@@ -65,6 +66,18 @@ PyMuPDF>=1.24.0
 
 # PDF report generation
 reportlab>=4.2.2
+
+# Self-signed TLS cert for HTTPS (student microphone over LAN)
+cryptography>=42.0.0
+
+# Desktop app (teacher launcher)
+pywebview>=5.0
+bottle>=0.12.25
+proxy_tools>=0.1.0
+
+# Windows shortcuts (optional — run scripts/create_shortcut.py after install)
+pywin32; sys_platform == "win32"
+winshell; sys_platform == "win32"
 
 # Dev / testing
 pytest==8.3.3

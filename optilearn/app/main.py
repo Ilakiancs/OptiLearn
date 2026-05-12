@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-from app.api.routes import auth, chat, dashboard, feature1, live_quiz, materials, network, persona, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
+from app.api.routes import auth, chat, dashboard, feature1, live_class, live_quiz, materials, network, persona, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
 from app.api.routes.persona import _load_agent_cache
 from app.api.routes.auth import get_current_admin
 from app.api.routes.feature1 import tts_router
@@ -65,11 +65,6 @@ class CaptivePortalMiddleware(BaseHTTPMiddleware):
             request.url.path,
             request.headers.get("user-agent"),
         )
-        if host == "optilearn.local" and request.method in {"GET", "HEAD"} and not request.url.path.startswith("/api/"):
-            target = f"{get_server_url()}{request.url.path}"
-            if request.url.query:
-                target = f"{target}?{request.url.query}"
-            return RedirectResponse(url=target, status_code=302)
         if host in _CAPTIVE_HOSTS:
             return RedirectResponse(url=f"{get_server_url()}/", status_code=302)
         return await call_next(request)
@@ -142,12 +137,93 @@ def _ensure_noto_fonts() -> None:
             logger.warning("Could not download {}: {}", filename, exc)
 
 
+def _ensure_ssl_cert() -> None:
+    """Generate a self-signed TLS cert covering all detected LAN IPs.
+
+    Stored at data/ssl/ so the HTTPS server can serve student microphone
+    requests without relying on a CA. Idempotent — no-op if files exist.
+    """
+    import ipaddress
+    import socket
+    import datetime
+
+    cert_path = Path(settings.SSL_CERT_PATH)
+    key_path  = Path(settings.SSL_KEY_PATH)
+    if cert_path.exists() and key_path.exists():
+        return
+
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+    except ImportError:
+        logger.warning("cryptography package not installed — HTTPS cert generation skipped")
+        return
+
+    san_ips: set[ipaddress.IPv4Address] = {ipaddress.IPv4Address("127.0.0.1")}
+    san_dns: set[str] = {"localhost"}
+    try:
+        hostname = socket.gethostname()
+        san_dns.add(hostname)
+        for info in socket.getaddrinfo(hostname, None):
+            addr = info[4][0]
+            try:
+                san_ips.add(ipaddress.IPv4Address(addr))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        import psutil
+        for addrs in psutil.net_if_addrs().values():
+            for a in addrs:
+                if a.family == socket.AF_INET:
+                    try:
+                        san_ips.add(ipaddress.IPv4Address(a.address))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "OptiLearn")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.utcnow())
+        .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.DNSName(d) for d in san_dns]
+                + [x509.IPAddress(ip) for ip in san_ips]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    logger.info("Generated self-signed SSL cert ({} IPs) → {}", len(san_ips), cert_path)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("OptiLearn starting up…")
     load_user_network_settings()
     _load_agent_cache()
     _ensure_noto_fonts()
+    _ensure_ssl_cert()
     await db.init_db()
     hotspot_ip = get_cached_hotspot_ip()
     server_url = get_server_url()
@@ -242,6 +318,7 @@ app.include_router(materials.router)
 app.include_router(feature1.router)
 app.include_router(tts_router)
 app.include_router(translate_routes.router)
+app.include_router(live_class.router, prefix="/api")
 app.include_router(settings_routes.router)
 app.include_router(live_quiz.router)
 app.include_router(persona.router)
@@ -393,7 +470,7 @@ if _frontend_path.exists() and _frontend_path.is_dir():
 
         if resolved.exists() and resolved.is_file():
             # Real file (favicon.ico, manifest.json, etc.) — serve directly
-            no_cache = full_path in {"", ".", "index.html", "sw.js"} or full_path.endswith(".html")
+            no_cache = full_path in {"", ".", "index.html", "sw.js", "manifest.json"} or full_path.endswith(".html")
             headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"} if no_cache else {}
             return FileResponse(str(resolved), headers=headers)
 

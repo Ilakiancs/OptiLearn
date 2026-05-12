@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft } from '@phosphor-icons/react'
 import { submitLiveAnswer, getLiveGameResults, getLiveGameState } from '../../api/client'
 import { useLiveQuizSocket } from '../../hooks/useLiveQuizSocket'
 
@@ -175,7 +176,7 @@ export default function LiveQuizPlay() {
       setMyScore(res.score || 0)
       setTotalScore((prev) => prev + (res.score || 0))
     } catch (err) {
-      console.error('Answer submit failed:', err)
+      console.error('Answer submit issue:', err)
     }
   }, [answered, answerRevealed, participant, gameId])
 
@@ -191,7 +192,23 @@ export default function LiveQuizPlay() {
         justifyContent: 'center',
         padding: 24,
         fontFamily: "'Inter', 'Segoe UI', sans-serif",
+        position: 'relative',
       }}>
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            position: 'absolute', top: 20, left: 20,
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '8px 14px',
+            color: 'var(--text-muted)', cursor: 'pointer',
+            fontSize: '0.85rem', fontWeight: 600,
+          }}
+        >
+          <ArrowLeft size={15} weight="bold" />
+          Home
+        </button>
+
         <div style={{ textAlign: 'center', maxWidth: 380 }}>
           <div style={{ fontSize: '4rem', marginBottom: 16 }}>⏳</div>
           <h1 style={{ color: 'var(--text)', fontSize: '1.8rem', fontWeight: 800, margin: '0 0 10px' }}>
@@ -256,6 +273,17 @@ export default function LiveQuizPlay() {
           alignItems: 'center',
           justifyContent: 'space-between',
         }}>
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'transparent', border: 'none',
+              color: 'var(--text-muted)', cursor: 'pointer',
+              fontSize: '0.85rem', fontWeight: 600, padding: '4px 8px',
+            }}
+          >
+            <ArrowLeft size={15} weight="bold" />
+          </button>
           <span style={{ color: 'var(--text)', fontSize: '0.85rem', fontWeight: 600 }}>
             {participant?.nickname}
           </span>
@@ -344,7 +372,7 @@ export default function LiveQuizPlay() {
               fontWeight: 700,
               textAlign: 'center',
             }}>
-              {myScore > 0 ? `🎉 Correct! +${myScore} points` : '❌ Incorrect'}
+              {myScore > 0 ? `🎉 Correct! +${myScore} points` : '💪 Keep going!'}
             </div>
           )}
 
@@ -431,6 +459,23 @@ export default function LiveQuizPlay() {
         fontFamily: "'Inter', 'Segoe UI', sans-serif",
       }}>
         <div style={{ width: '100%', maxWidth: 440 }}>
+          {/* Back button */}
+          <div style={{ marginBottom: 20 }}>
+            <button
+              onClick={() => navigate('/')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: '8px 14px',
+                color: 'var(--text-muted)', cursor: 'pointer',
+                fontSize: '0.85rem', fontWeight: 600,
+              }}
+            >
+              <ArrowLeft size={15} weight="bold" />
+              Home
+            </button>
+          </div>
+
           {/* Score hero */}
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div style={{ fontSize: '3rem', marginBottom: 10 }}>

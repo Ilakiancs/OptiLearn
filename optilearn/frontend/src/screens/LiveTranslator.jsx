@@ -202,6 +202,7 @@ export default function LiveTranslator() {
   const [loadingPast, setLoadingPast] = useState(false)
   const [isDownloadingNotes, setIsDownloadingNotes] = useState(false)
   const [isDownloadingTranscript, setIsDownloadingTranscript] = useState(false)
+  const [pdfToast, setPdfToast] = useState(null)
   const [micError, setMicError] = useState(null)
   const [translatorPreparing, setTranslatorPreparing] = useState(false)
   const [translatorStatusText, setTranslatorStatusText] = useState('Preparing live translation')
@@ -210,6 +211,29 @@ export default function LiveTranslator() {
   const [originalTranscriptText, setOriginalTranscriptText] = useState('')
   const [translatedTranscriptText, setTranslatedTranscriptText] = useState('')
   const [isFinalizing, setIsFinalizing] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const [recordingTab, setRecordingTab] = useState('translation')
+  const [notesTab, setNotesTab] = useState('notes')
+  const isCompact = viewportWidth < 860
+
+  // ── Shared Live Class (teacher-led) join state ─────────────────
+  const [activeSessions, setActiveSessions] = useState([])
+  const [joinedSession, setJoinedSession] = useState(null) // {session_id, title, source_language, status}
+  const [joinLang, setJoinLang] = useState(student?.language || 'en')
+  const [joiningId, setJoiningId] = useState(null)
+  const [liveChunks, setLiveChunks] = useState([])
+  const [liveStatus, setLiveStatus] = useState(null)
+  const [liveNotes, setLiveNotes] = useState('')
+  const [liveSourceChunks, setLiveSourceChunks] = useState([])
+  const [liveError, setLiveError] = useState(null)
+  const [isDownloadingLiveNotes, setIsDownloadingLiveNotes] = useState(false)
+  const [isDownloadingLiveTranscript, setIsDownloadingLiveTranscript] = useState(false)
+  const [livePdfToast, setLivePdfToast] = useState(null)
+  const [liveNotesTab, setLiveNotesTab] = useState('notes') // compact mode tab
+  const [liveNotesStreaming, setLiveNotesStreaming] = useState(false)
+  const [pastLiveSessions, setPastLiveSessions] = useState([])
+  const [loadingPastLive, setLoadingPastLive] = useState(false)
+  const liveSSEAbortRef = useRef(null)
 
   // Refs
   const sessionIdRef = useRef(null)
@@ -235,6 +259,12 @@ export default function LiveTranslator() {
   const translationIndexRef = useRef(0)
   const stopTranslationDoneRef = useRef(0)
   const stopTranslationTotalRef = useRef(0)
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   function replaceChunks(next) {
     chunksRef.current = next
@@ -464,6 +494,278 @@ export default function LiveTranslator() {
     return new Blob([buildWavBuffer(samples, LIVE_AUDIO_SAMPLE_RATE)], { type: 'audio/wav' })
   }
 
+  // ── Poll for active teacher-led sessions ──────────────────────
+  useEffect(() => {
+    if (joinedSession) return
+    let active = true
+    async function poll() {
+      try {
+        const res = await fetch('/api/live-class/active')
+        if (res.ok && active) {
+          const data = await res.json()
+          setActiveSessions(Array.isArray(data) ? data : [])
+        }
+      } catch (_) {}
+    }
+    poll()
+    const id = setInterval(poll, 10000)
+    return () => { active = false; clearInterval(id) }
+  }, [joinedSession])
+
+  async function joinLiveSession(sessionId) {
+    setJoiningId(sessionId)
+    try {
+      await fetch(`/api/live-class/${sessionId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId, target_language: joinLang }),
+      })
+      const session = activeSessions.find(s => s.id === sessionId)
+      setJoinedSession({ session_id: sessionId, ...(session || {}), status: session?.status || 'active' })
+      setLiveChunks([])
+      setLiveStatus(session?.status || 'active')
+      setLiveNotes('')
+      startLiveStream(sessionId, joinLang)
+    } catch (err) {
+      setMicError('Could not join the live class. Please continue in a moment.')
+    }
+    setJoiningId(null)
+  }
+
+  function startLiveStream(sid, lang) {
+    liveSSEAbortRef.current?.abort()
+    const ctrl = new AbortController()
+    liveSSEAbortRef.current = ctrl
+    ;(async () => {
+      try {
+        const url = `/api/live-class/${sid}/stream?student_id=${encodeURIComponent(studentId)}&target_language=${encodeURIComponent(lang)}`
+        const res = await fetch(url, { signal: ctrl.signal })
+        if (!res.ok) {
+          setLiveError('Could not connect to the live class stream. Please try rejoining.')
+          return
+        }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let sessionEnded = false
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop()
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const ev = JSON.parse(line.slice(6))
+              if (ev.type === 'translated_chunk') {
+                setLiveChunks(prev => {
+                  const exists = prev.find(c => c.chunk_index === ev.chunk_index)
+                  if (exists) return prev
+                  return [...prev, { chunk_index: ev.chunk_index, text: ev.text, timestamp: ev.timestamp }]
+                    .sort((a, b) => a.chunk_index - b.chunk_index)
+                })
+              }
+              if (ev.type === 'session_status') {
+                setLiveStatus(ev.status)
+                setJoinedSession(prev => prev ? { ...prev, status: ev.status } : prev)
+                if (ev.status === 'ended' && !sessionEnded) {
+                  sessionEnded = true
+                  // Fetch original source chunks for the post-session view
+                  fetch(`/api/live-class/${sid}/source-chunks`)
+                    .then(r => r.ok ? r.json() : [])
+                    .then(data => { if (Array.isArray(data)) setLiveSourceChunks(data) })
+                    .catch(() => {})
+                  // Stream notes word-by-word
+                  streamLiveClassNotes(sid, lang)
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (err) {
+        if (err?.name !== 'AbortError') setLiveError('Connection to live class was lost.')
+      }
+    })()
+  }
+
+  async function changeLiveLanguage(lang) {
+    if (!joinedSession) return
+    setJoinLang(lang)
+    setLiveChunks([])
+    try {
+      await fetch(`/api/live-class/${joinedSession.session_id}/language`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId, target_language: lang }),
+      })
+    } catch (_) {}
+    startLiveStream(joinedSession.session_id, lang)
+  }
+
+  async function leaveLiveSession() {
+    if (!joinedSession) return
+    liveSSEAbortRef.current?.abort()
+    try {
+      await fetch(`/api/live-class/${joinedSession.session_id}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId }),
+      })
+    } catch (_) {}
+    setJoinedSession(null)
+    setLiveChunks([])
+    setLiveStatus(null)
+    setLiveNotes('')
+    setLiveSourceChunks([])
+    setLiveError(null)
+    setLiveNotesStreaming(false)
+    loadPastLiveSessions()
+  }
+
+  async function loadPastLiveSessions() {
+    setLoadingPastLive(true)
+    try {
+      const r = await fetch(`/api/live-class/student/${studentId}/sessions`)
+      if (r.ok) {
+        const data = await r.json()
+        setPastLiveSessions(Array.isArray(data) ? data : [])
+      }
+    } catch (_) {}
+    setLoadingPastLive(false)
+  }
+
+  async function loadPastLiveSession(sessionId, targetLang) {
+    setLiveError(null)
+    setLiveNotes('')
+    setLiveChunks([])
+    setLiveSourceChunks([])
+    setLiveNotesStreaming(false)
+    setJoinedSession({ session_id: sessionId, status: 'ended', _isPast: true })
+    setLiveStatus('ended')
+
+    // Load translated chunks
+    try {
+      const r = await fetch(`/api/live-class/${sessionId}/translations?target_language=${encodeURIComponent(targetLang)}`)
+      if (r.ok) {
+        const data = await r.json()
+        if (Array.isArray(data)) {
+          setLiveChunks(data.map(c => ({ chunk_index: c.chunk_index, text: c.translated_text, timestamp: c.created_at })))
+        }
+      }
+    } catch (_) {}
+
+    // Load source chunks
+    try {
+      const r2 = await fetch(`/api/live-class/${sessionId}/source-chunks`)
+      if (r2.ok) {
+        const data2 = await r2.json()
+        if (Array.isArray(data2)) setLiveSourceChunks(data2)
+      }
+    } catch (_) {}
+
+    // Stream notes
+    setLiveNotesStreaming(true)
+    try {
+      const r3 = await fetch(`/api/live-class/${sessionId}/notes-stream?target_language=${encodeURIComponent(targetLang)}`)
+      if (!r3.ok) { setLiveNotesStreaming(false); return }
+      const reader = r3.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const ev = JSON.parse(line.slice(6))
+            if (ev.type === 'token') setLiveNotes(prev => prev + ev.content)
+            else if (ev.type === 'done') setLiveNotesStreaming(false)
+            else if (ev.type === 'error') { setLiveError(ev.message); setLiveNotesStreaming(false) }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      setLiveNotesStreaming(false)
+    }
+  }
+
+  async function streamLiveClassNotes(sessionId, targetLang) {
+    setLiveNotesStreaming(true)
+    try {
+      const r = await fetch(`/api/live-class/${sessionId}/notes-stream?target_language=${encodeURIComponent(targetLang)}`)
+      if (!r.ok) { setLiveNotesStreaming(false); return }
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const ev = JSON.parse(line.slice(6))
+            if (ev.type === 'token') setLiveNotes(prev => prev + ev.content)
+            else if (ev.type === 'done') setLiveNotesStreaming(false)
+            else if (ev.type === 'error') { setLiveError(ev.message); setLiveNotesStreaming(false) }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      setLiveNotesStreaming(false)
+    }
+  }
+
+  async function downloadLivePdf(exportType) {
+    if (exportType === 'notes') setIsDownloadingLiveNotes(true)
+    else setIsDownloadingLiveTranscript(true)
+    try {
+      const r = await fetch('/api/live-class/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: joinedSession.session_id,
+          student_id: studentId,
+          export_type: exportType,
+          target_language: joinLang,
+        }),
+      })
+      if (!r.ok) {
+        let msg = 'The PDF could not be downloaded. Please continue in a moment.'
+        try { const b = await r.json(); msg = b.detail || b.message || msg } catch (_) {}
+        setLivePdfToast({ ok: false, msg })
+        setTimeout(() => setLivePdfToast(null), 5000)
+        return
+      }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disp = r.headers.get('Content-Disposition') || ''
+      const match = disp.match(/filename="?([^";]+)"?/)
+      a.download = match?.[1]?.trim() || `optilearn_live_${exportType}.pdf`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+      setLivePdfToast({ ok: true, msg: 'PDF saved' })
+      setTimeout(() => setLivePdfToast(null), 3500)
+    } catch (_) {
+      setLivePdfToast({ ok: false, msg: 'Download could not be completed. Please continue in a moment.' })
+      setTimeout(() => setLivePdfToast(null), 5000)
+    } finally {
+      if (exportType === 'notes') setIsDownloadingLiveNotes(false)
+      else setIsDownloadingLiveTranscript(false)
+    }
+  }
+
   // Load languages
   useEffect(() => {
     fetch('/api/feature1/languages').then(r => r.json()).then(setLanguages).catch(() => {})
@@ -481,6 +783,7 @@ export default function LiveTranslator() {
   useEffect(() => {
     if (selectedSessionId) loadPastSession(selectedSessionId)
     else loadPastSessions()
+    loadPastLiveSessions()
   }, [studentId, selectedSessionId])
 
   async function loadPastSessions() {
@@ -514,7 +817,7 @@ export default function LiveTranslator() {
       setTranscriptText(translated || original)
       setPhase('notes')
     } catch (_) {
-      setMicError('That saved class could not be opened. Please refresh and try again.')
+      setMicError('That saved class could not be opened. Please refresh, then continue.')
     }
   }
 
@@ -562,13 +865,23 @@ export default function LiveTranslator() {
     }
 
     setTranslatorPreparing(false)
-    setMicError('Live translation is still preparing. Please try again in a moment.')
+    setMicError('Live translation is still preparing. Please continue in a moment.')
     return false
   }
 
   // ── Recording ────────────────────────────────────────────────
   async function startRecording() {
     setMicError(null)
+
+    // getUserMedia requires a secure context (HTTPS or localhost).
+    // Students connecting over plain http://IP:8000 must use the HTTPS port instead.
+    if (!window.isSecureContext) {
+      setMicError(
+        'This feature needs OptiLearn installed to work. If you are in a lesson, remind your teacher to start a live class session and you will be able to join.'
+      )
+      return
+    }
+
     if (!(await ensureTranslatorReady())) {
       return
     }
@@ -576,9 +889,12 @@ export default function LiveTranslator() {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
       await startAudioCapture(micStream)
-    } catch (_) {
+    } catch (err) {
       if (micStream) micStream.getTracks().forEach(t => t.stop())
-      setMicError('Microphone access is needed to translate your class. Please allow microphone access in your browser settings.')
+      const msg = err?.name === 'NotFoundError'
+        ? 'No microphone was found on this device. Please connect a microphone, then continue.'
+        : 'Microphone access was blocked. Please allow microphone access in your browser settings, then continue.'
+      setMicError(msg)
       return
     }
 
@@ -651,7 +967,7 @@ export default function LiveTranslator() {
 
       const response = await fetch('/api/translate/chunk', { method: 'POST', body: fd })
       if (!response.ok) {
-        console.error('[Chunk] POST failed', idx, response.status)
+        console.error('[Chunk] POST issue', idx, response.status)
         return
       }
 
@@ -713,7 +1029,7 @@ export default function LiveTranslator() {
         chunkCommitter.flush()
       }
     } catch (err) {
-      console.error('[Chunk] processing failed', idx, err)
+      console.error('[Chunk] processing issue', idx, err)
     } finally {
       setIsProcessingTranslation(false)
     }
@@ -748,7 +1064,7 @@ export default function LiveTranslator() {
       setChunkAt(translatedChunk.index, translatedChunk)
       scrollPanelsToChunk(translatedChunk.index)
     } catch (err) {
-      console.error('[Translation] text chunk failed', chunk.index, err)
+      console.error('[Translation] text chunk issue', chunk.index, err)
       setChunkAt(chunk.index, { ...chunk, translated: chunk.original })
     }
   }
@@ -875,7 +1191,16 @@ export default function LiveTranslator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId, export_type: exportType }),
       })
-      if (!r.ok) return
+      if (!r.ok) {
+        let message = 'The PDF could not be downloaded. Please continue in a moment.'
+        try {
+          const body = await r.json()
+          message = body.detail || body.message || message
+        } catch (_) {}
+        setPdfToast({ ok: false, msg: message })
+        setTimeout(() => setPdfToast(null), 5000)
+        return
+      }
       const blob = await r.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -888,30 +1213,36 @@ export default function LiveTranslator() {
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 30000)
-    } catch (_) {}
-    if (exportType === 'notes') setIsDownloadingNotes(false)
-    else setIsDownloadingTranscript(false)
+      setPdfToast({ ok: true, msg: 'PDF saved' })
+      setTimeout(() => setPdfToast(null), 4000)
+    } catch (_) {
+      setPdfToast({ ok: false, msg: 'The PDF could not be downloaded. Please continue in a moment.' })
+      setTimeout(() => setPdfToast(null), 5000)
+    } finally {
+      if (exportType === 'notes') setIsDownloadingNotes(false)
+      else setIsDownloadingTranscript(false)
+    }
   }
 
   const langName = (code) => languages.find(l => l.code === code)?.name || code
   const featureShellStyle = {
     display: 'flex',
     flexDirection: 'column',
-    height: '100%',
+    height: isCompact ? 'auto' : '100%',
     minHeight: 0,
-    overflow: 'hidden',
+    overflow: isCompact ? 'visible' : 'hidden',
     gap: 0,
   }
   const splitPanelsStyle = {
     flex: '1 1 auto',
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+    gridTemplateColumns: isCompact ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
     gridTemplateRows: 'minmax(0, 1fr)',
     alignItems: 'stretch',
     gap: 10,
     padding: '10px 10px 0',
-    minHeight: 0,
-    overflow: 'hidden',
+    minHeight: isCompact ? 'min(68dvh, 620px)' : 0,
+    overflow: isCompact ? 'visible' : 'hidden',
   }
   const panelStyle = {
     minWidth: 0,
@@ -932,6 +1263,219 @@ export default function LiveTranslator() {
     minHeight: 0,
     overflowY: 'auto',
     padding: 14,
+  }
+  const compactTabsStyle = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 3,
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 8,
+    padding: '10px 10px 0',
+    background: C.surfaceAlt,
+  }
+  const compactTabButtonStyle = (active) => ({
+    minHeight: 42,
+    borderRadius: 12,
+    border: `1px solid ${active ? C.primary : C.border}`,
+    background: active ? C.primary : C.surface,
+    color: active ? '#fff' : C.textPrimary,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+  })
+
+  // ── JOINED TEACHER SESSION VIEW ───────────────────────────────
+  if (joinedSession) {
+    const LANG_NAMES = { en:'English',si:'Sinhala',ta:'Tamil',ar:'Arabic',fr:'French',sw:'Swahili',so:'Somali',am:'Amharic',hi:'Hindi',ur:'Urdu',fa:'Dari/Farsi',my:'Burmese',bn:'Bengali',tr:'Turkish',ps:'Pashto' }
+    const ALL_LANGS = Object.entries(LANG_NAMES).map(([code, name]) => ({ code, name }))
+    const statusColor = joinedSession.status === 'active' ? '#16a34a' : joinedSession.status === 'paused' ? '#f59e0b' : '#6b7280'
+    const statusLabel = joinedSession.status === 'active' ? 'Live' : joinedSession.status === 'paused' ? 'Paused' : 'Ended'
+    const isEnded = liveStatus === 'ended' || joinedSession.status === 'ended'
+
+    // ── POST-SESSION: two-panel notes + transcript (mirrors personal mode notes phase) ──
+    if (isEnded) {
+      const liveNotesParagraphs = liveNotes ? liveNotes.split('\n\n').filter(p => p.trim()) : []
+      const liveTranscriptText = liveChunks.map(c => c.text).filter(Boolean).join('\n\n')
+
+      return (
+        <div style={featureShellStyle}>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+          {isCompact && (
+            <div style={compactTabsStyle}>
+              <button type="button" onClick={() => setLiveNotesTab('notes')} style={compactTabButtonStyle(liveNotesTab === 'notes')}>Notes</button>
+              <button type="button" onClick={() => setLiveNotesTab('transcript')} style={compactTabButtonStyle(liveNotesTab === 'transcript')}>Transcript</button>
+            </div>
+          )}
+
+          <div style={splitPanelsStyle}>
+            {/* LEFT — Study Notes */}
+            {(!isCompact || liveNotesTab === 'notes') && (
+              <div style={panelStyle}>
+                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <Sparkles size={16} color={C.primary} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, flex: 1 }}>Study Notes</span>
+                  <button
+                    onClick={() => downloadLivePdf('notes')}
+                    disabled={!liveNotes || isDownloadingLiveNotes}
+                    title="Download notes as PDF"
+                    style={{ background: 'transparent', border: 'none', cursor: liveNotes ? 'pointer' : 'default', color: C.textSecondary, padding: 4, display: 'flex', alignItems: 'center', opacity: liveNotes ? 1 : 0.4 }}
+                  >
+                    {isDownloadingLiveNotes ? <Spinner size={16} color={C.primary} /> : <Download size={16} />}
+                  </button>
+                </div>
+                <div style={panelScrollStyle}>
+                  {!liveNotes && <TypingDots />}
+                  {liveNotesParagraphs.map((para, i) => (
+                    <div key={i} style={{ marginBottom: 16, position: 'relative', paddingRight: 28 }}>
+                      {renderMarkdown(para)}
+                      <button
+                        onClick={() => tts.speak(para, joinLang, `lc-note-para-${i}`)}
+                        style={{ position: 'absolute', top: 0, right: 0, background: 'transparent', border: 'none', cursor: 'pointer', color: tts.playingId === `lc-note-para-${i}` ? C.primary : C.textSecondary, padding: 2 }}
+                        title="Read aloud"
+                      >
+                        {tts.playingId === `lc-note-para-${i}` ? <StopCircle size={14} /> : <Volume2 size={14} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* RIGHT — Translated Transcript */}
+            {(!isCompact || liveNotesTab === 'transcript') && (
+              <div style={{ ...panelStyle, background: C.surfaceAlt }}>
+                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <FileText size={16} color={C.textSecondary} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.textPrimary, flex: 1 }}>Translated Transcript</span>
+                  <button
+                    onClick={() => tts.speak(liveTranscriptText, joinLang, 'lc-transcript-full')}
+                    disabled={!liveTranscriptText}
+                    style={{ background: 'transparent', border: 'none', cursor: liveTranscriptText ? 'pointer' : 'default', color: tts.playingId === 'lc-transcript-full' ? C.primary : C.textSecondary, padding: 4, display: 'flex', alignItems: 'center', opacity: liveTranscriptText ? 1 : 0.4 }}
+                    title="Read aloud"
+                  >
+                    {tts.playingId === 'lc-transcript-full' ? <StopCircle size={16} /> : <Volume2 size={16} />}
+                  </button>
+                  <button
+                    onClick={() => downloadLivePdf('transcript')}
+                    disabled={!liveTranscriptText || isDownloadingLiveTranscript}
+                    title="Download transcript as PDF"
+                    style={{ background: 'transparent', border: 'none', cursor: liveTranscriptText ? 'pointer' : 'default', color: C.textSecondary, padding: 4, display: 'flex', alignItems: 'center', opacity: liveTranscriptText ? 1 : 0.4 }}
+                  >
+                    {isDownloadingLiveTranscript ? <Spinner size={16} color={C.primary} /> : <Download size={16} />}
+                  </button>
+                </div>
+                <div style={panelScrollStyle}>
+                  {liveChunks.length === 0 ? (
+                    <div style={{ color: C.textSecondary, fontSize: 13 }}>No translated transcript available.</div>
+                  ) : (
+                    liveChunks.map((c, i) => (
+                      <div key={i} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+                        {c.timestamp && <div style={{ fontSize: 11, color: C.textSecondary, marginBottom: 4 }}>{typeof c.timestamp === 'string' ? c.timestamp.slice(11, 16) : c.timestamp}</div>}
+                        <div style={{ fontSize: 14, lineHeight: 1.7, color: C.textSecondary }}>{c.text}</div>
+                      </div>
+                    ))
+                  )}
+                  {/* Original language panel (after class ends) */}
+                  {liveSourceChunks.length > 0 && (
+                    <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.textSecondary, marginBottom: 8 }}>
+                        Original ({joinedSession.source_language || 'teacher'})
+                      </div>
+                      {liveSourceChunks.map((c, i) => (
+                        <div key={i} style={{ fontSize: 13, lineHeight: 1.6, color: C.textSecondary, marginBottom: 6, paddingBottom: 6, borderBottom: i < liveSourceChunks.length - 1 ? `1px solid ${C.border}` : 'none', opacity: 0.75 }}>
+                          {c.source_text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom bar */}
+          <div style={{ minHeight: 56, background: C.surface, borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', padding: isCompact ? '10px' : '0 20px', gap: isCompact ? 10 : 16, flexShrink: 0, flexWrap: 'wrap' }}>
+            <CheckCircle2 size={18} color={C.green} />
+            <span style={{ fontSize: 13, color: C.green, fontWeight: 600 }}>Session saved</span>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={leaveLiveSession}
+              style={{ fontSize: 13, color: C.primary, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, minHeight: 38, width: isCompact ? '100%' : 'auto', textAlign: isCompact ? 'center' : 'left' }}
+            >
+              ← Back to classes
+            </button>
+          </div>
+
+          {livePdfToast && (
+            <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: livePdfToast.ok ? '#1e7e34' : '#c62828', color: '#fff', borderRadius: 10, padding: '12px 24px', fontSize: 14, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,0.25)', whiteSpace: 'normal', maxWidth: 'calc(100vw - 32px)', textAlign: 'center' }}>
+              {livePdfToast.msg}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // ── ACTIVE / PAUSED: live translation view ───────────────────
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '16px' }}>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+        {/* Session header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+            <span style={{ fontWeight: 700, fontSize: '1rem', color: C.textPrimary }}>{joinedSession.title || 'Live Class'}</span>
+            <span style={{ fontSize: '0.78rem', color: statusColor, background: `${statusColor}20`, borderRadius: 6, padding: '2px 8px', fontWeight: 700 }}>{statusLabel}</span>
+          </div>
+          {joinedSession.teacher_display_name && (
+            <span style={{ fontSize: '0.82rem', color: C.textSecondary }}>{joinedSession.teacher_display_name}</span>
+          )}
+          <button onClick={leaveLiveSession} style={{ minHeight: 36, padding: '6px 14px', border: '1px solid var(--border,#ddd)', borderRadius: 8, background: 'transparent', color: C.textSecondary, fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+            Leave
+          </button>
+        </div>
+
+        {/* Error banner */}
+        {liveError && (
+          <div style={{ background: C.dangerLight, border: `1px solid ${C.danger}`, borderRadius: 10, padding: '10px 16px', color: C.danger, fontSize: 13, marginBottom: 16 }}>
+            {liveError}
+          </div>
+        )}
+
+        {/* Language selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.85rem', color: C.textSecondary, fontWeight: 600 }}>Translate to:</span>
+          <select value={joinLang} onChange={e => changeLiveLanguage(e.target.value)}
+            style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 12px', background: C.surface, color: C.textPrimary, fontSize: '0.9rem', minHeight: 36 }}>
+            {ALL_LANGS.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
+        </div>
+
+        {/* Live transcript with timestamps */}
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, minHeight: 200, maxHeight: 420, overflowY: 'auto', marginBottom: 16 }}>
+          {liveChunks.length === 0 ? (
+            <div style={{ color: C.textSecondary, fontSize: '0.9rem', textAlign: 'center', paddingTop: 48 }}>
+              {joinedSession.status === 'paused' ? 'Class is paused…' : 'Waiting for the teacher to speak…'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {liveChunks.map(c => (
+                <div key={c.chunk_index} style={{ paddingBottom: 10, borderBottom: `1px solid ${C.border}` }}>
+                  {c.timestamp && (
+                    <div style={{ fontSize: 11, color: C.textSecondary, marginBottom: 3 }}>
+                      {typeof c.timestamp === 'string' ? c.timestamp.slice(11, 16) : c.timestamp}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.95rem', lineHeight: 1.7, color: C.textPrimary }}>{c.text}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   // ── IDLE PHASE ────────────────────────────────────────────────
@@ -955,9 +1499,48 @@ export default function LiveTranslator() {
   }
 
   if (phase === 'idle') {
+    const LANG_NAMES_SIMPLE = { en:'English',si:'Sinhala',ta:'Tamil',ar:'Arabic',fr:'French',sw:'Swahili',so:'Somali',am:'Amharic',hi:'Hindi',ur:'Urdu',fa:'Dari/Farsi',my:'Burmese',bn:'Bengali',tr:'Turkish',ps:'Pashto' }
+    const ALL_LANGS_SIMPLE = Object.entries(LANG_NAMES_SIMPLE).map(([code, name]) => ({ code, name }))
     return (
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '32px 16px' }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}`}</style>
+
+        {/* Active teacher sessions banner */}
+        {activeSessions.length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            {activeSessions.map(session => (
+              <div key={session.id} style={{ background: 'linear-gradient(135deg,rgba(42,141,191,0.12) 0%,rgba(42,141,191,0.05) 100%)', border: `1.5px solid ${C.primary}`, borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 700, fontSize: '0.97rem', color: C.textPrimary }}>{session.title}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700 }}>LIVE</span>
+                    </div>
+                    {session.teacher_display_name && (
+                      <div style={{ fontSize: '0.83rem', color: C.textSecondary, marginBottom: 6 }}>Teacher: {session.teacher_display_name}</div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.8rem', color: C.textSecondary }}>Translate to:</span>
+                      <select value={joinLang} onChange={e => setJoinLang(e.target.value)}
+                        style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', background: C.surface, color: C.textPrimary, fontSize: '0.85rem' }}>
+                        {ALL_LANGS_SIMPLE.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => joinLiveSession(session.id)}
+                    disabled={joiningId === session.id}
+                    style={{ minHeight: 40, padding: '8px 18px', border: 'none', borderRadius: 10, background: C.primary, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', flexShrink: 0, opacity: joiningId === session.id ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    {joiningId === session.id ? <Spinner size={14} color="#fff" /> : null}
+                    Join
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -1079,6 +1662,49 @@ export default function LiveTranslator() {
             )}
           </div>
         )}
+
+        {/* Past Live Classes (teacher-led sessions) */}
+        {(loadingPastLive || pastLiveSessions.length > 0) && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary, marginBottom: 12 }}>
+              Past Live Classes
+            </div>
+            {loadingPastLive ? (
+              <div style={{ color: C.textSecondary, fontSize: 13 }}>Loading…</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {pastLiveSessions.map((s, i) => (
+                  <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: C.textPrimary, marginBottom: 2 }}>
+                          {s.title || 'Live Class'}
+                          {s.subject ? <span style={{ fontWeight: 400, color: C.textSecondary }}> · {s.subject}</span> : null}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.textSecondary, marginBottom: 4 }}>
+                          {s.joined_at ? new Date(s.joined_at).toLocaleString() : ''}
+                          {s.target_language ? ` · ${langName(s.target_language)}` : ''}
+                          {s.notes_status === 'ready' ? ' · Notes ready' : s.notes_status === 'pending' ? ' · Notes generating…' : ''}
+                        </div>
+                        {s.notes_preview && (
+                          <div style={{ fontSize: 13, color: C.textPrimary, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {s.notes_preview.slice(0, 100)}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => loadPastLiveSession(s.session_id, s.target_language || 'en')}
+                        style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${C.primary}`, background: C.primaryLight, color: C.primary, fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}
+                      >
+                        View Notes
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -1092,11 +1718,22 @@ export default function LiveTranslator() {
           @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
         `}</style>
 
+        {isCompact && (
+          <div style={compactTabsStyle}>
+            <button type="button" onClick={() => setRecordingTab('translation')} style={compactTabButtonStyle(recordingTab === 'translation')}>
+              Translation
+            </button>
+            <button type="button" onClick={() => setRecordingTab('original')} style={compactTabButtonStyle(recordingTab === 'original')}>
+              Original
+            </button>
+          </div>
+        )}
+
         {/* Two-panel split */}
         <div style={splitPanelsStyle}>
 
           {/* LEFT — translated */}
-          <div style={panelStyle}>
+          {(!isCompact || recordingTab === 'translation') && <div style={panelStyle}>
             <div style={{
               padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
@@ -1126,10 +1763,10 @@ export default function LiveTranslator() {
               ))}
               {(isProcessingChunk || isProcessingTranslation) && !isFinalizing && <TypingDots />}
             </div>
-          </div>
+          </div>}
 
           {/* RIGHT — original */}
-          <div style={{ ...panelStyle, background: C.surfaceAlt }}>
+          {(!isCompact || recordingTab === 'original') && <div style={{ ...panelStyle, background: C.surfaceAlt }}>
             <div style={{
               padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
@@ -1154,7 +1791,7 @@ export default function LiveTranslator() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
 
         {isFinalizing && (
@@ -1187,7 +1824,7 @@ export default function LiveTranslator() {
         {/* Bottom bar */}
         <div style={{
           minHeight: 60, background: C.surface, borderTop: `1px solid ${C.border}`,
-          display: 'flex', alignItems: 'center', padding: '8px 16px', gap: 16,
+          display: 'flex', alignItems: 'center', padding: isCompact ? '10px' : '8px 16px', gap: isCompact ? 10 : 16,
           flexShrink: 0, flexWrap: 'wrap',
         }}>
           {/* Recording indicator */}
@@ -1220,6 +1857,7 @@ export default function LiveTranslator() {
                 height: 44, padding: '0 18px', borderRadius: 12, border: 'none',
                 background: C.primary, color: '#fff', fontSize: 14, fontWeight: 700,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                justifyContent: 'center', width: isCompact ? '100%' : 'auto',
               }}
             >
               <StopCircle size={18} />
@@ -1256,11 +1894,22 @@ export default function LiveTranslator() {
       <div style={featureShellStyle}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
+        {isCompact && (
+          <div style={compactTabsStyle}>
+            <button type="button" onClick={() => setNotesTab('notes')} style={compactTabButtonStyle(notesTab === 'notes')}>
+              Notes
+            </button>
+            <button type="button" onClick={() => setNotesTab('transcript')} style={compactTabButtonStyle(notesTab === 'transcript')}>
+              Transcript
+            </button>
+          </div>
+        )}
+
         {/* Two-panel split */}
         <div style={splitPanelsStyle}>
 
           {/* LEFT — AI Notes */}
-          <div style={panelStyle}>
+          {(!isCompact || notesTab === 'notes') && <div style={panelStyle}>
             <div style={{
               padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
@@ -1306,10 +1955,10 @@ export default function LiveTranslator() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* RIGHT — Transcript */}
-          <div style={{ ...panelStyle, background: C.surfaceAlt }}>
+          {(!isCompact || notesTab === 'transcript') && <div style={{ ...panelStyle, background: C.surfaceAlt }}>
             <div style={{
               padding: '10px 14px', borderBottom: `1px solid ${C.border}`,
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
@@ -1355,13 +2004,14 @@ export default function LiveTranslator() {
                 <div style={{ color: C.textSecondary, fontSize: 13 }}>No translated transcript available.</div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Bottom bar */}
         <div style={{
-          height: 56, background: C.surface, borderTop: `1px solid ${C.border}`,
-          display: 'flex', alignItems: 'center', padding: '0 20px', gap: 16, flexShrink: 0,
+          minHeight: 56, background: C.surface, borderTop: `1px solid ${C.border}`,
+          display: 'flex', alignItems: 'center', padding: isCompact ? '10px' : '0 20px', gap: isCompact ? 10 : 16,
+          flexShrink: 0, flexWrap: 'wrap',
         }}>
           <CheckCircle2 size={18} color={C.green} />
           <span style={{ fontSize: 13, color: C.green, fontWeight: 600 }}>Session saved</span>
@@ -1384,11 +2034,24 @@ export default function LiveTranslator() {
             style={{
               fontSize: 13, color: C.primary, background: 'none', border: 'none',
               cursor: 'pointer', fontWeight: 600,
+              minHeight: 38, width: isCompact ? '100%' : 'auto', textAlign: isCompact ? 'center' : 'left',
             }}
           >
             ← Back to class
           </button>
         </div>
+      {pdfToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: pdfToast.ok ? '#1e7e34' : '#c62828',
+          color: '#fff', borderRadius: 10, padding: '12px 24px',
+          fontSize: 14, fontWeight: 600, zIndex: 9999,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+          whiteSpace: 'normal', maxWidth: 'calc(100vw - 32px)', textAlign: 'center',
+        }}>
+          {pdfToast.msg}
+        </div>
+      )}
       </div>
     )
   }

@@ -19,9 +19,6 @@ from typing import AsyncGenerator
 import html as html_lib
 import os
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -105,9 +102,9 @@ Settings → Mobile Hotspot → Turn on. Students open their browser and go to \
 http://192.168.137.1:8000 to access OptiLearn.
 
 TRAUMA-AWARE DESIGN:
-OptiLearn never uses words like "wrong", "incorrect", "failed", or "mistake". The system is \
-designed for children who have experienced trauma and displacement. Please be mindful of this \
-in your interactions with students.
+OptiLearn uses gentle, non-judgmental correction language and avoids labels that shame or blame \
+learners. The system is designed for children who have experienced trauma and displacement. \
+Please be mindful of this in your interactions with students.
 
 Be concise, warm, and practical. If a teacher asks about a specific student, remind them you \
 don't have live access to their data but they can check the dashboard. Never fabricate student \
@@ -376,44 +373,212 @@ h1{{font-size:17pt;margin:0 0 3pt;}}
 </body>
 </html>"""
 
-    # ── Chrome/Edge headless render (same as Feature 1/2) ────────
-    def _find_browser() -> str | None:
-        candidates = [
-            os.getenv("OPTILEARN_PDF_BROWSER"),
-            shutil.which("chrome"), shutil.which("chrome.exe"),
-            shutil.which("msedge"), shutil.which("msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
-            os.path.join(os.getenv("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-            os.path.join(os.getenv("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-        ]
-        for c in candidates:
-            if c and Path(c).exists():
-                return c
-        return None
+    # ── reportlab PDF render ─────────────────────────────────────
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Table, TableStyle,
+        Spacer, KeepTogether,
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 
-    browser = _find_browser()
-    if not browser:
-        raise HTTPException(
-            status_code=500,
-            detail="PDF export requires Chrome or Edge. Install either browser on the teacher laptop."
+    # Register fonts (Noto downloaded at startup)
+    _registered: set[str] = set()
+
+    def _try_register(name: str, filename: str) -> bool:
+        if name in _registered:
+            return True
+        p = fonts_dir / filename
+        if not p.exists():
+            return False
+        try:
+            pdfmetrics.registerFont(TTFont(name, str(p)))
+            _registered.add(name)
+            return True
+        except Exception:
+            return False
+
+    _try_register("NotoSans", "NotoSans-Regular.ttf")
+    _try_register("NotoSans-Bold", "NotoSans-Bold.ttf")
+    _try_register(script_family, script_file)
+
+    body_font = script_family if script_family in _registered else ("NotoSans" if "NotoSans" in _registered else "Helvetica")
+    bold_font = "NotoSans-Bold" if "NotoSans-Bold" in _registered else "Helvetica-Bold"
+
+    BLUE = colors.HexColor("#2a8dbf")
+    LIGHT_GREY = colors.HexColor("#f8f9fa")
+    BORDER = colors.HexColor("#dadce0")
+    TEXT_MUTED = colors.HexColor("#5f6368")
+    TEXT_MAIN = colors.HexColor("#202124")
+
+    def _mc(v: float | None) -> colors.HexColor:
+        if v is None: return colors.HexColor("#AAAAAA")
+        return colors.HexColor("#E24B4A") if v < 0.40 else colors.HexColor("#EF9F27") if v < 0.75 else colors.HexColor("#639922")
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        topMargin=16 * mm, bottomMargin=16 * mm,
+    )
+    W = A4[0] - 36 * mm  # usable width
+
+    story: list = []
+
+    # Banner
+    banner_data = [["OptiLearn — Weekly Class Report"]]
+    banner_tbl = Table(banner_data, colWidths=[W])
+    banner_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), bold_font),
+        ("FONTSIZE", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(banner_tbl)
+    story.append(Spacer(1, 10))
+
+    # Week heading + metadata
+    story.append(Paragraph(week_label, ParagraphStyle("h1", fontName=bold_font, fontSize=17, textColor=TEXT_MAIN, spaceAfter=4)))
+    story.append(Paragraph(
+        f"Report language: {master_lang_name} &nbsp;|&nbsp; Generated by OptiLearn powered by Gemma 4",
+        ParagraphStyle("meta", fontName=body_font, fontSize=8.5, textColor=TEXT_MUTED, spaceAfter=10),
+    ))
+
+    # AI summary box
+    if ai_summary:
+        summary_data = [[Paragraph(ai_summary, ParagraphStyle("summary", fontName=body_font, fontSize=10, leading=15, textColor=TEXT_MAIN))]]
+        summary_tbl = Table(summary_data, colWidths=[W - 10])
+        summary_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), LIGHT_GREY),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("LINEAFTER", (0, 0), (0, -1), 4, BLUE),
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
+        ]))
+        story.append(summary_tbl)
+        story.append(Spacer(1, 10))
+
+    # Metrics row
+    alert_col = colors.HexColor("#EF9F27") if alert_count > 0 else colors.HexColor("#639922")
+    metrics_data = [[
+        Paragraph(f"<font size='17' color='#2a8dbf'><b>{total}</b></font><br/><font size='7' color='#5f6368'>Students</font>", ParagraphStyle("m", fontName=body_font, leading=18, alignment=1)),
+        Paragraph(f"<font size='17'><b>{alert_count}</b></font><br/><font size='7' color='#5f6368'>Flagged</font>", ParagraphStyle("m", fontName=body_font, leading=18, alignment=1, textColor=alert_col)),
+        Paragraph(f"<font size='17'><b>{avg_mastery:.0%}</b></font><br/><font size='7' color='#5f6368'>Class Avg Mastery</font>", ParagraphStyle("m", fontName=body_font, leading=18, alignment=1, textColor=_mc(avg_mastery))),
+    ]]
+    metrics_tbl = Table(metrics_data, colWidths=[W / 3] * 3)
+    metrics_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_GREY),
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    story.append(metrics_tbl)
+    story.append(Spacer(1, 12))
+
+    # Student cards
+    for s in students:
+        name = s.get("name", "")
+        avg = s.get("mastery_avg") or 0
+        grade = str(s.get("grade_level", "—"))
+        lang = str(s.get("language", "—")).upper()
+        la = s.get("last_active") or ""
+        if la:
+            try:
+                from datetime import timezone
+                ts = datetime.fromisoformat(la.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                days_ago = (datetime.now(timezone.utc) - ts).days
+                la = "Today" if days_ago == 0 else f"{days_ago}d ago"
+            except Exception:
+                la = la[:10]
+        else:
+            la = "—"
+
+        alert_texts = [ALERT_LABELS.get(a, a) for a in s.get("alerts", [])]
+        alert_str = "  ".join(f"[{t}]" for t in alert_texts)
+
+        header_left = Paragraph(
+            f"<b>{name}</b>  <font size='8' color='#5f6368'>Grade {grade} · {lang}</font>"
+            + (f"<br/><font size='8' color='#dc2626'>{alert_str}</font>" if alert_str else ""),
+            ParagraphStyle("sh", fontName=body_font, fontSize=10, leading=14),
         )
+        header_right = Paragraph(
+            f"<font size='14'><b>{avg:.0%}</b></font><br/><font size='7.5' color='#5f6368'>Last active: {la}</font>",
+            ParagraphStyle("sr", fontName=body_font, fontSize=8.5, leading=13, alignment=2, textColor=_mc(avg)),
+        )
+        header_row = Table([[header_left, header_right]], colWidths=[W * 0.72, W * 0.28])
+        header_row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
 
-    with tempfile.TemporaryDirectory(prefix="optilearn_report_") as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        html_path = tmp_path / "report.html"
-        pdf_path  = tmp_path / "report.pdf"
-        html_path.write_text(html_doc, encoding="utf-8")
-        cmd = [
-            browser, "--headless=new", "--disable-gpu",
-            "--allow-file-access-from-files", "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}", html_path.as_uri(),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode != 0 or not pdf_path.exists():
-            logger.error("Browser PDF export failed: {}", result.stderr or result.stdout)
-            raise HTTPException(status_code=500, detail="PDF generation failed. Check browser is installed.")
-        pdf_bytes = pdf_path.read_bytes()
+        card_items: list = [header_row]
+        mastery_list = s.get("mastery_summary", [])
+        if mastery_list:
+            topic_header = [
+                Paragraph("<b>Topic</b>", ParagraphStyle("th", fontName=bold_font, fontSize=8, textColor=TEXT_MUTED)),
+                Paragraph("<b>Mastery</b>", ParagraphStyle("th", fontName=bold_font, fontSize=8, textColor=TEXT_MUTED, alignment=1)),
+                Paragraph("<b>Level</b>", ParagraphStyle("th", fontName=bold_font, fontSize=8, textColor=TEXT_MUTED, alignment=1)),
+            ]
+            topic_rows_data = [topic_header] + [
+                [
+                    Paragraph(m["topic"], ParagraphStyle("td", fontName=body_font, fontSize=8.5)),
+                    Paragraph(f"<b>{m['mastery']:.0%}</b>", ParagraphStyle("td", fontName=bold_font, fontSize=8.5, alignment=1, textColor=_mc(m["mastery"]))),
+                    Paragraph(m["level"], ParagraphStyle("td", fontName=body_font, fontSize=8, alignment=1, textColor=TEXT_MUTED)),
+                ]
+                for m in mastery_list
+            ]
+            topic_tbl = Table(topic_rows_data, colWidths=[W * 0.55, W * 0.22, W * 0.23])
+            topic_tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f4")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, BORDER),
+                ("BOX", (0, 0), (-1, -1), 0.25, BORDER),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            card_items.append(topic_tbl)
+
+        card_wrapper = Table([[item] for item in card_items], colWidths=[W - 20])
+        card_wrapper.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(KeepTogether([card_wrapper, Spacer(1, 8)]))
+
+    # Footer
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(
+        "OptiLearn &nbsp;|&nbsp; Gemma 4 Good Hackathon 2026 &nbsp;|&nbsp; Opti5 Labs",
+        ParagraphStyle("footer", fontName=body_font, fontSize=7.5, textColor=TEXT_MUTED, alignment=1,
+                       borderPad=0, borderWidth=0.5, borderColor=BORDER, spaceBefore=6),
+    ))
+
+    try:
+        doc.build(story)
+    except Exception as exc:
+        logger.error("reportlab PDF build error: {}", exc)
+        raise HTTPException(status_code=500, detail=f"PDF could not be created: {exc}")
+
+    pdf_bytes = buf.getvalue()
 
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"OptiLearn_Report_{week_label}").strip("._")
     filename = f"{safe}.pdf"
