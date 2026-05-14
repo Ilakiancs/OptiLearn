@@ -31,7 +31,9 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.grades import normalize_grade_level
+from app.core.languages import language_display_name, language_output_issue, language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
+from app.core.text_formatting import normalize_ai_output
 from app.services import db, faiss_store, generated_cache, job_manager
 from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, has_26b_api_key, is_force_offline, route_generate_with_fallback
 from app.services.whisper_client import (
@@ -175,7 +177,11 @@ _LANG_NAME: dict[str, str] = {}
 def _lang_name(code: str) -> str:
     if not _LANG_NAME:
         _LANG_NAME.update(_build_lang_map())
-    return _LANG_NAME.get(code, code)
+    return _LANG_NAME.get(code, language_display_name(code))
+
+
+def _lang_prompt(code: str) -> str:
+    return language_prompt_label(code)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -203,7 +209,11 @@ You translate teacher transcripts for displaced students.
 Silently repair obvious speech-to-text errors using classroom context.
 Keep math/science names, numbers, and examples accurate.
 Return only the final student-facing translation.
-Do not include reasoning, labels, bullets, or explanations unless they are in the lesson text.
+This is a strict conceptual translation task only.
+Translate every meaningful idea in order. Do not omit, condense, reorder, or add lesson content.
+Do not summarize, explain, add notes, add examples, add labels, or add bullets unless they are in the lesson text.
+Do not include reasoning or commentary.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}.
 Use supportive wording and avoid discouraging labels.
 """
 
@@ -212,9 +222,12 @@ Target language: {lang}
 Student level: grade {grade}, age {age}
 Useful classroom terms:
 {glossary}
+{quality_note}
 
 Clean up the transcript just enough to make the teacher's meaning clear, then translate it.
 If a phrase is incomplete, connect it naturally to the surrounding idea without inventing new lesson content.
+Preserve names, numbers, units, formulas, examples, and step-by-step order exactly.
+Translate the transcript once only. Do not add summaries, study notes, or conclusions.
 Return only the translated classroom script.
 
 Transcript:
@@ -234,6 +247,16 @@ def _translation_glossary(target_language: str) -> str:
             "- part = කොටස\n"
             "- one half = අඩක් / දෙකෙන් එක\n"
             "- two over four = හතරෙන් දෙක"
+        ),
+        "ps": (
+            "- water = \u0627\u0648\u0628\u0647\n"
+            "- sunlight = \u062f \u0644\u0645\u0631 \u0631\u06bc\u0627\n"
+            "- plant / plants = \u0628\u0648\u067c\u06cc / \u0628\u0648\u067c\u064a\n"
+            "- grow = \u0648\u062f\u0647 \u06a9\u0648\u0644\n"
+            "- oxygen = \u0627\u06a9\u0633\u06cc\u062c\u0646\n"
+            "- gas = \u06ab\u0627\u0632\n"
+            "- need = \u0627\u0693\u062a\u06cc\u0627 \u0644\u0631\u064a\n"
+            "- learn = \u0632\u062f\u0647 \u06a9\u0648\u0644"
         ),
     }
     return glossaries.get(target_language, "- Keep subject terms and numbers precise.")
@@ -272,7 +295,15 @@ def _clean_model_text(text: str) -> str:
     text = re.sub(r"<\|channel>thought.*?<channel\|>", "", text or "", flags=re.DOTALL)
     text = re.sub(r"<\|.*?\|>", "", text)
     text = text.replace("TRANSLATED:", "").replace("Translation:", "").strip()
-    return text.strip(" \n\r\t\"'")
+    return normalize_ai_output(text)
+
+
+def _normalize_translated_chunk(chunk: dict) -> dict:
+    cleaned = dict(chunk)
+    translated = cleaned.get("translated")
+    if isinstance(translated, str):
+        cleaned["translated"] = normalize_ai_output(translated)
+    return cleaned
 
 
 async def _call_ollama_translation(
@@ -283,7 +314,7 @@ async def _call_ollama_translation(
     *,
     num_predict: int,
 ) -> str:
-    lang_display = _lang_name(target_language)
+    lang_display = _lang_prompt(target_language)
     payload = {
         "model": settings.OLLAMA_MODEL_FAST,
         "system": _TRANSLATE_SYSTEM_PROMPT,
@@ -292,6 +323,7 @@ async def _call_ollama_translation(
             grade=grade_level,
             age=age,
             glossary=_translation_glossary(target_language),
+            quality_note="",
             transcript=transcript,
         ),
         "stream": False,
@@ -341,13 +373,15 @@ async def _translate_text(
     if not transcript.strip():
         return "", False
     try:
-        for num_predict in (768, 1280):
-            lang_display = _lang_name(target_language)
+        quality_note = ""
+        for num_predict in (768, 1280, 1280):
+            lang_display = _lang_prompt(target_language)
             prompt = _TRANSLATE_TEXT_PROMPT.format(
                 lang=lang_display,
                 grade=grade_level,
                 age=age,
                 glossary=_translation_glossary(target_language),
+                quality_note=quality_note,
                 transcript=transcript,
             )
             parts: list[str] = []
@@ -375,6 +409,20 @@ async def _translate_text(
                 parts.append(token)
             translation = _clean_model_text("".join(parts))
             if translation:
+                issue = language_output_issue(translation, target_language)
+                if issue:
+                    logger.warning(
+                        "Translation quality retry lang={} issue={} output={!r}",
+                        target_language,
+                        issue,
+                        translation[:120],
+                    )
+                    quality_note = (
+                        f"Quality correction: the previous output was rejected because {issue}. "
+                        f"Rewrite the translation entirely in {lang_display}. "
+                        "Do not use any unrelated language or script. Preserve formulas such as H2O and O2 as plain text.\n"
+                    )
+                    continue
                 logger.info(
                     "Translated transcript: original={!r} translated={!r}",
                     transcript[:50],
@@ -399,34 +447,11 @@ async def _translate_text_sse(
 ) -> AsyncGenerator[tuple[str, str], None]:
     if not transcript.strip():
         return
-    lang_display = _lang_name(target_language)
-    prompt = _TRANSLATE_TEXT_PROMPT.format(
-        lang=lang_display,
-        grade=grade_level,
-        age=age,
-        glossary=_translation_glossary(target_language),
-        transcript=transcript,
-    )
-    async for token in route_generate_with_fallback(
-        prompt,
-        "TRANSLATION",
-        system_prompt=f"{OPTILEARN_26B_SYSTEM_PROMPT}\n\n{_TRANSLATE_SYSTEM_PROMPT}",
-        enable_thinking=False,
-        ollama_options={
-            "temperature": 0.15,
-            "top_p": 0.85,
-            "top_k": 32,
-            "num_ctx": 2048,
-            "num_predict": 1280,
-        },
-        lane="live_translation",
-        feature="translate.chunk_stream",
-        profile="translation_fast",
-    ):
-        if token == MODEL_SWITCH_TOKEN:
-            yield "model_switch", ""
-        else:
-            yield "token", token
+    translated, switched = await _translate_text(transcript, target_language, grade_level, age)
+    if switched:
+        yield "model_switch", ""
+    if translated:
+        yield "token", translated
 
 
 def _sort_chunks(chunks: list[dict]) -> list[dict]:
@@ -445,7 +470,13 @@ def _full_original_text(chunks: list[dict]) -> str:
 
 
 def _full_translated_text(chunks: list[dict]) -> str:
-    return "\n\n".join(c.get("translated", "").strip() for c in _sort_chunks(chunks) if c.get("translated", "").strip())
+    return normalize_ai_output(
+        "\n\n".join(
+            c.get("translated", "").strip()
+            for c in _sort_chunks(chunks)
+            if c.get("translated", "").strip()
+        )
+    )
 
 
 def _build_translation_groups(chunks: list[dict]) -> list[dict]:
@@ -479,7 +510,7 @@ async def _gemini_audio_chunk(
         from google import genai
         from google.genai import types as genai_types
 
-        lang_display = _lang_name(target_language)
+        lang_display = _lang_prompt(target_language)
         client = genai.Client(api_key=settings.GEMMA_API_KEY)
         contents = [
             genai_types.Content(role="user", parts=[
@@ -517,8 +548,11 @@ You are OptiLearn's study note writer.
 Return only complete study notes in the requested language.
 Cover every main lesson idea from beginning to end.
 If the transcript is noisy, repair obvious speech-to-text issues using classroom context.
+Base the notes only on the transcript. Do not invent facts, examples, dates, formulas, or conclusions.
+Preserve names, numbers, units, formulas, and cause/effect relationships accurately.
 Use ## headings, short bullet points, and an In summary: section.
 Never include hidden reasoning or commentary.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}.
 Use supportive wording and avoid discouraging labels.
 """
 
@@ -612,7 +646,7 @@ async def _generate_notes(
             logger.error("generate_notes: student {} not found", student_id)
             return
 
-        lang_name = _lang_name(target_language)
+        lang_name = _lang_prompt(target_language)
         prompt = (
             f"You are creating study notes for {student['name']}, "
             f"age {student.get('age', 10)}, grade {student.get('grade_level', 1)}.\n"
@@ -620,11 +654,14 @@ async def _generate_notes(
             "- Use ## headings for each concept covered in the lesson\n"
             "- Cover the whole lesson transcript from beginning to end\n"
             "- If the transcript is noisy, repair obvious speech-to-text issues using classroom context\n"
+            "- Base notes only on the transcript; do not invent facts, examples, dates, formulas, or conclusions\n"
+            "- Preserve names, numbers, units, formulas, and cause/effect relationships accurately\n"
             "- Bullet points for key facts under each heading\n"
             "- End with \"In summary:\" section with 3-5 key takeaways\n"
             "- Grade-appropriate vocabulary\n"
             "- Warm, encouraging tone\n"
-            "- Use supportive wording and avoid discouraging labels\n\n"
+            "- Use supportive wording and avoid discouraging labels\n"
+            "- Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}\n\n"
             f"Lesson transcript:\n{full_transcript_translated[:10000]}"
         )
 
@@ -637,11 +674,11 @@ async def _generate_notes(
                 "grade": student.get("grade_level", 1),
                 "source_hash": source_hash,
             },
-            prompt_version="translate-notes-v1",
+            prompt_version="translate-notes-v3",
         )
         cached_notes = await generated_cache.get_text(cache_key, "class.notes")
         if cached_notes:
-            notes = cached_notes
+            notes = normalize_ai_output(cached_notes)
         else:
             num_ctx = 8192
             notes = await _ollama_generate_notes(prompt, num_ctx)
@@ -653,6 +690,7 @@ async def _generate_notes(
                 logger.warning("generate_notes: expanding thin notes for session {}", session_id)
                 coverage_notes = _fallback_notes(full_transcript_translated)
                 notes = f"{notes.strip()}\n\n{coverage_notes}".strip()
+            notes = normalize_ai_output(notes)
 
             await generated_cache.set_text(
                 cache_key,
@@ -768,6 +806,7 @@ async def translate_text_chunk(body: TextChunkRequest) -> dict:
     translated, model_switched = await _translate_text(original, body.target_language, grade, age)
     if not translated:
         translated = original
+    translated = normalize_ai_output(translated)
 
     return {
         "index": body.index,
@@ -879,6 +918,7 @@ async def translate_chunk(
             })
 
         translated = _clean_model_text("".join(translated_parts)) or original_text
+        translated = normalize_ai_output(translated)
         chunk_data["translated"] = translated
         try:
             async with aiosqlite.connect(settings.DB_PATH) as conn:
@@ -939,7 +979,7 @@ async def translate_finalize(body: FinalizeRequest) -> StreamingResponse:
             yield _sse({"type": "error", "message": "Session not found."})
             return
 
-        chunks = _sort_chunks(json.loads(row["translated_chunks"] or "[]"))
+        chunks = [_normalize_translated_chunk(c) for c in _sort_chunks(json.loads(row["translated_chunks"] or "[]"))]
         groups = _build_translation_groups(chunks)
         full_original = _full_original_text(chunks)
         if not groups:
@@ -977,10 +1017,11 @@ async def translate_finalize(body: FinalizeRequest) -> StreamingResponse:
                         continue
                     part, _ = await _translate_text(source_text, body.target_language, grade, age)
                     parts.append(part or source_text)
-                translated = "\n".join(parts).strip()
+                translated = normalize_ai_output("\n".join(parts))
 
             if not translated:
                 translated = original
+            translated = normalize_ai_output(translated)
 
             first_chunk = group["chunks"][0]
             translated_chunk = {
@@ -1052,9 +1093,9 @@ async def translate_end(body: EndRequest) -> dict:
         raise HTTPException(status_code=404, detail="Session not found.")
 
     if body.translated_chunks is not None:
-        chunks = _sort_chunks(body.translated_chunks)
+        chunks = [_normalize_translated_chunk(c) for c in _sort_chunks(body.translated_chunks)]
     else:
-        chunks = _sort_chunks(json.loads(row["translated_chunks"] or "[]"))
+        chunks = [_normalize_translated_chunk(c) for c in _sort_chunks(json.loads(row["translated_chunks"] or "[]"))]
     full_translated = _full_translated_text(chunks)
     full_original = (body.raw_transcript or "").strip() or _full_original_text(chunks)
 
@@ -1113,7 +1154,13 @@ async def translate_sessions(student_id: str) -> list[dict]:
             (student_id,),
         )
         rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    result: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["notes_preview"] = normalize_ai_output(item.get("notes_preview") or "")
+        item["transcript_preview"] = normalize_ai_output(item.get("transcript_preview") or "")
+        result.append(item)
+    return result
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1132,7 +1179,7 @@ async def translate_notes_stream(session_id: str) -> StreamingResponse:
             row = await cur.fetchone()
 
         if row and row["notes_text"]:
-            notes = row["notes_text"]
+            notes = normalize_ai_output(row["notes_text"])
         else:
             # Wait for background task to complete
             if session_id not in _notes_ready:
@@ -1153,7 +1200,7 @@ async def translate_notes_stream(session_id: str) -> StreamingResponse:
             if not row or not row["notes_text"]:
                 yield _sse({"type": "error", "message": "Notes unavailable."})
                 return
-            notes = row["notes_text"]
+            notes = normalize_ai_output(row["notes_text"])
 
         # Stream word-by-word
         words = notes.split(" ")
@@ -1189,8 +1236,13 @@ async def translate_session(session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Session not found.")
 
     data = dict(row)
+    if data.get("notes_text"):
+        data["notes_text"] = normalize_ai_output(data["notes_text"])
     try:
-        data["translated_chunks"] = json.loads(data.get("translated_chunks") or "[]")
+        data["translated_chunks"] = [
+            _normalize_translated_chunk(c)
+            for c in json.loads(data.get("translated_chunks") or "[]")
+        ]
     except Exception:
         data["translated_chunks"] = []
     return data
@@ -1259,6 +1311,8 @@ def _render_notes_pdf(
     student: dict,
 ) -> Response:
     import io as _io
+
+    content_text = normalize_ai_output(content_text)
 
     try:
         from reportlab.lib.colors import HexColor, white
@@ -1374,7 +1428,7 @@ def _render_notes_pdf(
             elif line.startswith("# "):
                 story.append(Paragraph(html.escape(line[2:]), heading_style))
             elif line.startswith("- ") or line.startswith("* "):
-                story.append(Paragraph(f"• {html.escape(line[2:])}", bullet_style))
+                story.append(Paragraph(f"&#8226; {html.escape(line[2:])}", bullet_style))
             else:
                 story.append(Paragraph(html.escape(line), body_style))
     else:

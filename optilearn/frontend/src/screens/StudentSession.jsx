@@ -285,13 +285,7 @@ export default function StudentSession() {
     setQuizIndex(0)
     setCurrentTopic(null)
     setUiMessage('')
-    setMessages([
-      {
-        role: 'assistant',
-        content: `Hi ${studentRecord?.name || 'there'}! What would you like to learn today?`,
-        isStreaming: false,
-      },
-    ])
+    setMessages([])
   }
 
   useEffect(() => {
@@ -465,7 +459,7 @@ export default function StudentSession() {
         .map(msg => ({ role: msg.role, content: msg.content || '', isStreaming: false }))
       setSessionId(chat.id)
       setMode('chat')
-      setMessages(restored.length ? restored : [{ role: 'assistant', content: 'This saved chat is ready to continue.', isStreaming: false }])
+      setMessages(restored)
     } catch (err) {
       setUiMessage(err.message || 'This saved chat could not be opened.')
     } finally {

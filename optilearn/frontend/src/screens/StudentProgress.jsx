@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getStudentProgress, exportStudentWithPin, deleteStudent } from '../api/client'
 import { FileZip, DownloadSimple, WarningCircle } from '@phosphor-icons/react'
 import MasteryBadge from '../components/MasteryBadge'
+import FormattedText from '../components/FormattedText'
 import Spinner from '../components/Spinner'
 
 const BASE = window.location.origin
@@ -345,11 +346,11 @@ export default function StudentProgress() {
               padding: '16px',
               fontSize: '0.9rem',
               lineHeight: 1.7,
-              whiteSpace: 'pre-wrap',
+              whiteSpace: 'normal',
               color: 'var(--color-text)',
               minHeight: 80,
             }}>
-              {reportText}
+              <FormattedText text={reportText} fontSize={14} headingSize={16} color="var(--color-text)" />
               {streaming && <span style={{ display: 'inline-flex', marginLeft: 8, verticalAlign: 'middle' }}><Spinner size={14} /></span>}
             </div>
           )}

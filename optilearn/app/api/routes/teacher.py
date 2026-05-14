@@ -27,7 +27,9 @@ from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from app.core.languages import language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
+from app.core.text_formatting import normalize_ai_output
 from app.api.routes.auth import get_current_admin, get_current_teacher
 from app.models.schemas import TeacherChatRequest
 from app.services import db, generated_cache
@@ -159,8 +161,9 @@ async def teacher_report(
 
     # ── Settings + data ─────────────────────────────────────────
     settings_data = await db.get_teacher_settings()
-    master_lang_name = settings_data.get("master_language_name", "English")
     master_lang_code = settings_data.get("master_language", "en")
+    master_lang_name = settings_data.get("master_language_name", "English")
+    master_lang_label = language_prompt_label(master_lang_code)
     # master_language is intentionally generic so report localization can grow into a classroom-wide System Language layer without schema changes.
 
     students = await db.get_teacher_students()
@@ -173,14 +176,15 @@ async def teacher_report(
     try:
         summary_system = (
             f"You write concise educational progress summaries. "
-            f"You MUST write entirely in {master_lang_name}. No other language."
+            f"You MUST write entirely in {master_lang_label}. No other language. "
+            f"Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}."
         )
         summary_prompt = (
-            f"Write 3 warm, encouraging sentences in {master_lang_name} summarising a refugee classroom's "
+            f"Write 3 warm, encouraging sentences in {master_lang_label} summarising a refugee classroom's "
             f"weekly progress for their teacher. "
             f"Class: {total} students, {alert_count} need attention, {avg_mastery:.0%} average mastery. "
             f"Highlight what is positive and give one gentle actionable suggestion. "
-            f"Write ONLY in {master_lang_name}."
+            f"Write ONLY in {master_lang_label}."
         )
         summary_hash = generated_cache.hash_text(
             json.dumps(
@@ -196,11 +200,11 @@ async def teacher_report(
         cache_key = generated_cache.make_cache_key(
             "teacher.class_summary",
             {"summary_hash": summary_hash},
-            prompt_version="teacher-summary-v1",
+            prompt_version="teacher-summary-v2",
         )
         cached_summary = await generated_cache.get_text(cache_key, "teacher.class_summary")
         if cached_summary:
-            ai_summary = cached_summary
+            ai_summary = normalize_ai_output(cached_summary)
         else:
             tokens: list[str] = []
             async for token in route_generate_with_fallback(
@@ -213,7 +217,7 @@ async def teacher_report(
             ):
                 if token != MODEL_SWITCH_TOKEN:
                     tokens.append(token)
-            ai_summary = "".join(tokens).strip()
+            ai_summary = normalize_ai_output("".join(tokens))
             if ai_summary:
                 await generated_cache.set_text(
                     cache_key,
@@ -607,16 +611,18 @@ async def teacher_chat(
             settings_data = await db.get_teacher_settings()
             master_lang_name = settings_data.get("master_language_name", "English")
             master_lang_code = settings_data.get("master_language", "en")
+            master_lang_label = language_prompt_label(master_lang_code)
 
             if master_lang_code != "en":
                 lang_rule = (
-                    f"LANGUAGE RULE — MANDATORY: You MUST respond entirely in {master_lang_name}. "
+                    f"LANGUAGE RULE — MANDATORY: You MUST respond entirely in {master_lang_label}. "
                     f"Do not use English at all. Even if the teacher writes in English, "
-                    f"your reply must be in {master_lang_name} only. "
-                    f"Translate everything to {master_lang_name}.\n\n"
+                    f"your reply must be in {master_lang_label} only. "
+                    f"Translate everything to {master_lang_label}. "
+                    f"Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}.\n\n"
                 )
             else:
-                lang_rule = ""
+                lang_rule = "Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}.\n\n"
 
             recent = [
                 f"{m.get('role', 'user').title()}: {str(m.get('content', ''))}"

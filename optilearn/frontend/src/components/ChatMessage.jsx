@@ -1,4 +1,5 @@
 import { CheckCircle, ImageSquare } from '@phosphor-icons/react'
+import FormattedText from './FormattedText'
 import LoadingDots from './LoadingDots'
 
 const cursorStyle = `
@@ -40,7 +41,7 @@ export default function ChatMessage({ role, content, isStreaming, attachment }) 
           fontSize: '1rem',
           lineHeight: 1.6,
           wordBreak: 'break-word',
-          whiteSpace: 'pre-wrap',
+          whiteSpace: isUser ? 'pre-wrap' : 'normal',
         }}>
           {attachment?.type === 'image' && (
             <div style={{
@@ -64,7 +65,7 @@ export default function ChatMessage({ role, content, isStreaming, attachment }) 
           {isStreaming && !content
             ? <LoadingDots />
             : <>
-                {content}
+                {isUser ? content : <FormattedText text={content} fontSize={16} headingSize={18} color="var(--color-text)" />}
                 {isStreaming && <span className="chat-cursor" />}
               </>
           }
