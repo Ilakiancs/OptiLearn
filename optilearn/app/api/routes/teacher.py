@@ -161,7 +161,7 @@ async def teacher_report(
     settings_data = await db.get_teacher_settings()
     master_lang_name = settings_data.get("master_language_name", "English")
     master_lang_code = settings_data.get("master_language", "en")
-    # FUTURE: extend master_language to control the entire LMS UI language
+    # master_language is intentionally generic so report localization can grow into a classroom-wide System Language layer without schema changes.
 
     students = await db.get_teacher_students()
     total = len(students)

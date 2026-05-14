@@ -24,6 +24,7 @@ import {
   startSession,
   submitQuiz,
   uploadImage,
+  warmupTutor,
 } from '../api/client'
 import PersonaPickerPopup from '../components/PersonaPickerPopup'
 import PersonaVoiceChat from '../components/PersonaVoiceChat'
@@ -189,6 +190,7 @@ export default function StudentSession() {
   const [savedChatsLoading, setSavedChatsLoading] = useState(false)
   const [openingChatId, setOpeningChatId] = useState(null)
   const [uiMessage, setUiMessage] = useState('')
+  const [tutorWarmup, setTutorWarmup] = useState({ ready: false, loading: true, error: '', model: '' })
 
   const [isOnline, setIsOnline] = useState(false)
   const [showPersonaPicker, setShowPersonaPicker] = useState(false)
@@ -219,6 +221,42 @@ export default function StudentSession() {
     refreshOnlineStatus()
     window.addEventListener('optilearn:model-switch', refreshOnlineStatus)
     return () => window.removeEventListener('optilearn:model-switch', refreshOnlineStatus)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    let timer = null
+    let attempts = 0
+
+    async function pollWarmup() {
+      try {
+        const status = await warmupTutor()
+        if (!active) return
+        setTutorWarmup(status)
+        if (status.ready) return
+        if (status.error) {
+          setUiMessage('The AI tutor is still getting ready. You can try again in a moment.')
+          return
+        }
+        attempts += 1
+        if (attempts >= 30) {
+          setTutorWarmup(prev => ({ ...prev, loading: false, error: 'Tutor warmup is taking longer than expected.' }))
+          setUiMessage('The AI tutor is taking longer than expected. You can try sending in a moment.')
+          return
+        }
+        timer = window.setTimeout(pollWarmup, 1500)
+      } catch (err) {
+        if (!active) return
+        setTutorWarmup({ ready: false, loading: false, error: err.message || 'Tutor warmup could not start.', model: '' })
+        setUiMessage('The AI tutor is still getting ready. You can try again in a moment.')
+      }
+    }
+
+    pollWarmup()
+    return () => {
+      active = false
+      if (timer) window.clearTimeout(timer)
+    }
   }, [])
 
   async function loadSavedChats() {
@@ -368,7 +406,7 @@ export default function StudentSession() {
 
   function handleSend() {
     const text = inputText.trim()
-    if ((!text && !imageB64) || isThinking) return
+    if ((!text && !imageB64) || isThinking || tutorPreparing) return
     const img = imageB64
     const fallbackText = 'Please help me understand this image.'
     setInputText('')
@@ -497,6 +535,12 @@ export default function StudentSession() {
     : [{ code: conversationLanguage || 'en', name: (conversationLanguage || 'en').toUpperCase(), flag: '' }]
   const languageName = languageOptions.find(lang => lang.code === conversationLanguage)?.name || conversationLanguage.toUpperCase()
   const topMastery = student?.topic_mastery?.[0]
+  const tutorPreparing = tutorWarmup.loading && !tutorWarmup.ready && !tutorWarmup.error
+  const tutorCanSend = tutorWarmup.ready || !!tutorWarmup.error
+  const warmupUiMessage = tutorWarmup.error && !tutorWarmup.ready
+    ? 'The AI tutor is still getting ready. You can try again in a moment.'
+    : ''
+  const visibleUiMessage = uiMessage || warmupUiMessage
 
   function renderChatPanel() {
     return (
@@ -558,7 +602,7 @@ export default function StudentSession() {
           </div>
         )}
 
-        {uiMessage && (
+        {visibleUiMessage && (
           <div style={{
             margin: '12px 16px 0',
             display: 'flex',
@@ -572,11 +616,29 @@ export default function StudentSession() {
             fontSize: '0.9rem',
           }}>
             <WarningCircle size={18} weight="duotone" />
-            <span>{uiMessage}</span>
+            <span>{visibleUiMessage}</span>
           </div>
         )}
 
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 12px' }}>
+          {tutorPreparing && (
+            <div style={{
+              margin: '0 4px 12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              background: 'var(--surface-soft)',
+              color: 'var(--text-muted)',
+              padding: '10px 12px',
+              fontSize: '0.9rem',
+              fontWeight: 700,
+            }}>
+              <Spinner size={16} color="var(--accent)" />
+              <span>Preparing AI tutor...</span>
+            </div>
+          )}
           {messages.map((msg, i) => (
             <ChatMessage key={i} role={msg.role} content={msg.content} attachment={msg.attachment} isStreaming={msg.isStreaming} />
           ))}
@@ -653,10 +715,10 @@ export default function StudentSession() {
             onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Ask anything..."
+            placeholder={tutorPreparing ? 'Preparing AI tutor...' : 'Ask anything...'}
             className="tutor-input"
           />
-          <button type="button" onClick={handleSend} disabled={isThinking || isUploadingImage || (!inputText.trim() && !imageB64)} className="tutor-send" aria-label="Send">
+          <button type="button" onClick={handleSend} disabled={!tutorCanSend || isThinking || isUploadingImage || (!inputText.trim() && !imageB64)} className="tutor-send" aria-label="Send">
             {isThinking ? <Spinner size={22} color="#fff" /> : <PaperPlaneTilt size={22} weight="bold" />}
           </button>
         </div>

@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.prompts import build_system_prompt
 from app.models.schemas import ChatRequest
 from app.services import context_prep, db
-from app.services.model_client import ToolCallEvent, model_client
+from app.services.model_client import ToolCallEvent, model_client, start_tutor_model_warmup
 from app.tools.agent_tools import TOOL_SCHEMAS, detect_language, generate_quiz, retrieve_curriculum, update_progress
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -99,6 +99,12 @@ async def upload_image(file: UploadFile = File(...)) -> dict:
 
     logger.info("Image uploaded and encoded ({} bytes b64)", len(encoded))
     return {"image_b64": encoded}
+
+
+@router.post("/tutor/warmup")
+async def tutor_warmup() -> dict:
+    """Start the local tutor model warmup without blocking the student UI."""
+    return start_tutor_model_warmup()
 
 
 @router.post("/chat")

@@ -113,6 +113,12 @@ _OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 _API_MAX_RETRIES = 3
 _API_RETRY_DELAY = (1.5, 3.0, 6.0)
 
+_tutor_model_ready = False
+_tutor_model_loading = False
+_tutor_model_error = ""
+_tutor_warmup_lock = asyncio.Lock()
+_tutor_warmup_task: asyncio.Task | None = None
+
 
 # ──────────────────────────────────────────────────────────────
 # Friendly error shown to users when Ollama is not reachable
@@ -214,6 +220,72 @@ async def ensure_ollama_model(model_name: str) -> bool:
         return await pull_model(model_name)
     logger.info("Model {} not in Ollama — skipping pull (online/auto mode active)", model_name)
     return False
+
+
+def get_tutor_model_status() -> dict[str, Any]:
+    return {
+        "ready": _tutor_model_ready,
+        "loading": _tutor_model_loading,
+        "error": _tutor_model_error,
+        "model": settings.OLLAMA_TUTOR_MODEL,
+    }
+
+
+def start_tutor_model_warmup() -> dict[str, Any]:
+    """Start tutor model warmup in the current event loop if needed."""
+    global _tutor_warmup_task  # noqa: PLW0603
+    if _tutor_model_ready:
+        return get_tutor_model_status()
+    if _tutor_warmup_task is None or _tutor_warmup_task.done():
+        _tutor_warmup_task = asyncio.create_task(warmup_tutor_model())
+    status = get_tutor_model_status()
+    return {**status, "loading": True}
+
+
+async def warmup_tutor_model() -> dict[str, Any]:
+    """Load the local tutor model into Ollama memory before the first student chat."""
+    global _tutor_model_ready, _tutor_model_loading, _tutor_model_error  # noqa: PLW0603
+    if _tutor_model_ready:
+        return get_tutor_model_status()
+
+    async with _tutor_warmup_lock:
+        if _tutor_model_ready:
+            return get_tutor_model_status()
+        _tutor_model_loading = True
+        _tutor_model_error = ""
+        model_profile = MODEL_PROFILES["tutor_fast"]
+        model_name = _profile_local_model(model_profile)
+        try:
+            present = await ensure_ollama_model(model_name)
+            if not present:
+                raise RuntimeError(f"Tutor model is not available in Ollama: {model_name}")
+
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": "You are OptiLearn. Reply with one short word."},
+                    {"role": "user", "content": "ready"},
+                ],
+                "stream": False,
+                "options": {"num_ctx": 1024, "num_predict": 1, "temperature": 0},
+                "keep_alive": model_profile.keep_alive,
+            }
+            if model_profile.think is not None:
+                payload["think"] = model_profile.think
+
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
+            ) as client:
+                response = await client.post(f"{settings.OLLAMA_HOST}/api/chat", json=payload)
+            response.raise_for_status()
+            _tutor_model_ready = True
+            logger.info("Tutor model warmup ready: {}", model_name)
+        except Exception as exc:
+            _tutor_model_error = str(exc) or repr(exc)
+            logger.warning("Tutor model warmup skipped: {}", _tutor_model_error)
+        finally:
+            _tutor_model_loading = False
+    return get_tutor_model_status()
 
 
 def load_user_network_settings() -> None:

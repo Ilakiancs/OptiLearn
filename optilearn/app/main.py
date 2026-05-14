@@ -30,7 +30,7 @@ from app.services import db, faiss_store, job_manager, model_scheduler, telemetr
 from app.services.client_tracker import record_client
 from app.services.dns_server import start_captive_portal, stop_captive_portal
 from app.services.mdns_server import start_mdns, stop_mdns
-from app.services.model_client import ensure_ollama_model, get_model_profiles, get_network_mode, get_network_status, load_user_network_settings
+from app.services.model_client import get_model_profiles, get_network_mode, get_network_status, get_tutor_model_status, load_user_network_settings, warmup_tutor_model
 from app.services.whisper_client import get_transcriber_status
 from app.services.network import get_cached_hotspot_ip, get_server_url
 
@@ -238,14 +238,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             server_url,
         )
     start_mdns(port=settings.PORT)
-    # Warm live translation models first, then embeddings. Running FAISS model
-    # loading beside ASR made classroom startup painfully slow on teacher laptops.
+    # Warm the student tutor first, then live translation, then embeddings. Running
+    # FAISS model loading beside ASR made classroom startup painfully slow on teacher laptops.
     async def _warmup_background_models() -> None:
-        # Check tutor model presence; pull only if offline mode requires it
         try:
-            await ensure_ollama_model(settings.OLLAMA_TUTOR_MODEL)
+            await warmup_tutor_model()
         except Exception as exc:
-            logger.warning("Tutor model check skipped: {}", exc)
+            logger.warning("Tutor model warmup skipped: {}", exc)
         try:
             await translate_routes.warmup_live_translation_models()
         except Exception as exc:
@@ -377,6 +376,7 @@ async def health() -> dict:
         "tts": tts_client.get_tts_status(),
         "use_local_ollama": not network_status["use_26b"],
         "tutor_model_present": tutor_model_present,
+        "tutor_model": get_tutor_model_status(),
         "e4b_available": e4b_available,
         "active_model": settings.OLLAMA_MODEL_FAST,
         "model_profiles": get_model_profiles(),

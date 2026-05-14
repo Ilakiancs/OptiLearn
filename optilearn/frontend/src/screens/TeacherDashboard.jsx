@@ -1298,7 +1298,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   // ── Calendar modal ──
   const [calendarOpen, setCalendarOpen] = useState(false)
 
-  // ── Language toggle ──
+  // ── Report language setting; shares the platform language catalog for future System Language expansion ──
   const { data: teacherSettings } = useQuery({ queryKey: ['teacher-settings'], queryFn: getTeacherSettings, staleTime: 60000 })
   const [masterLang, setMasterLang] = useState('en')
   const [masterLangName, setMasterLangName] = useState('English')

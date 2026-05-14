@@ -227,6 +227,10 @@ export function getHealth() {
   return request('/api/health')
 }
 
+export function warmupTutor() {
+  return request('/api/tutor/warmup', { method: 'POST' })
+}
+
 export function getPerformanceDiagnostics(limit = 100) {
   return request(`/api/diagnostics/performance?limit=${encodeURIComponent(limit)}`)
 }
