@@ -305,17 +305,36 @@ export function listStudentQuizzes(studentId) {
   return request(`/api/student/quiz?student_id=${encodeURIComponent(studentId)}`)
 }
 
-export async function downloadWeeklyReport(week) {
-  const path = `/api/teacher/report${week ? `?week=${week}` : ''}`
-  const blob = await requestBlob(path)
+export async function saveBlobAsPdf(blob, filename) {
+  if (window.pywebview?.api?.save_file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1]
+        window.pywebview.api.save_file(filename, base64)
+          .then(result => resolve(result || { ok: true }))
+          .catch(reject)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `OptiLearn_Report_${week || 'current'}.pdf`
+  a.download = filename
+  a.style.display = 'none'
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 30000)
+  return { ok: true }
+}
+
+export async function downloadWeeklyReport(week) {
+  const path = `/api/teacher/report${week ? `?week=${week}` : ''}`
+  const blob = await requestBlob(path)
+  await saveBlobAsPdf(blob, `OptiLearn_Report_${week || 'current'}.pdf`)
 }
 
 export async function requestFormData(path, form, options = {}) {
@@ -339,26 +358,12 @@ export async function requestFormData(path, form, options = {}) {
 
 export async function exportStudentArchive(studentId) {
   const blob = await requestBlob(`/api/students/${encodeURIComponent(studentId)}/export`)
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `optilearn_student_${studentId}.zip`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  await saveBlobAsPdf(blob, `optilearn_student_${studentId}.zip`)
 }
 
 export async function exportStudentWithPin(studentId, pin) {
   const blob = await requestBlob(`/api/students/${encodeURIComponent(studentId)}/export?pin=${encodeURIComponent(pin)}`)
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `optilearn_student_${studentId}.zip`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  await saveBlobAsPdf(blob, `optilearn_student_${studentId}.zip`)
 }
 
 export function deleteStudent(studentId) {

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Radio, StopCircle, Pause, Play, Copy, Users, CheckCircle, DownloadSimple as Download, FileText } from '@phosphor-icons/react'
 import {
   startLiveClass, pauseLiveClass, resumeLiveClass, endLiveClass,
-  getLiveClassStreamToken,
+  getLiveClassStreamToken, saveBlobAsPdf,
 } from '../api/client'
 import {
   LIVE_AUDIO_SAMPLE_RATE, startAudioCapture, stopAudioCapture, drainPcmToWavBlob,
@@ -240,18 +240,11 @@ export default function LiveClassTeacherPanel({ onEnd }) {
         return
       }
       const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const disp = r.headers.get('Content-Disposition') || ''
       const match = disp.match(/filename="?([^";]+)"?/)
-      a.download = match?.[1]?.trim() || 'lesson_transcript.pdf'
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
-      setTranscriptToast({ ok: true, msg: 'Transcript saved' })
+      const filename = match?.[1]?.trim() || 'lesson_transcript.pdf'
+      const result = await saveBlobAsPdf(blob, filename)
+      setTranscriptToast({ ok: true, msg: result?.path ? 'Saved to Downloads' : 'Transcript saved' })
       setTimeout(() => setTranscriptToast(null), 3000)
     } catch (_) {
       setTranscriptToast({ ok: false, msg: 'Download could not be completed. Please continue in a moment.' })

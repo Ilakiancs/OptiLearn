@@ -265,6 +265,32 @@ def _register_start_menu_shortcut(base_dir: str, ico_path: str, vbs_path: str) -
         pass
 
 
+class DesktopAPI:
+    """Python methods exposed to the webview via window.pywebview.api.*"""
+
+    def save_file(self, filename: str, base64_data: str) -> dict:
+        """Save a base64-encoded file to the user's Downloads folder."""
+        import base64 as _b64
+        import re as _re
+        downloads = os.path.join(os.path.expanduser('~'), 'Downloads')
+        os.makedirs(downloads, exist_ok=True)
+        safe = _re.sub(r'[^\w\s.\-]', '', filename).strip() or 'download.pdf'
+        dest = os.path.join(downloads, safe)
+        base_no_ext, ext = os.path.splitext(safe)
+        counter = 1
+        while os.path.exists(dest):
+            dest = os.path.join(downloads, f'{base_no_ext} ({counter}){ext}')
+            counter += 1
+        try:
+            with open(dest, 'wb') as f:
+                f.write(_b64.b64decode(base64_data))
+            _desktop_log(f'save_file: saved to {dest}')
+            return {'ok': True, 'path': dest}
+        except Exception as exc:
+            _desktop_log(f'save_file error: {exc}')
+            return {'ok': False, 'error': str(exc)}
+
+
 def main():
     import platform
     _desktop_log('importing pywebview')
@@ -300,6 +326,7 @@ def main():
         resizable=True,
         text_select=True,
         zoomable=True,
+        js_api=DesktopAPI(),
     )
     window.events.shown += lambda: _desktop_log('webview window shown')
     window.events.loaded += lambda: _desktop_log('webview content loaded event fired')

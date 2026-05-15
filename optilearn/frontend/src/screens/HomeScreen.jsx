@@ -4,6 +4,7 @@ import { CheckCircle, Eye, EyeSlash, LockKey, Student, UserCircle, UserPlus, War
 import { checkStudentUsername, feature1, getSetupRequired, loginStudent, loginTeacher, signupStudent, importStudentArchive } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import GetAppBanner from '../components/GetAppBanner'
+import LanguageSelect from '../components/LanguageSelect'
 
 const GRADES = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']
 
@@ -331,13 +332,12 @@ export default function HomeScreen() {
                     </select>
                   </Field>
                   <Field label="Language">
-                    <select style={inputStyle} value={signup.language} onChange={(e) => setSignup((f) => ({ ...f, language: e.target.value }))}>
-                      {languageOptions.map((language) => (
-                        <option key={language.code} value={language.code}>
-                          {language.flag ? `${language.flag} ` : ''}{language.name || language.label}
-                        </option>
-                      ))}
-                    </select>
+                    <LanguageSelect
+                      languages={languageOptions}
+                      value={signup.language}
+                      onChange={(e) => setSignup((f) => ({ ...f, language: e.target.value }))}
+                      style={inputStyle}
+                    />
                   </Field>
                 </div>
                 <Field label="PIN" hint="Choose 4 numbers you will remember">
