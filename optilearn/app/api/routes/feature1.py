@@ -454,123 +454,124 @@ _translation_cache: dict[str, object] = {}
 _translation_locks: dict[str, asyncio.Lock] = {}
 
 # Languages ordered by priority:
-# 1. English, Sinhala, Tamil (product defaults)
-# 2. Most-spoken refugee camp languages (UNHCR data)
-# 3. All other Gemma 4 supported languages alphabetically
+# 1. English (product default, group=top)
+# 2. Most-spoken refugee camp languages (UNHCR data, group=refugee)
+# 3. All other Gemma 4 supported languages alphabetically (group=other)
+#    — Sinhala and Tamil are here, sorted alphabetically
 LANGUAGES = [
-    # -- Product defaults --
-    {"code": "en",    "name": "English",               "flag": "GB"},
-    {"code": "si",    "name": "Sinhala",               "flag": "LK"},
-    {"code": "ta",    "name": "Tamil",                 "flag": "LK"},
+    # -- Product default --
+    {"code": "en",    "name": "English",               "flag": "GB",  "group": "top"},
     # -- Top refugee camp languages (UNHCR) --
-    {"code": "ar",    "name": "Arabic",                "flag": "SA"},
-    {"code": "fa",    "name": "Dari / Farsi",          "flag": "AF"},
-    {"code": "ps",    "name": "Pashto",                "flag": "AF"},
-    {"code": "sw",    "name": "Swahili",               "flag": "KE"},
-    {"code": "so",    "name": "Somali",                "flag": "SO"},
-    {"code": "rh",    "name": "Rohingya",              "flag": "MM"},
-    {"code": "fr",    "name": "French",                "flag": "FR"},
-    {"code": "tr",    "name": "Turkish",               "flag": "TR"},
-    {"code": "am",    "name": "Amharic",               "flag": "ET"},
-    {"code": "ti",    "name": "Tigrinya",              "flag": "ER"},
-    {"code": "ha",    "name": "Hausa",                 "flag": "NG"},
-    {"code": "yo",    "name": "Yoruba",                "flag": "NG"},
-    {"code": "ig",    "name": "Igbo",                  "flag": "NG"},
-    {"code": "ln",    "name": "Lingala",               "flag": "CD"},
-    {"code": "rn",    "name": "Kirundi",               "flag": "BI"},
-    {"code": "rw",    "name": "Kinyarwanda",           "flag": "RW"},
-    {"code": "ny",    "name": "Chichewa",              "flag": "MW"},
-    {"code": "zu",    "name": "Zulu",                  "flag": "ZA"},
-    {"code": "sn",    "name": "Shona",                 "flag": "ZW"},
-    {"code": "el",    "name": "Greek",                 "flag": "GR"},
-    {"code": "ur",    "name": "Urdu",                  "flag": "PK"},
-    {"code": "bn",    "name": "Bengali",               "flag": "BD"},
-    {"code": "hi",    "name": "Hindi",                 "flag": "IN"},
-    {"code": "ku",    "name": "Kurdish (Kurmanji)",    "flag": "IQ"},
-    {"code": "sd",    "name": "Sindhi",                "flag": "PK"},
-    {"code": "ne",    "name": "Nepali",                "flag": "NP"},
-    {"code": "my",    "name": "Burmese",               "flag": "MM"},
-    # -- All other Gemma 4 supported languages --
-    {"code": "af",    "name": "Afrikaans",             "flag": "ZA"},
-    {"code": "sq",    "name": "Albanian",              "flag": "AL"},
-    {"code": "hy",    "name": "Armenian",              "flag": "AM"},
-    {"code": "az",    "name": "Azerbaijani",           "flag": "AZ"},
-    {"code": "eu",    "name": "Basque",                "flag": "ES"},
-    {"code": "be",    "name": "Belarusian",            "flag": "BY"},
-    {"code": "bs",    "name": "Bosnian",               "flag": "BA"},
-    {"code": "bg",    "name": "Bulgarian",             "flag": "BG"},
-    {"code": "ca",    "name": "Catalan",               "flag": "ES"},
-    {"code": "ceb",   "name": "Cebuano",               "flag": "PH"},
-    {"code": "zh",    "name": "Chinese (Simplified)",  "flag": "CN"},
-    {"code": "zh-TW", "name": "Chinese (Traditional)", "flag": "TW"},
-    {"code": "co",    "name": "Corsican",              "flag": "FR"},
-    {"code": "hr",    "name": "Croatian",              "flag": "HR"},
-    {"code": "cs",    "name": "Czech",                 "flag": "CZ"},
-    {"code": "da",    "name": "Danish",                "flag": "DK"},
-    {"code": "nl",    "name": "Dutch",                 "flag": "NL"},
-    {"code": "eo",    "name": "Esperanto",             "flag": ""},
-    {"code": "et",    "name": "Estonian",              "flag": "EE"},
-    {"code": "fi",    "name": "Finnish",               "flag": "FI"},
-    {"code": "fy",    "name": "Frisian",               "flag": "NL"},
-    {"code": "gl",    "name": "Galician",              "flag": "ES"},
-    {"code": "ka",    "name": "Georgian",              "flag": "GE"},
-    {"code": "de",    "name": "German",                "flag": "DE"},
-    {"code": "gu",    "name": "Gujarati",              "flag": "IN"},
-    {"code": "ht",    "name": "Haitian Creole",        "flag": "HT"},
-    {"code": "haw",   "name": "Hawaiian",              "flag": "US"},
-    {"code": "he",    "name": "Hebrew",                "flag": "IL"},
-    {"code": "hmn",   "name": "Hmong",                 "flag": ""},
-    {"code": "hu",    "name": "Hungarian",             "flag": "HU"},
-    {"code": "is",    "name": "Icelandic",             "flag": "IS"},
-    {"code": "id",    "name": "Indonesian",            "flag": "ID"},
-    {"code": "ga",    "name": "Irish",                 "flag": "IE"},
-    {"code": "it",    "name": "Italian",               "flag": "IT"},
-    {"code": "ja",    "name": "Japanese",              "flag": "JP"},
-    {"code": "jv",    "name": "Javanese",              "flag": "ID"},
-    {"code": "kn",    "name": "Kannada",               "flag": "IN"},
-    {"code": "kk",    "name": "Kazakh",                "flag": "KZ"},
-    {"code": "km",    "name": "Khmer",                 "flag": "KH"},
-    {"code": "ko",    "name": "Korean",                "flag": "KR"},
-    {"code": "ky",    "name": "Kyrgyz",                "flag": "KG"},
-    {"code": "lo",    "name": "Lao",                   "flag": "LA"},
-    {"code": "la",    "name": "Latin",                 "flag": ""},
-    {"code": "lv",    "name": "Latvian",               "flag": "LV"},
-    {"code": "lt",    "name": "Lithuanian",            "flag": "LT"},
-    {"code": "lb",    "name": "Luxembourgish",         "flag": "LU"},
-    {"code": "mk",    "name": "Macedonian",            "flag": "MK"},
-    {"code": "mg",    "name": "Malagasy",              "flag": "MG"},
-    {"code": "ms",    "name": "Malay",                 "flag": "MY"},
-    {"code": "ml",    "name": "Malayalam",             "flag": "IN"},
-    {"code": "mt",    "name": "Maltese",               "flag": "MT"},
-    {"code": "mi",    "name": "Maori",                 "flag": "NZ"},
-    {"code": "mr",    "name": "Marathi",               "flag": "IN"},
-    {"code": "mn",    "name": "Mongolian",             "flag": "MN"},
-    {"code": "no",    "name": "Norwegian",             "flag": "NO"},
-    {"code": "or",    "name": "Odia (Oriya)",          "flag": "IN"},
-    {"code": "pl",    "name": "Polish",                "flag": "PL"},
-    {"code": "pt",    "name": "Portuguese",            "flag": "PT"},
-    {"code": "pa",    "name": "Punjabi",               "flag": "IN"},
-    {"code": "ro",    "name": "Romanian",              "flag": "RO"},
-    {"code": "ru",    "name": "Russian",               "flag": "RU"},
-    {"code": "sm",    "name": "Samoan",                "flag": "WS"},
-    {"code": "gd",    "name": "Scots Gaelic",          "flag": "GB"},
-    {"code": "sr",    "name": "Serbian",               "flag": "RS"},
-    {"code": "st",    "name": "Sesotho",               "flag": "LS"},
-    {"code": "xh",    "name": "Xhosa",                 "flag": "ZA"},
-    {"code": "sk",    "name": "Slovak",                "flag": "SK"},
-    {"code": "sl",    "name": "Slovenian",             "flag": "SI"},
-    {"code": "es",    "name": "Spanish",               "flag": "ES"},
-    {"code": "su",    "name": "Sundanese",             "flag": "ID"},
-    {"code": "tl",    "name": "Tagalog (Filipino)",    "flag": "PH"},
-    {"code": "tg",    "name": "Tajik",                 "flag": "TJ"},
-    {"code": "te",    "name": "Telugu",                "flag": "IN"},
-    {"code": "th",    "name": "Thai",                  "flag": "TH"},
-    {"code": "tk",    "name": "Turkmen",               "flag": "TM"},
-    {"code": "uk",    "name": "Ukrainian",             "flag": "UA"},
-    {"code": "uz",    "name": "Uzbek",                 "flag": "UZ"},
-    {"code": "vi",    "name": "Vietnamese",            "flag": "VN"},
-    {"code": "cy",    "name": "Welsh",                 "flag": "GB"},
-    {"code": "yi",    "name": "Yiddish",               "flag": ""},
+    {"code": "ar",    "name": "Arabic",                "flag": "SA",  "group": "refugee"},
+    {"code": "fa",    "name": "Dari / Farsi",          "flag": "AF",  "group": "refugee"},
+    {"code": "ps",    "name": "Pashto",                "flag": "AF",  "group": "refugee"},
+    {"code": "sw",    "name": "Swahili",               "flag": "KE",  "group": "refugee"},
+    {"code": "so",    "name": "Somali",                "flag": "SO",  "group": "refugee"},
+    {"code": "rh",    "name": "Rohingya",              "flag": "MM",  "group": "refugee"},
+    {"code": "fr",    "name": "French",                "flag": "FR",  "group": "refugee"},
+    {"code": "tr",    "name": "Turkish",               "flag": "TR",  "group": "refugee"},
+    {"code": "am",    "name": "Amharic",               "flag": "ET",  "group": "refugee"},
+    {"code": "ti",    "name": "Tigrinya",              "flag": "ER",  "group": "refugee"},
+    {"code": "ha",    "name": "Hausa",                 "flag": "NG",  "group": "refugee"},
+    {"code": "yo",    "name": "Yoruba",                "flag": "NG",  "group": "refugee"},
+    {"code": "ig",    "name": "Igbo",                  "flag": "NG",  "group": "refugee"},
+    {"code": "ln",    "name": "Lingala",               "flag": "CD",  "group": "refugee"},
+    {"code": "rn",    "name": "Kirundi",               "flag": "BI",  "group": "refugee"},
+    {"code": "rw",    "name": "Kinyarwanda",           "flag": "RW",  "group": "refugee"},
+    {"code": "ny",    "name": "Chichewa",              "flag": "MW",  "group": "refugee"},
+    {"code": "zu",    "name": "Zulu",                  "flag": "ZA",  "group": "refugee"},
+    {"code": "sn",    "name": "Shona",                 "flag": "ZW",  "group": "refugee"},
+    {"code": "el",    "name": "Greek",                 "flag": "GR",  "group": "refugee"},
+    {"code": "ur",    "name": "Urdu",                  "flag": "PK",  "group": "refugee"},
+    {"code": "bn",    "name": "Bengali",               "flag": "BD",  "group": "refugee"},
+    {"code": "hi",    "name": "Hindi",                 "flag": "IN",  "group": "refugee"},
+    {"code": "ku",    "name": "Kurdish (Kurmanji)",    "flag": "IQ",  "group": "refugee"},
+    {"code": "sd",    "name": "Sindhi",                "flag": "PK",  "group": "refugee"},
+    {"code": "ne",    "name": "Nepali",                "flag": "NP",  "group": "refugee"},
+    {"code": "my",    "name": "Burmese",               "flag": "MM",  "group": "refugee"},
+    # -- All other Gemma 4 supported languages (alphabetical) --
+    {"code": "af",    "name": "Afrikaans",             "flag": "ZA",  "group": "other"},
+    {"code": "sq",    "name": "Albanian",              "flag": "AL",  "group": "other"},
+    {"code": "hy",    "name": "Armenian",              "flag": "AM",  "group": "other"},
+    {"code": "az",    "name": "Azerbaijani",           "flag": "AZ",  "group": "other"},
+    {"code": "eu",    "name": "Basque",                "flag": "ES",  "group": "other"},
+    {"code": "be",    "name": "Belarusian",            "flag": "BY",  "group": "other"},
+    {"code": "bs",    "name": "Bosnian",               "flag": "BA",  "group": "other"},
+    {"code": "bg",    "name": "Bulgarian",             "flag": "BG",  "group": "other"},
+    {"code": "ca",    "name": "Catalan",               "flag": "ES",  "group": "other"},
+    {"code": "ceb",   "name": "Cebuano",               "flag": "PH",  "group": "other"},
+    {"code": "zh",    "name": "Chinese (Simplified)",  "flag": "CN",  "group": "other"},
+    {"code": "zh-TW", "name": "Chinese (Traditional)", "flag": "TW",  "group": "other"},
+    {"code": "co",    "name": "Corsican",              "flag": "FR",  "group": "other"},
+    {"code": "hr",    "name": "Croatian",              "flag": "HR",  "group": "other"},
+    {"code": "cs",    "name": "Czech",                 "flag": "CZ",  "group": "other"},
+    {"code": "da",    "name": "Danish",                "flag": "DK",  "group": "other"},
+    {"code": "nl",    "name": "Dutch",                 "flag": "NL",  "group": "other"},
+    {"code": "eo",    "name": "Esperanto",             "flag": "",    "group": "other"},
+    {"code": "et",    "name": "Estonian",              "flag": "EE",  "group": "other"},
+    {"code": "fi",    "name": "Finnish",               "flag": "FI",  "group": "other"},
+    {"code": "fy",    "name": "Frisian",               "flag": "NL",  "group": "other"},
+    {"code": "gl",    "name": "Galician",              "flag": "ES",  "group": "other"},
+    {"code": "ka",    "name": "Georgian",              "flag": "GE",  "group": "other"},
+    {"code": "de",    "name": "German",                "flag": "DE",  "group": "other"},
+    {"code": "gu",    "name": "Gujarati",              "flag": "IN",  "group": "other"},
+    {"code": "ht",    "name": "Haitian Creole",        "flag": "HT",  "group": "other"},
+    {"code": "haw",   "name": "Hawaiian",              "flag": "US",  "group": "other"},
+    {"code": "he",    "name": "Hebrew",                "flag": "IL",  "group": "other"},
+    {"code": "hmn",   "name": "Hmong",                 "flag": "",    "group": "other"},
+    {"code": "hu",    "name": "Hungarian",             "flag": "HU",  "group": "other"},
+    {"code": "is",    "name": "Icelandic",             "flag": "IS",  "group": "other"},
+    {"code": "id",    "name": "Indonesian",            "flag": "ID",  "group": "other"},
+    {"code": "ga",    "name": "Irish",                 "flag": "IE",  "group": "other"},
+    {"code": "it",    "name": "Italian",               "flag": "IT",  "group": "other"},
+    {"code": "ja",    "name": "Japanese",              "flag": "JP",  "group": "other"},
+    {"code": "jv",    "name": "Javanese",              "flag": "ID",  "group": "other"},
+    {"code": "kn",    "name": "Kannada",               "flag": "IN",  "group": "other"},
+    {"code": "kk",    "name": "Kazakh",                "flag": "KZ",  "group": "other"},
+    {"code": "km",    "name": "Khmer",                 "flag": "KH",  "group": "other"},
+    {"code": "ko",    "name": "Korean",                "flag": "KR",  "group": "other"},
+    {"code": "ky",    "name": "Kyrgyz",                "flag": "KG",  "group": "other"},
+    {"code": "lo",    "name": "Lao",                   "flag": "LA",  "group": "other"},
+    {"code": "la",    "name": "Latin",                 "flag": "",    "group": "other"},
+    {"code": "lv",    "name": "Latvian",               "flag": "LV",  "group": "other"},
+    {"code": "lt",    "name": "Lithuanian",            "flag": "LT",  "group": "other"},
+    {"code": "lb",    "name": "Luxembourgish",         "flag": "LU",  "group": "other"},
+    {"code": "mk",    "name": "Macedonian",            "flag": "MK",  "group": "other"},
+    {"code": "mg",    "name": "Malagasy",              "flag": "MG",  "group": "other"},
+    {"code": "ms",    "name": "Malay",                 "flag": "MY",  "group": "other"},
+    {"code": "ml",    "name": "Malayalam",             "flag": "IN",  "group": "other"},
+    {"code": "mt",    "name": "Maltese",               "flag": "MT",  "group": "other"},
+    {"code": "mi",    "name": "Maori",                 "flag": "NZ",  "group": "other"},
+    {"code": "mr",    "name": "Marathi",               "flag": "IN",  "group": "other"},
+    {"code": "mn",    "name": "Mongolian",             "flag": "MN",  "group": "other"},
+    {"code": "no",    "name": "Norwegian",             "flag": "NO",  "group": "other"},
+    {"code": "or",    "name": "Odia (Oriya)",          "flag": "IN",  "group": "other"},
+    {"code": "pl",    "name": "Polish",                "flag": "PL",  "group": "other"},
+    {"code": "pt",    "name": "Portuguese",            "flag": "PT",  "group": "other"},
+    {"code": "pa",    "name": "Punjabi",               "flag": "IN",  "group": "other"},
+    {"code": "ro",    "name": "Romanian",              "flag": "RO",  "group": "other"},
+    {"code": "ru",    "name": "Russian",               "flag": "RU",  "group": "other"},
+    {"code": "sm",    "name": "Samoan",                "flag": "WS",  "group": "other"},
+    {"code": "gd",    "name": "Scots Gaelic",          "flag": "GB",  "group": "other"},
+    {"code": "sr",    "name": "Serbian",               "flag": "RS",  "group": "other"},
+    {"code": "st",    "name": "Sesotho",               "flag": "LS",  "group": "other"},
+    {"code": "si",    "name": "Sinhala",               "flag": "LK",  "group": "other"},
+    {"code": "sk",    "name": "Slovak",                "flag": "SK",  "group": "other"},
+    {"code": "sl",    "name": "Slovenian",             "flag": "SI",  "group": "other"},
+    {"code": "es",    "name": "Spanish",               "flag": "ES",  "group": "other"},
+    {"code": "su",    "name": "Sundanese",             "flag": "ID",  "group": "other"},
+    {"code": "tl",    "name": "Tagalog (Filipino)",    "flag": "PH",  "group": "other"},
+    {"code": "tg",    "name": "Tajik",                 "flag": "TJ",  "group": "other"},
+    {"code": "ta",    "name": "Tamil",                 "flag": "LK",  "group": "other"},
+    {"code": "te",    "name": "Telugu",                "flag": "IN",  "group": "other"},
+    {"code": "th",    "name": "Thai",                  "flag": "TH",  "group": "other"},
+    {"code": "tk",    "name": "Turkmen",               "flag": "TM",  "group": "other"},
+    {"code": "uk",    "name": "Ukrainian",             "flag": "UA",  "group": "other"},
+    {"code": "uz",    "name": "Uzbek",                 "flag": "UZ",  "group": "other"},
+    {"code": "vi",    "name": "Vietnamese",            "flag": "VN",  "group": "other"},
+    {"code": "cy",    "name": "Welsh",                 "flag": "GB",  "group": "other"},
+    {"code": "xh",    "name": "Xhosa",                 "flag": "ZA",  "group": "other"},
+    {"code": "yi",    "name": "Yiddish",               "flag": "",    "group": "other"},
 ]
 
 _LANG_NAME = {lang["code"]: lang["name"] for lang in LANGUAGES}
@@ -637,7 +638,7 @@ def _detect_material_language(text: str) -> tuple[str, float]:
 _TRANSLATE_PROMPT = """\
 Translate the following educational content into {target_language}.
 The reader is a student in grade {grade_level}, age {age}.
-Rules:
+{source_language_hint}Rules:
 - This is a strict conceptual translation task only
 - Translate the source material once, sentence by sentence, preserving the author's meaning
 - Do not summarize, explain, solve exercises, add study notes, add introductions, or add conclusions
@@ -869,6 +870,7 @@ async def get_saved_session(student_id: str, material_id: str) -> dict:
 async def upload_material(
     student_id: str = Form(...),
     target_language: str = Form(...),
+    source_language_hint: str | None = Form(None),
     subject: str | None = Form(None),
     file: UploadFile | None = File(None),
     text_input: str | None = Form(None),
@@ -946,6 +948,9 @@ async def upload_material(
 
     source_text = "\n".join(page.get("text", "") or "" for page in pages)
     detected_language, detected_confidence = _detect_material_language(source_text)
+    if source_language_hint and source_language_hint not in ("auto", "detect", "unknown", ""):
+        detected_language = source_language_hint
+        detected_confidence = 1.0
 
     material = await db.create_material(
         title=filename,
@@ -1015,6 +1020,13 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
     lang_name = language_prompt_label(body.target_language)
     grade = student.get("grade_level", 1)
     age = student.get("age", 10)
+    _src_lang = (material.get("source_language") or "unknown").lower()
+    _src_lang_name = language_prompt_label(_src_lang)
+    source_language_hint = (
+        f"Source language: {_src_lang_name} (may include romanized/transliterated text — translate it accurately as {_src_lang_name} content).\n"
+        if _src_lang not in ("unknown", "en", "")
+        else ""
+    )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         full_parts: list[str] = []
@@ -1096,7 +1108,8 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             yield _sse({"type": "page_complete", "page": page_num, "full_text": ""})
                             continue
                         prompt = _TRANSLATE_PROMPT.format(
-                            target_language=lang_name, grade_level=grade, age=age, content=content
+                            target_language=lang_name, grade_level=grade, age=age,
+                            source_language_hint=source_language_hint, content=content
                         )
                         page_buf = ""
                         gen = route_generate_with_fallback(

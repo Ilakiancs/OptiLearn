@@ -21,7 +21,8 @@ import {
   UploadSimple as Upload,
   WarningCircle as AlertCircle,
 } from '@phosphor-icons/react'
-import { feature1 } from '../api/client'
+import { feature1, saveBlobAsPdf } from '../api/client'
+import LanguageSelect from '../components/LanguageSelect'
 import FormattedText, { normalizeOutputText } from '../components/FormattedText'
 import Spinner from '../components/Spinner'
 // -- Section --
@@ -96,6 +97,7 @@ export default function TranslateLearn() {
   const [pasteMode, setPasteMode]           = useState(false)
   const [pasteText, setPasteText]           = useState('')
   const [detectedLang, setDetectedLang]     = useState(null)
+  const [sourceLanguage, setSourceLanguage] = useState('auto')
   const [searchQuery, setSearchQuery]       = useState('')
   const [error, setError]                   = useState(null)
   const [translationProgress, setTranslationProgress] = useState({ current: 0, total: 0 })
@@ -260,6 +262,7 @@ export default function TranslateLearn() {
     setPasteMode(false)
     setPasteText('')
     setDetectedLang(null)
+    setSourceLanguage('auto')
     setSearchQuery('')
     setError(null)
   }
@@ -298,6 +301,7 @@ export default function TranslateLearn() {
       const fd = new FormData()
       fd.append('student_id', studentId)
       fd.append('target_language', targetLanguage)
+      if (sourceLanguage && sourceLanguage !== 'auto') fd.append('source_language_hint', sourceLanguage)
       if (fileOrNull) fd.append('file', fileOrNull)
       else fd.append('text_input', pasteText)
 
@@ -498,7 +502,7 @@ export default function TranslateLearn() {
   const pageCount      = material?.page_count || 1
   const langName       = (code) => languages.find(l => l.code === code)?.name || code
   const detectedSourceLanguage = detectedLang && detectedLang !== 'unknown' ? detectedLang : null
-  const sourceReadLanguage = detectedSourceLanguage || student?.language || 'en'
+  const sourceReadLanguage = (sourceLanguage !== 'auto' ? sourceLanguage : null) || detectedSourceLanguage || student?.language || 'en'
   const hasQuestions   = tutorHistory.some(e => e.type === 'question')
 
   function sessionDateLabel(value) {
@@ -642,16 +646,10 @@ export default function TranslateLearn() {
         return
       }
       const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filenameFromDisposition(response.headers.get('Content-Disposition'))
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
-      setPdfToast({ ok: true, msg: 'PDF saved' })
+      const filename = filenameFromDisposition(response.headers.get('Content-Disposition'))
+      const result = await saveBlobAsPdf(blob, filename)
+      const msg = result?.path ? `Saved to Downloads` : 'PDF saved'
+      setPdfToast({ ok: true, msg: result?.ok === false ? 'Could not save the PDF. Please continue in a moment.' : msg })
       setTimeout(() => setPdfToast(null), 4000)
     } catch (e) {
       console.error('PDF export error:', e)
@@ -730,12 +728,27 @@ export default function TranslateLearn() {
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, color: C.textSecondary, display: 'block', marginBottom: 4 }}>Translate to:</label>
-          <select value={targetLanguage} onChange={e => setTargetLanguage(e.target.value)}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textPrimary, fontSize: 14, cursor: 'pointer' }}>
-            {languages.map(l => <option key={l.code} value={l.code}>{l.flag} {l.name}</option>)}
-          </select>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <label style={{ fontSize: 12, color: C.textSecondary, display: 'block', marginBottom: 4 }}>Material language:</label>
+            <LanguageSelect
+              languages={languages}
+              value={sourceLanguage}
+              onChange={e => setSourceLanguage(e.target.value)}
+              disabled={!!material}
+              includeAutoDetect
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textPrimary, fontSize: 14, cursor: material ? 'default' : 'pointer', opacity: material ? 0.6 : 1 }}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <label style={{ fontSize: 12, color: C.textSecondary, display: 'block', marginBottom: 4 }}>Translate to:</label>
+            <LanguageSelect
+              languages={languages}
+              value={targetLanguage}
+              onChange={e => setTargetLanguage(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.textPrimary, fontSize: 14, cursor: 'pointer' }}
+            />
+          </div>
         </div>
 
         {error && (
@@ -786,9 +799,12 @@ export default function TranslateLearn() {
           </div>
         )}
 
-        {detectedSourceLanguage && !error && (
+        {(sourceLanguage !== 'auto' || detectedSourceLanguage) && !error && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 20, padding: '4px 12px', fontSize: 13, marginBottom: 12, color: C.textPrimary }}>
-            <CheckCircle2 size={14} color={C.accentGreen} /> Detected: {langName(detectedSourceLanguage)}
+            <CheckCircle2 size={14} color={C.accentGreen} />
+            {sourceLanguage !== 'auto'
+              ? `Source: ${langName(sourceLanguage)}`
+              : `Auto-detected: ${langName(detectedSourceLanguage)}`}
           </div>
         )}
 

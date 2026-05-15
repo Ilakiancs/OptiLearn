@@ -12,6 +12,8 @@ import {
 } from '@phosphor-icons/react'
 import FormattedText, { normalizeOutputText } from '../components/FormattedText'
 import Spinner from '../components/Spinner'
+import { saveBlobAsPdf } from '../api/client'
+import LanguageSelect from '../components/LanguageSelect'
 
 const C = {
   primary: 'var(--accent)',
@@ -762,18 +764,11 @@ export default function LiveTranslator() {
         return
       }
       const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const disp = r.headers.get('Content-Disposition') || ''
       const match = disp.match(/filename="?([^";]+)"?/)
-      a.download = match?.[1]?.trim() || `optilearn_live_${exportType}.pdf`
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
-      setLivePdfToast({ ok: true, msg: 'PDF saved' })
+      const filename = match?.[1]?.trim() || `optilearn_live_${exportType}.pdf`
+      const result = await saveBlobAsPdf(blob, filename)
+      setLivePdfToast({ ok: true, msg: result?.path ? 'Saved to Downloads' : 'PDF saved' })
       setTimeout(() => setLivePdfToast(null), 3500)
     } catch (_) {
       setLivePdfToast({ ok: false, msg: 'Download could not be completed. Please continue in a moment.' })
@@ -1221,18 +1216,11 @@ export default function LiveTranslator() {
         return
       }
       const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
       const disp = r.headers.get('Content-Disposition') || ''
       const match = disp.match(/filename="?([^";]+)"?/)
-      a.download = match?.[1]?.trim() || `optilearn_${exportType}.pdf`
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
-      setPdfToast({ ok: true, msg: 'PDF saved' })
+      const filename = match?.[1]?.trim() || `optilearn_${exportType}.pdf`
+      const result = await saveBlobAsPdf(blob, filename)
+      setPdfToast({ ok: true, msg: result?.path ? 'Saved to Downloads' : 'PDF saved' })
       setTimeout(() => setPdfToast(null), 4000)
     } catch (_) {
       setPdfToast({ ok: false, msg: 'The PDF could not be downloaded. Please continue in a moment.' })
@@ -1599,7 +1587,8 @@ export default function LiveTranslator() {
               <label style={{ fontSize: 12, color: C.textSecondary, display: 'block', marginBottom: 4 }}>
                 Lesson language (teacher is speaking in):
               </label>
-              <select
+              <LanguageSelect
+                languages={languages}
                 value={lessonLanguage}
                 onChange={e => setLessonLanguage(e.target.value)}
                 style={{
@@ -1607,17 +1596,14 @@ export default function LiveTranslator() {
                   background: C.surface, color: C.textPrimary, fontSize: 14, cursor: 'pointer',
                   minWidth: 200, width: '100%',
                 }}
-              >
-                {languages.map(l => (
-                  <option key={l.code} value={l.code}>{l.flag} {l.name}</option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label style={{ fontSize: 12, color: C.textSecondary, display: 'block', marginBottom: 4 }}>
                 Translate to:
               </label>
-              <select
+              <LanguageSelect
+                languages={languages}
                 value={targetLanguage}
                 onChange={e => setTargetLanguage(e.target.value)}
                 style={{
@@ -1625,11 +1611,7 @@ export default function LiveTranslator() {
                   background: C.surface, color: C.textPrimary, fontSize: 14, cursor: 'pointer',
                   minWidth: 200, width: '100%',
                 }}
-              >
-                {languages.map(l => (
-                  <option key={l.code} value={l.code}>{l.flag} {l.name}</option>
-                ))}
-              </select>
+              />
             </div>
           </div>
         </div>

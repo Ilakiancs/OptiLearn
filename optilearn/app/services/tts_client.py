@@ -50,7 +50,7 @@ VOICE_MAP: dict[str, tuple[str, str]] = {
     "ur": ("mms", "facebook/mms-tts-urd-script_arabic"),  # Urdu - needs uroman check
 }
 
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts")
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="tts")
 
 # Lazy MMS-TTS model cache: loaded once per language, reused across requests.
 _mms_cache: dict[str, tuple] = {}
@@ -198,7 +198,7 @@ async def _mms_speak(text: str, model_id: str) -> bytes:
 # Piper
 def _piper_speak_sync(voice_path: str, text: str) -> bytes:
     result = subprocess.run(
-        [settings.PIPER_BINARY, "--model", voice_path, "--output-raw"],
+        [settings.PIPER_BINARY, "--model", voice_path, "--output-raw", "--length-scale", "0.9"],
         input=text.encode("utf-8"),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -234,19 +234,43 @@ async def speak(text: str, language: str) -> bytes:
 
 
 async def speak_sentences(text: str, language: str) -> AsyncGenerator[bytes, None]:
-    """Async generator: yields one WAV per sentence for streaming playback."""
+    """Async generator: yields one WAV per sentence for streaming playback.
+
+    For piper voices, all sentences are submitted to the thread pool upfront so
+    subsequent sentences synthesise in parallel while the first is being streamed.
+    """
     engine, voice_or_model = VOICE_MAP.get(language, ("piper", "en_US-lessac-medium"))
-    sentences = split_sentences(text)
-    for sentence in sentences:
-        if not sentence:
-            continue
-        try:
-            if engine == "piper":
-                wav = await _piper_speak(sentence, voice_or_model)
-            else:
+    sentences = [s for s in split_sentences(text) if s.strip()]
+    if not sentences:
+        return
+
+    loop = asyncio.get_event_loop()
+
+    if engine == "piper":
+        voice_path = Path(settings.VOICES_DIR) / f"{voice_or_model}.onnx"
+        if not voice_path.exists():
+            voice_path = Path(settings.VOICES_DIR) / "en_US-lessac-medium.onnx"
+        if not voice_path.exists():
+            logger.error("No voice models found in {}", settings.VOICES_DIR)
+            return
+        voice_path_str = str(voice_path)
+        # Submit all sentences to the executor immediately so they synthesise in parallel.
+        futures = [
+            loop.run_in_executor(_executor, _piper_speak_sync, voice_path_str, s)
+            for s in sentences
+        ]
+        for fut in futures:
+            try:
+                wav = await fut
+                if wav:
+                    yield wav
+            except Exception as e:
+                logger.error("TTS piper error: {}", e)
+    else:
+        for sentence in sentences:
+            try:
                 wav = await _mms_speak(sentence, voice_or_model)
-            if wav:
-                yield wav
-        except Exception as e:
-            logger.error("TTS error on sentence '{}': {}", sentence[:40], e)
-            continue
+                if wav:
+                    yield wav
+            except Exception as e:
+                logger.error("TTS error on sentence '{}': {}", sentence[:40], e)

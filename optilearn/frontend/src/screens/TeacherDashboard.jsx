@@ -27,6 +27,7 @@ import NetworkStatusPill from '../components/NetworkStatusPill'
 import TeacherCalendarModal from '../components/TeacherCalendarModal'
 import FormattedText from '../components/FormattedText'
 import Spinner from '../components/Spinner'
+import LanguageSelect from '../components/LanguageSelect'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import MaterialUpload from './MaterialUpload'
@@ -952,15 +953,13 @@ function AdminManagement({ currentTeacher, allLanguages = [], isMobile = false }
         </label>
         <label style={{ ...fieldStyle, flex: '0 1 200px', minWidth: 0 }}>
           Language
-          <select
+          <LanguageSelect
+            languages={allLanguages.length > 0 ? allLanguages : [{ code: 'en', name: 'English', flag: 'GB', group: 'top' }]}
             value={studentForm.language}
             onChange={(e) => setStudentForm((f) => ({ ...f, language: e.target.value }))}
+            format="code"
             style={inputBase}
-          >
-            {allLanguages.length > 0
-              ? allLanguages.map((l) => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)
-              : <option value="en">EN English</option>}
-          </select>
+          />
         </label>
         <button type="submit" style={{ ...ctaBtnStyle, minHeight: 42, justifyContent: 'center', fontWeight: 700, flex: '0 0 190px' }}>
           <UserPlus size={15} />
@@ -1572,9 +1571,14 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
               <button type="button" onClick={() => { setCalendarOpen(true); setMenuOpen(false); }} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
               <div style={sidebarSectionStyle}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
-                <select value={masterLang} onChange={e => handleLangChange(e.target.value)} disabled={!canUpdateSettings} title={canUpdateSettings ? 'Change report language' : 'Only admin teachers can change this setting'} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}>
-                  {allLanguages.map(l => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)}
-                </select>
+                <LanguageSelect
+                  languages={allLanguages}
+                  value={masterLang}
+                  onChange={e => handleLangChange(e.target.value)}
+                  disabled={!canUpdateSettings}
+                  format="code"
+                  style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}
+                />
                 {langSaved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600 }}>Saved</span>}
               </div>
               <div style={sidebarSectionStyle}>
@@ -1619,9 +1623,14 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
               <button type="button" onClick={() => setCalendarOpen(true)} style={sidebarNavStyle(false)}><span style={sidebarIconStyle}><CalendarDots size={22} weight="duotone" /></span><span>Schedule Class</span></button>
               <div style={sidebarSectionStyle}>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 700 }}>Report Language</span>
-                <select value={masterLang} onChange={e => handleLangChange(e.target.value)} disabled={!canUpdateSettings} title={canUpdateSettings ? 'Change report language' : 'Only admin teachers can change this setting'} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}>
-                  {allLanguages.map(l => <option key={l.code} value={l.code}>{l.code.toUpperCase()} {l.name}</option>)}
-                </select>
+                <LanguageSelect
+                  languages={allLanguages}
+                  value={masterLang}
+                  onChange={e => handleLangChange(e.target.value)}
+                  disabled={!canUpdateSettings}
+                  format="code"
+                  style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: '0.82rem', background: 'var(--surface-soft)', color: 'var(--text)', minHeight: 38, cursor: canUpdateSettings ? 'pointer' : 'not-allowed', opacity: canUpdateSettings ? 1 : 0.62, width: '100%', boxSizing: 'border-box' }}
+                />
                 {langSaved && <span style={{ fontSize: '0.78rem', color: 'var(--success)', fontWeight: 600 }}>Saved</span>}
               </div>
               <div style={sidebarSectionStyle}>
