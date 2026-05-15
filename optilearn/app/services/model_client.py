@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import re
 import subprocess
 import sys
@@ -549,8 +550,8 @@ async def stream_26b(
             msg = str(exc)
             is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
             if is_transient and attempt < _API_MAX_RETRIES - 1:
-                delay = _API_RETRY_DELAY[attempt]
-                logger.warning("26B transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                delay = _API_RETRY_DELAY[attempt] * (0.75 + random.random() * 0.5)
+                logger.warning("26B transient error (attempt {}/{}), retrying in {:.1f}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                 await asyncio.sleep(delay)
                 continue
             logger.error("26B API stream error: {}", exc)
@@ -1288,8 +1289,8 @@ class ModelClient:
                 msg = str(exc)
                 is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
                 if is_transient and attempt < _API_MAX_RETRIES - 1:
-                    delay = _API_RETRY_DELAY[attempt]
-                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                    delay = _API_RETRY_DELAY[attempt] * (0.75 + random.random() * 0.5)
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {:.1f}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                     await asyncio.sleep(delay)
                     continue
                 raise
@@ -1352,8 +1353,8 @@ class ModelClient:
                 msg = str(exc)
                 is_transient = "500" in msg or "INTERNAL" in msg or "503" in msg or "UNAVAILABLE" in msg
                 if is_transient and attempt < _API_MAX_RETRIES - 1:
-                    delay = _API_RETRY_DELAY[attempt]
-                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
+                    delay = _API_RETRY_DELAY[attempt] * (0.75 + random.random() * 0.5)
+                    logger.warning("Gemini transient error (attempt {}/{}), retrying in {:.1f}s: {}", attempt + 1, _API_MAX_RETRIES, delay, exc)
                     await asyncio.sleep(delay)
                     continue
                 raise

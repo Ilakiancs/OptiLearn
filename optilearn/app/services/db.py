@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
 CREATE INDEX IF NOT EXISTS idx_quiz_student    ON quiz_results(student_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_topic      ON quiz_results(topic);
 CREATE INDEX IF NOT EXISTS idx_mastery_student ON topic_mastery(student_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions(student_id);
 
 CREATE TABLE IF NOT EXISTS messages (
     id          TEXT PRIMARY KEY,
@@ -467,6 +468,7 @@ async def init_db() -> None:
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username ON students(username)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_sessions_teacher ON teacher_sessions(teacher_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expiry ON teacher_sessions(expires_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_student ON sessions(student_id)")
         await db.commit()
         await _migrate_students_for_auth(db)
     logger.info("Database schema ready.")
@@ -1137,23 +1139,23 @@ async def get_seen_question_ids(
 
 async def get_all_students() -> list[dict[str, Any]]:
     """Return all students with their latest mastery summary."""
+    from collections import defaultdict
     async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM students ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in rows]
-
+        if not students:
+            return students
+        ph = ",".join("?" * len(students))
+        m_cursor = await db.execute(
+            f"SELECT student_id, topic, mastery, level FROM topic_mastery WHERE student_id IN ({ph}) ORDER BY mastery DESC",
+            [s["id"] for s in students],
+        )
+        mastery_by_student: dict[str, list[dict]] = defaultdict(list)
+        for r in await m_cursor.fetchall():
+            mastery_by_student[r["student_id"]].append(_row_to_dict(r))
         for student in students:
-            m_cursor = await db.execute(
-                """
-                SELECT topic, mastery, level FROM topic_mastery
-                WHERE student_id = ?
-                ORDER BY mastery DESC
-                """,
-                (student["id"],),
-            )
-            mastery_rows = await m_cursor.fetchall()
-            student["mastery_summary"] = [_row_to_dict(r) for r in mastery_rows]
-
+            student["mastery_summary"] = mastery_by_student.get(student["id"], [])
     return students
 
 
@@ -1183,22 +1185,23 @@ async def get_dashboard_data() -> dict[str, Any]:
             "topics_by_struggle": [...]
         }
     """
+    from collections import defaultdict
     async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM students ORDER BY created_at DESC")
         student_rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in student_rows]
 
-        for student in students:
+        if students:
+            ph = ",".join("?" * len(students))
             m_cursor = await db.execute(
-                """
-                SELECT topic, mastery, level FROM topic_mastery
-                WHERE student_id = ?
-                ORDER BY mastery DESC
-                """,
-                (student["id"],),
+                f"SELECT student_id, topic, mastery, level FROM topic_mastery WHERE student_id IN ({ph}) ORDER BY mastery DESC",
+                [s["id"] for s in students],
             )
-            mastery_rows = await m_cursor.fetchall()
-            student["mastery_summary"] = [_row_to_dict(r) for r in mastery_rows]
+            mastery_by_student: dict[str, list[dict]] = defaultdict(list)
+            for r in await m_cursor.fetchall():
+                mastery_by_student[r["student_id"]].append(_row_to_dict(r))
+            for student in students:
+                student["mastery_summary"] = mastery_by_student.get(student["id"], [])
 
         count_cursor = await db.execute("SELECT COUNT(*) AS cnt FROM sessions")
         count_row = await count_cursor.fetchone()
@@ -1225,22 +1228,71 @@ async def get_dashboard_data() -> dict[str, Any]:
 
 async def get_teacher_students() -> list[dict[str, Any]]:
     """Return all students with mastery avg, last_active, and alert flags."""
+    from collections import defaultdict
     async with _get_db() as db:
         cursor = await db.execute("SELECT * FROM students ORDER BY name ASC")
         rows = await cursor.fetchall()
         students = [_row_to_dict(r) for r in rows]
 
+        if not students:
+            return students
+
         now = datetime.utcnow()
+        student_ids = [s["id"] for s in students]
+        ph = ",".join("?" * len(student_ids))
+
+        # Batch-fetch all mastery in one query instead of N queries
+        m_cursor = await db.execute(
+            f"SELECT student_id, topic, mastery, level FROM topic_mastery WHERE student_id IN ({ph})",
+            student_ids,
+        )
+        all_mastery = await m_cursor.fetchall()
+        mastery_by_student: dict[str, list[dict]] = defaultdict(list)
+        for r in all_mastery:
+            mastery_by_student[r["student_id"]].append(_row_to_dict(r))
+
+        # Batch stuck_on_topic: students with low-mastery topics that have >= 3 attempts
+        stuck_cursor = await db.execute(
+            f"""
+            SELECT qr.student_id
+            FROM quiz_results qr
+            JOIN topic_mastery tm ON tm.student_id = qr.student_id AND tm.topic = qr.topic
+            WHERE qr.student_id IN ({ph}) AND tm.mastery < 0.40
+            GROUP BY qr.student_id, qr.topic
+            HAVING COUNT(*) >= 3
+            """,
+            student_ids,
+        )
+        stuck_set = {r["student_id"] for r in await stuck_cursor.fetchall()}
+
+        # Batch level_dropped: fetch recent quiz scores ordered by time
+        lv_cursor = await db.execute(
+            f"""
+            SELECT student_id, topic, score
+            FROM quiz_results
+            WHERE student_id IN ({ph})
+            ORDER BY student_id, topic, timestamp DESC
+            """,
+            student_ids,
+        )
+        lv_rows = await lv_cursor.fetchall()
+        scores_by_key: dict[tuple[str, str], list[float]] = defaultdict(list)
+        for r in lv_rows:
+            key = (r["student_id"], r["topic"])
+            if len(scores_by_key[key]) < 4:
+                scores_by_key[key].append(float(r["score"]))
+
+        level_dropped_set: set[str] = set()
+        for (sid, _topic), scores in scores_by_key.items():
+            if len(scores) >= 4:
+                recent_avg = sum(scores[:2]) / 2
+                older_avg = sum(scores[2:4]) / 2
+                if _mastery_level(recent_avg * 0.3) < _mastery_level(older_avg * 0.3):
+                    level_dropped_set.add(sid)
 
         for student in students:
             sid = student["id"]
-
-            m_cursor = await db.execute(
-                "SELECT topic, mastery, level FROM topic_mastery WHERE student_id = ?",
-                (sid,),
-            )
-            mastery_rows = await m_cursor.fetchall()
-            mastery_list = [_row_to_dict(r) for r in mastery_rows]
+            mastery_list = mastery_by_student.get(sid, [])
             student["mastery_summary"] = mastery_list
             student["mastery_avg"] = (
                 round(sum(m["mastery"] for m in mastery_list) / len(mastery_list), 4)
@@ -1249,43 +1301,15 @@ async def get_teacher_students() -> list[dict[str, Any]]:
 
             alerts: list[str] = []
 
-            # inactive_3_days: NULL last_active OR last_active older than 3 days
             last_active = _parse_db_datetime_utc(student.get("last_active"))
-            if last_active is None:
-                alerts.append("inactive_3_days")
-            elif (now - last_active) > timedelta(days=3):
+            if last_active is None or (now - last_active) > timedelta(days=3):
                 alerts.append("inactive_3_days")
 
-            # stuck_on_topic: any topic with mastery < 0.40 and >= 3 quiz_results
-            for m in mastery_list:
-                if m["mastery"] < 0.40:
-                    count_cur = await db.execute(
-                        "SELECT COUNT(*) AS cnt FROM quiz_results WHERE student_id = ? AND topic = ?",
-                        (sid, m["topic"]),
-                    )
-                    cnt_row = await count_cur.fetchone()
-                    if cnt_row and cnt_row["cnt"] >= 3:
-                        alerts.append("stuck_on_topic")
-                        break
+            if sid in stuck_set:
+                alerts.append("stuck_on_topic")
 
-            # level_dropped: last topic_mastery update shows level downgrade
-            # Detect via quiz_results: compare last two score averages per topic
-            if mastery_list:
-                for m in mastery_list:
-                    qcur = await db.execute(
-                        """SELECT score FROM quiz_results
-                           WHERE student_id = ? AND topic = ?
-                           ORDER BY timestamp DESC LIMIT 4""",
-                        (sid, m["topic"]),
-                    )
-                    qrows = await qcur.fetchall()
-                    scores = [r["score"] for r in qrows]
-                    if len(scores) >= 4:
-                        recent_avg = sum(scores[:2]) / 2
-                        older_avg = sum(scores[2:4]) / 2
-                        if _mastery_level(recent_avg * 0.3) < _mastery_level(older_avg * 0.3):
-                            alerts.append("level_dropped")
-                            break
+            if sid in level_dropped_set:
+                alerts.append("level_dropped")
 
             student["alerts"] = list(set(alerts))
 
@@ -1315,16 +1339,17 @@ async def get_heatmap_data() -> dict[str, Any]:
         topic_rows = await t_cursor.fetchall()
         topics = [r["topic"] for r in topic_rows]
 
+        # Batch-fetch all mastery in one query instead of N×M queries
+        all_mastery_cursor = await db.execute("SELECT student_id, topic, mastery FROM topic_mastery")
+        mastery_lookup: dict[tuple[str, str], float] = {}
+        for r in await all_mastery_cursor.fetchall():
+            mastery_lookup[(r["student_id"], r["topic"])] = r["mastery"]
+
         grid: list[list[dict | None]] = []
         for sr in student_rows:
             row_cells: list[dict | None] = []
             for topic in topics:
-                mc = await db.execute(
-                    "SELECT mastery FROM topic_mastery WHERE student_id = ? AND topic = ?",
-                    (sr["id"], topic),
-                )
-                mrow = await mc.fetchone()
-                val = mrow["mastery"] if mrow else None
+                val = mastery_lookup.get((sr["id"], topic))
                 row_cells.append({"value": val, "color": _color(val)})
             grid.append(row_cells)
 

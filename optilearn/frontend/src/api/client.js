@@ -505,7 +505,7 @@ export const feature1 = {
     return request('/api/feature1/languages')
   },
   upload(formData) {
-    return fetch(`${BASE}/api/feature1/upload`, { method: 'POST', body: formData })
+    return fetch(`${BASE}/api/feature1/upload`, { method: 'POST', headers: authHeaders(), body: formData })
       .then(async res => {
         if (!res.ok) {
           let msg = `HTTP ${res.status}`

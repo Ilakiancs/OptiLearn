@@ -242,15 +242,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # FAISS model loading beside ASR made classroom startup painfully slow on teacher laptops.
     async def _warmup_background_models() -> None:
         try:
-            await warmup_tutor_model()
+            await asyncio.wait_for(warmup_tutor_model(), timeout=120.0)
+        except asyncio.TimeoutError:
+            logger.warning("Tutor model warmup timed out after 120 s — continuing anyway")
         except Exception as exc:
             logger.warning("Tutor model warmup skipped: {}", exc)
         try:
-            await translate_routes.warmup_live_translation_models()
+            await asyncio.wait_for(translate_routes.warmup_live_translation_models(), timeout=60.0)
+        except asyncio.TimeoutError:
+            logger.warning("Live translation warmup timed out after 60 s — continuing anyway")
         except Exception as exc:
             logger.warning("Live translation warmup skipped: {}", exc)
         try:
-            await asyncio.to_thread(faiss_store.ensure_embed_model)
+            await asyncio.wait_for(asyncio.to_thread(faiss_store.ensure_embed_model), timeout=120.0)
+        except asyncio.TimeoutError:
+            logger.warning("Embedding model warmup timed out after 120 s — continuing anyway")
         except Exception as exc:
             logger.warning("Embedding model warmup skipped: {}", exc)
 

@@ -200,6 +200,7 @@ export default function StudentSession() {
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const initialized = useRef(false)
+  const quizSubmittingRef = useRef(false)
 
   useEffect(() => {
     if (outlet.student) {
@@ -421,14 +422,16 @@ export default function StudentSession() {
     if (!file) return
     setUiMessage('')
     setIsUploadingImage(true)
+    const blobUrl = URL.createObjectURL(file)
     setImageAttachment({
       name: file.name || 'Selected image',
       size: file.size || 0,
-      preview: URL.createObjectURL(file),
+      preview: blobUrl,
       status: 'uploading',
     })
     try {
       const { image_b64 } = await uploadImage(file)
+      URL.revokeObjectURL(blobUrl)
       setImageB64(image_b64)
       setImageAttachment({
         name: file.name || 'Selected image',
@@ -437,6 +440,7 @@ export default function StudentSession() {
         status: 'attached',
       })
     } catch (err) {
+      URL.revokeObjectURL(blobUrl)
       setImageAttachment(null)
       setUiMessage(err.message || 'The image could not be attached.')
     } finally {
@@ -468,7 +472,8 @@ export default function StudentSession() {
   }
 
   function handleQuizAnswer(answer) {
-    if (pendingAnswer !== null) return
+    if (quizSubmittingRef.current || pendingAnswer !== null) return
+    quizSubmittingRef.current = true
     const question = quizData.questions[quizIndex]
     const isCorrect = answer === question.answer
 
@@ -482,6 +487,7 @@ export default function StudentSession() {
       }]
       setQuizAnswers(newAnswers)
       setPendingAnswer(null)
+      quizSubmittingRef.current = false
 
       if (quizIndex + 1 < quizData.questions.length) {
         setQuizIndex(i => i + 1)
@@ -503,6 +509,7 @@ export default function StudentSession() {
   }
 
   function handleKeepLearning() {
+    quizSubmittingRef.current = false
     setMode('chat')
     setQuizData(null)
     setQuizResult(null)

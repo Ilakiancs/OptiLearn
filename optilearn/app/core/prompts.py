@@ -60,7 +60,7 @@ def _mastery_level_label(mastery: list[dict]) -> str:
     """
     if not mastery:
         return "beginner"
-    avg = sum(m.get("mastery", 0.0) for m in mastery) / len(mastery)
+    avg = max(0.0, min(1.0, sum(m.get("mastery", 0.0) for m in mastery) / len(mastery)))
     if avg > 0.75:
         return "advanced"
     if avg > 0.45:

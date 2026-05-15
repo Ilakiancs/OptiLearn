@@ -187,10 +187,17 @@ def query(topic: str, grade_level: int, k: int = 3) -> list[dict[str, Any]]:
 def ensure_embed_model() -> None:
     """Load the sentence-transformer embedding model into memory if not already loaded.
     Call once at startup so notes generation doesn't pay the 70-second cold-start cost.
+    Also does a warmup inference so the JIT-compiled path is hot before the first real query.
     """
     global _embed_model  # noqa: PLW0603
     if _embed_model is None:
         _load_embed_model()
+    if _embed_model is not None:
+        try:
+            _embed_model.encode(["warmup"], convert_to_numpy=True)
+            logger.info("Embedding model warmup inference done.")
+        except Exception as exc:
+            logger.warning("Embedding warmup inference failed: {}", exc)
 
 
 def add_passages(passages: list[dict]) -> int:
@@ -236,11 +243,17 @@ def add_passages(passages: list[dict]) -> int:
             "student_id": p.get("student_id"),
         })
 
-    import faiss as _faiss, json as _json, os as _os
-    _os.makedirs(_os.path.dirname(settings.FAISS_INDEX_PATH) or ".", exist_ok=True)
+    import faiss as _faiss, json as _json, os as _os, tempfile as _tf
+    index_dir = _os.path.dirname(settings.FAISS_INDEX_PATH) or "."
+    _os.makedirs(index_dir, exist_ok=True)
     _faiss.write_index(_index, settings.FAISS_INDEX_PATH)
-    with open(settings.FAISS_META_PATH, "w", encoding="utf-8") as fh:
-        _json.dump(_meta, fh, ensure_ascii=False)
+    with _tf.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False,
+        dir=_os.path.dirname(settings.FAISS_META_PATH) or ".",
+    ) as tmp:
+        _json.dump(_meta, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+    _os.replace(tmp_path, settings.FAISS_META_PATH)
 
     logger.info("add_passages: added {} passages, index total={}", len(passages), _index.ntotal)
     return len(passages)
