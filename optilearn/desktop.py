@@ -8,14 +8,28 @@ import sys
 import os
 import threading
 import time
+import traceback
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_DESKTOP_LOG_PATH = os.path.join(_BASE_DIR, 'optilearn_desktop.log')
 
-# Only webview is imported at the top level. Everything else (uvicorn, fastapi,
-# app config) is lazy-loaded inside functions so the window appears immediately
-# without competing for Python's import lock during webview initialisation.
-import webview
+os.chdir(_BASE_DIR)
+sys.path.insert(0, _BASE_DIR)
+
+
+def _desktop_log(message: str) -> None:
+    """Write launcher diagnostics before stdlib/loguru server logging exists."""
+    try:
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        with open(_DESKTOP_LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(f'{timestamp} {message}\n')
+    except Exception:
+        pass
+
+
+_desktop_log(
+    f"launcher bootstrap executable={sys.executable!r} cwd={os.getcwd()!r} argv={sys.argv!r}"
+)
 
 _MUTEX_NAME = "OptiLearn_SingleInstance_Mutex"
 
@@ -90,7 +104,7 @@ def _read_port() -> int:
     """Read PORT from .env directly — avoids importing the full settings stack."""
     import re
     try:
-        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        env_path = os.path.join(_BASE_DIR, '.env')
         m = re.search(r'^PORT\s*=\s*(\d+)', open(env_path).read(), re.MULTILINE)
         if m:
             return int(m.group(1))
@@ -99,17 +113,25 @@ def _read_port() -> int:
     return 8000
 
 
-def _start_https_after_http():
-    """Wait for HTTP server to be ready (and cert to exist), then start HTTPS."""
-    import time
+def _start_https_after_http(local_url: str):
+    """Wait for the single HTTP lifespan owner, then start HTTPS without lifespan."""
     from pathlib import Path as _Path
     from app.core.config import settings as _s
+
+    _desktop_log('HTTPS startup waiting for HTTP health readiness')
+    if not wait_for_server(local_url, timeout=60):
+        _desktop_log('HTTPS startup skipped: HTTP health did not become ready')
+        return
+
     deadline = time.time() + 60
     while time.time() < deadline:
         if _Path(_s.SSL_CERT_PATH).exists() and _Path(_s.SSL_KEY_PATH).exists():
-            break
+            _desktop_log('HTTPS certificate files are ready')
+            start_https_server()
+            return
         time.sleep(1)
-    start_https_server()
+
+    _desktop_log('HTTPS startup skipped: SSL certificate files were not created in time')
 
 
 def start_https_server():
@@ -122,6 +144,7 @@ def start_https_server():
     cert = _s.SSL_CERT_PATH
     key  = _s.SSL_KEY_PATH
     if not (_Path(cert).exists() and _Path(key).exists()):
+        _desktop_log('HTTPS server skipped: SSL certificate files are missing')
         return
     # Open Windows Firewall port (best-effort, non-blocking)
     try:
@@ -133,6 +156,7 @@ def start_https_server():
         )
     except Exception:
         pass
+    _desktop_log(f'HTTPS server starting host={_s.HOST!r} port={_s.HTTPS_PORT}')
     config = uvicorn.Config(
         "app.main:app",
         host=_s.HOST,
@@ -141,38 +165,52 @@ def start_https_server():
         ssl_certfile=cert,
         log_level="info",
         access_log=True,
+        lifespan="off",
     )
-    uvicorn.Server(config).run()
+    try:
+        uvicorn.Server(config).run()
+    except Exception as exc:
+        _desktop_log(f'HTTPS server failed: {type(exc).__name__}: {exc}')
+        _desktop_log(traceback.format_exc())
+        raise
 
 
 def start_server():
-    import uvicorn
-    import logging
-    from app.core.config import settings as _s
-
-    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'optilearn.log')
-
-    # Uvicorn uses stdlib logging — attach a file handler so logs survive pythonw
-    _fh = logging.FileHandler(_log_path, mode='w', encoding='utf-8')
-    _fh.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
-    for _name in ('uvicorn', 'uvicorn.error', 'uvicorn.access'):
-        logging.getLogger(_name).addHandler(_fh)
-
-    # App services use loguru — add a matching sink
     try:
-        from loguru import logger as _loguru
-        _loguru.add(_log_path, mode='a', format='{time:HH:mm:ss} {level} {name}: {message}')
-    except ImportError:
-        pass
+        import uvicorn
+        import logging
+        from app.core.config import settings as _s
 
-    config = uvicorn.Config(
-        "app.main:app",
-        host=_s.HOST,
-        port=_s.PORT,
-        log_level="info",
-        access_log=True,
-    )
-    uvicorn.Server(config).run()
+        _log_path = os.path.join(_BASE_DIR, 'optilearn.log')
+
+        # Uvicorn uses stdlib logging - attach a file handler so logs survive pythonw
+        _fh = logging.FileHandler(_log_path, mode='w', encoding='utf-8')
+        _fh.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+        for _name in ('uvicorn', 'uvicorn.error', 'uvicorn.access'):
+            logging.getLogger(_name).addHandler(_fh)
+
+        # App services use loguru - add a matching sink
+        try:
+            from loguru import logger as _loguru
+            _loguru.add(_log_path, mode='a', format='{time:HH:mm:ss} {level} {name}: {message}')
+        except ImportError:
+            pass
+
+        _desktop_log(
+            f"HTTP server starting executable={sys.executable!r} host={_s.HOST!r} port={_s.PORT}"
+        )
+        config = uvicorn.Config(
+            "app.main:app",
+            host=_s.HOST,
+            port=_s.PORT,
+            log_level="info",
+            access_log=True,
+        )
+        uvicorn.Server(config).run()
+    except Exception as exc:
+        _desktop_log(f'HTTP server failed: {type(exc).__name__}: {exc}')
+        _desktop_log(traceback.format_exc())
+        raise
 
 
 def wait_for_server(url: str, timeout: int = 30) -> bool:
@@ -218,12 +256,25 @@ def _register_start_menu_shortcut(base_dir: str, ico_path: str, vbs_path: str) -
 
 def main():
     import platform
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    _desktop_log('importing pywebview')
+    try:
+        import webview
+    except Exception as exc:
+        _desktop_log(f'webview import failed: {type(exc).__name__}: {exc}')
+        _desktop_log(traceback.format_exc())
+        raise
+    _desktop_log('pywebview import ready')
+
+    base_dir = _BASE_DIR
     ico_path = os.path.join(base_dir, 'optilearn.ico')
     vbs_path = os.path.join(base_dir, 'OptiLearn.vbs')
 
     port = _read_port()
     local_url = f"http://localhost:{port}"
+    _desktop_log(
+        f"desktop main starting executable={sys.executable!r} cwd={os.getcwd()!r} "
+        f"port={port} url={local_url!r}"
+    )
 
     if platform.system() == 'Windows':
         import ctypes
@@ -239,6 +290,8 @@ def main():
         text_select=True,
         zoomable=True,
     )
+    window.events.shown += lambda: _desktop_log('webview window shown')
+    window.events.loaded += lambda: _desktop_log('webview content loaded event fired')
 
     def on_loaded():
         # Start the server here, after webview is fully initialised.
@@ -246,10 +299,18 @@ def main():
         # with webview's own imports for Python's import lock, which speeds
         # up the time to first visible frame significantly.
         if not wait_for_server(local_url, timeout=1):
-            threading.Thread(target=start_server, daemon=True).start()
+            _desktop_log('HTTP health not found; starting embedded HTTP server')
+            threading.Thread(target=start_server, daemon=True, name='OptiLearnHTTP').start()
+        else:
+            _desktop_log('HTTP server already healthy; reusing existing listener')
         # HTTPS server for student microphone access over LAN (port 8443).
-        # Starts after HTTP is up so SSL cert is already generated by lifespan().
-        threading.Thread(target=_start_https_after_http, daemon=True).start()
+        # Starts after HTTP is up and does not run FastAPI lifespan again.
+        threading.Thread(
+            target=_start_https_after_http,
+            args=(local_url,),
+            daemon=True,
+            name='OptiLearnHTTPS',
+        ).start()
 
         # Shortcut registration is non-critical — run in background
         if platform.system() == 'Windows':
@@ -260,8 +321,10 @@ def main():
             ).start()
 
         if wait_for_server(local_url):
+            _desktop_log('HTTP server ready; loading desktop URL')
             window.load_url(f"{local_url}?desktop=1")
         else:
+            _desktop_log('HTTP server readiness timed out before desktop URL load')
             window.load_html("""
             <html><body style="font-family:sans-serif;padding:40px;color:#d93025">
               <h2>OptiLearn needs a restart</h2>
@@ -269,22 +332,42 @@ def main():
             </body></html>
             """)
 
-    start_kwargs = dict(debug=False, private_mode=False)
+    storage_path = os.path.join(base_dir, 'data', 'webview-profile')
+    os.makedirs(storage_path, exist_ok=True)
+    start_kwargs = dict(
+        debug=False,
+        private_mode=False,
+        storage_path=storage_path,
+    )
+    if platform.system() == 'Windows':
+        start_kwargs['gui'] = 'edgechromium'
     if os.path.exists(ico_path):
         start_kwargs['icon'] = ico_path
 
-    webview.start(on_loaded, **start_kwargs)
+    try:
+        webview.start(on_loaded, **start_kwargs)
+    except Exception as exc:
+        _desktop_log(f'webview runtime failed: {type(exc).__name__}: {exc}')
+        _desktop_log(traceback.format_exc())
+        raise
 
 
 if __name__ == '__main__':
     lock = _acquire_single_instance_lock()
     if lock is None:
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(
-            0,
-            "OptiLearn is already running.\n\nCheck your taskbar or system tray.",
-            "OptiLearn",
-            0x40,  # MB_ICONINFORMATION
+        local_url = f"http://localhost:{_read_port()}"
+        if wait_for_server(local_url, timeout=2):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "OptiLearn is already running.\n\nCheck your taskbar or system tray.",
+                "OptiLearn",
+                0x40,  # MB_ICONINFORMATION
+            )
+            sys.exit(0)
+        _desktop_log(
+            "single-instance lock exists but HTTP is not healthy; "
+            "continuing so the launcher can recover from a stuck hidden process"
         )
-        sys.exit(0)
+        lock = object()
     main()

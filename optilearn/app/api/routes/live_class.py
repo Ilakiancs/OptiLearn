@@ -26,7 +26,9 @@ from pydantic import BaseModel
 
 from app.api.routes.auth import get_current_teacher
 from app.core.config import settings
+from app.core.languages import language_display_name, language_output_issue, language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
+from app.core.text_formatting import normalize_ai_output
 from app.services import db as db_service
 from app.services import faiss_store, job_manager
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
@@ -52,14 +54,22 @@ _TRANSLATE_SYSTEM = """\
 You are OptiLearn's classroom translation engine.
 Translate teacher speech for students learning in their native language.
 Keep math/science terms, numbers, and examples accurate.
-Return only the final translated text — no labels, no explanations.
+This is a strict conceptual translation task only.
+Translate every meaningful idea in order. Do not omit, condense, reorder, or add lesson content.
+Return only the final translated text. No labels, explanations, summaries, study notes, or conclusions.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}.
 """
 
 _TRANSLATE_PROMPT = """\
 Target language: {lang}
 Classroom context: lesson by teacher.
+Useful classroom terms:
+{glossary}
+{quality_note}
 
 Translate the following teacher speech to {lang}:
+Preserve names, numbers, units, formulas, examples, and step-by-step order exactly.
+Do not invent missing lesson content.
 
 {transcript}"""
 
@@ -72,7 +82,27 @@ _LANG_NAMES = {
 }
 
 def _lang_name(code: str) -> str:
-    return _LANG_NAMES.get(code, code.upper())
+    return _LANG_NAMES.get(code, language_display_name(code))
+
+
+def _lang_prompt(code: str) -> str:
+    return language_prompt_label(code)
+
+
+def _live_translation_glossary(target_language: str) -> str:
+    glossaries = {
+        "ps": (
+            "- water = \u0627\u0648\u0628\u0647\n"
+            "- sunlight = \u062f \u0644\u0645\u0631 \u0631\u06bc\u0627\n"
+            "- plant / plants = \u0628\u0648\u067c\u06cc / \u0628\u0648\u067c\u064a\n"
+            "- grow = \u0648\u062f\u0647 \u06a9\u0648\u0644\n"
+            "- oxygen = \u0627\u06a9\u0633\u06cc\u062c\u0646\n"
+            "- gas = \u06ab\u0627\u0632\n"
+            "- need = \u0627\u0693\u062a\u06cc\u0627 \u0644\u0631\u064a\n"
+            "- learn = \u0632\u062f\u0647 \u06a9\u0648\u0644"
+        )
+    }
+    return glossaries.get(target_language, "- Keep subject terms, numbers, and formulas precise.")
 
 
 # ── DB helpers (inline to avoid bloating db.py) ────────────────
@@ -110,7 +140,12 @@ async def _get_translations(session_id: str, target_language: str, after_index: 
             (session_id, target_language, after_index),
         )
         rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    result: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["translated_text"] = normalize_ai_output(item.get("translated_text") or "")
+        result.append(item)
+    return result
 
 
 async def _get_source_chunks(session_id: str, after_index: int) -> list[dict]:
@@ -150,34 +185,64 @@ async def _get_notes(session_id: str, target_language: str) -> dict | None:
             (session_id, target_language),
         )
         row = await cur.fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    item = dict(row)
+    if item.get("notes_text"):
+        item["notes_text"] = normalize_ai_output(item["notes_text"])
+    return item
 
 
 # ── Translation worker ─────────────────────────────────────────
 
 async def _translate_and_store(session_id: str, chunk_index: int, source_text: str, target_language: str) -> None:
-    lang_display = _lang_name(target_language)
-    prompt = _TRANSLATE_PROMPT.format(lang=lang_display, transcript=source_text)
-    parts: list[str] = []
+    lang_display = _lang_prompt(target_language)
+    quality_note = ""
+    translated = ""
     try:
-        async for token in route_generate_with_fallback(
-            prompt,
-            "TRANSLATION",
-            system_prompt=_TRANSLATE_SYSTEM,
-            enable_thinking=False,
-            ollama_options={
-                "temperature": 0.15, "top_p": 0.85, "top_k": 32,
-                "num_ctx": 2048, "num_predict": 512,
-            },
-            lane=LANE_LIVE_CLASS_TRANSLATION,
-            feature="live_class.translate",
-            profile="translation_fast",
-        ):
-            if token == MODEL_SWITCH_TOKEN:
-                parts = []
-                continue
-            parts.append(token)
-        translated = "".join(parts).strip()
+        for attempt in range(3):
+            prompt = _TRANSLATE_PROMPT.format(
+                lang=lang_display,
+                glossary=_live_translation_glossary(target_language),
+                quality_note=quality_note,
+                transcript=source_text,
+            )
+            parts: list[str] = []
+            async for token in route_generate_with_fallback(
+                prompt,
+                "TRANSLATION",
+                system_prompt=_TRANSLATE_SYSTEM,
+                enable_thinking=False,
+                ollama_options={
+                    "temperature": 0.15, "top_p": 0.85, "top_k": 32,
+                    "num_ctx": 2048, "num_predict": 512,
+                },
+                lane=LANE_LIVE_CLASS_TRANSLATION,
+                feature="live_class.translate",
+                profile="translation_fast",
+            ):
+                if token == MODEL_SWITCH_TOKEN:
+                    parts = []
+                    continue
+                parts.append(token)
+            translated = normalize_ai_output("".join(parts))
+            issue = language_output_issue(translated, target_language)
+            if not issue:
+                break
+            logger.warning(
+                "Live class translation retry session={} chunk={} lang={} issue={} output={!r}",
+                session_id,
+                chunk_index,
+                target_language,
+                issue,
+                translated[:120],
+            )
+            quality_note = (
+                f"Quality correction: the previous output was rejected because {issue}. "
+                f"Rewrite entirely in {lang_display}. Do not use any unrelated language or script. "
+                "Preserve formulas such as H2O and O2 as plain text.\n"
+            )
+            translated = ""
     except Exception as exc:
         logger.error("Live class translation error chunk={} lang={}: {}", chunk_index, target_language, exc)
         translated = ""
@@ -218,7 +283,10 @@ async def _claim_and_translate(session_id: str, chunk_index: int, source_text: s
 _NOTES_SYSTEM = """\
 You create structured study notes from classroom transcripts.
 Write in the target language. Use ## headings, bullet points, and end with an 'In summary:' section.
+Base the notes only on the transcript. Do not invent facts, examples, dates, formulas, or conclusions.
+Preserve names, numbers, units, formulas, and cause/effect relationships accurately.
 Be encouraging and use grade-appropriate vocabulary.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{}.
 """
 
 def _fallback_notes_lc(transcript: str) -> str:
@@ -269,11 +337,27 @@ async def _generate_class_notes(session_id: str, target_language: str) -> None:
         async with aiosqlite.connect(settings.DB_PATH) as conn:
             conn.row_factory = aiosqlite.Row
             cur = await conn.execute(
-                "SELECT source_text FROM live_class_chunks WHERE session_id=? ORDER BY chunk_index ASC",
-                (session_id,),
+                """
+                SELECT
+                    lcc.source_text,
+                    lct.translated_text
+                FROM live_class_chunks lcc
+                LEFT JOIN live_class_translations lct
+                    ON lct.session_id = lcc.session_id
+                   AND lct.chunk_index = lcc.chunk_index
+                   AND lct.target_language = ?
+                   AND lct.status = 'ready'
+                WHERE lcc.session_id=?
+                ORDER BY lcc.chunk_index ASC
+                """,
+                (target_language, session_id),
             )
             rows = await cur.fetchall()
-        transcript = "\n".join(r["source_text"] for r in rows)
+        transcript = "\n".join(
+            normalize_ai_output(r["translated_text"] or r["source_text"] or "")
+            for r in rows
+            if (r["translated_text"] or r["source_text"])
+        )
         if not transcript.strip():
             async with aiosqlite.connect(settings.DB_PATH) as conn:
                 await conn.execute(
@@ -283,10 +367,16 @@ async def _generate_class_notes(session_id: str, target_language: str) -> None:
                 await conn.commit()
             return
 
-        lang_display = _lang_name(target_language)
+        lang_display = _lang_prompt(target_language)
         prompt = (
             f"Target language: {lang_display}\n\n"
-            f"Create structured study notes from this class transcript:\n\n{transcript[:4000]}"
+            "Create structured study notes from this class transcript.\n"
+            "Use ## headings, short bullet points, and an 'In summary:' section.\n"
+            "Cover the transcript from beginning to end.\n"
+            "Base notes only on the transcript; do not invent facts, examples, dates, formulas, or conclusions.\n"
+            "Preserve names, numbers, units, formulas, and cause/effect relationships accurately.\n"
+            "Do not include hidden reasoning or commentary.\n\n"
+            f"{transcript[:4000]}"
         )
         parts: list[str] = []
         try:
@@ -301,7 +391,7 @@ async def _generate_class_notes(session_id: str, target_language: str) -> None:
             ):
                 if token != MODEL_SWITCH_TOKEN:
                     parts.append(token)
-            notes = "".join(parts).strip()
+            notes = normalize_ai_output("".join(parts))
         except Exception as exc:
             logger.error("Live class notes model error lang={}: {}", target_language, exc)
             notes = ""
@@ -312,6 +402,7 @@ async def _generate_class_notes(session_id: str, target_language: str) -> None:
         elif not _notes_coverage_ok(notes, transcript):
             logger.warning("live_class notes: thin coverage, appending fallback session={}", session_id)
             notes = f"{notes.strip()}\n\n{_fallback_notes_lc(transcript)}".strip()
+        notes = normalize_ai_output(notes)
 
         async with aiosqlite.connect(settings.DB_PATH) as conn:
             if notes:
@@ -782,7 +873,12 @@ async def student_past_sessions(student_id: str) -> list[dict]:
             (student_id,),
         )
         rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    result: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["notes_preview"] = normalize_ai_output(item.get("notes_preview") or "")
+        result.append(item)
+    return result
 
 
 # ── GET /{session_id}/source-chunks ───────────────────────────
@@ -821,7 +917,7 @@ async def live_class_notes_stream(session_id: str, target_language: str = "en") 
             row = await cur.fetchone()
 
         if row and row["notes_text"]:
-            notes = row["notes_text"]
+            notes = normalize_ai_output(row["notes_text"])
         else:
             if key not in _lc_notes_ready:
                 _lc_notes_ready[key] = asyncio.Event()
@@ -842,7 +938,7 @@ async def live_class_notes_stream(session_id: str, target_language: str = "en") 
             if not row or not row["notes_text"]:
                 yield _sse({"type": "error", "message": "Notes unavailable."})
                 return
-            notes = row["notes_text"]
+            notes = normalize_ai_output(row["notes_text"])
 
         words = notes.split(" ")
         for i, word in enumerate(words):
@@ -866,15 +962,7 @@ async def live_class_notes_stream(session_id: str, target_language: str = "en") 
 @router.get("/{session_id}/translations")
 async def get_session_translations(session_id: str, target_language: str = "en") -> list[dict]:
     """Return ready translated chunks for a student to reconstruct the transcript."""
-    async with aiosqlite.connect(settings.DB_PATH) as conn:
-        conn.row_factory = aiosqlite.Row
-        cur = await conn.execute(
-            "SELECT chunk_index, translated_text, created_at FROM live_class_translations "
-            "WHERE session_id=? AND target_language=? AND status='ready' ORDER BY chunk_index ASC",
-            (session_id, target_language),
-        )
-        rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+    return await _get_translations(session_id, target_language, after_index=-1)
 
 
 # ── GET /{session_id}/completion-status ───────────────────────
@@ -1008,7 +1096,7 @@ async def export_live_class_pdf(body: LiveClassExportRequest) -> Response:
             row = await cur.fetchone()
         if not row or not row["notes_text"]:
             raise HTTPException(status_code=400, detail="Notes not ready yet.")
-        content_text = row["notes_text"]
+        content_text = normalize_ai_output(row["notes_text"])
         title = f"Class Notes — {date_str}"
         content_type = "notes"
     else:
@@ -1023,7 +1111,9 @@ async def export_live_class_pdf(body: LiveClassExportRequest) -> Response:
             rows = await cur.fetchall()
         if not rows:
             raise HTTPException(status_code=400, detail="Transcript not available yet.")
-        content_text = "\n\n".join(r["translated_text"] for r in rows if r["translated_text"])
+        content_text = normalize_ai_output(
+            "\n\n".join(r["translated_text"] for r in rows if r["translated_text"])
+        )
         title = f"Translated Transcript — {date_str}"
         content_type = "transcript"
 

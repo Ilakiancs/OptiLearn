@@ -28,7 +28,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.languages import language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
+from app.core.text_formatting import normalize_ai_output
 from app.services import db, faiss_store, generated_cache, job_manager
 from app.services.model_client import MODEL_SWITCH_TOKEN, model_client, route_generate, route_generate_with_fallback
 
@@ -46,6 +48,7 @@ def _render_translation_pdf(
     import shutil
     import subprocess
 
+    translated_text = normalize_ai_output(translated_text)
     app_root = Path(__file__).resolve().parents[3]
     fonts_dir = app_root / "data" / "fonts"
     lang_display = _LANG_NAME.get(target_language, target_language.upper())
@@ -635,28 +638,37 @@ _TRANSLATE_PROMPT = """\
 Translate the following educational content into {target_language}.
 The reader is a student in grade {grade_level}, age {age}.
 Rules:
+- This is a strict conceptual translation task only
+- Translate the source material once, sentence by sentence, preserving the author's meaning
+- Do not summarize, explain, solve exercises, add study notes, add introductions, or add conclusions
+- Do not add headings, bullets, examples, warnings, or comments unless they already exist in the source
 - Preserve all mathematical, scientific, and factual meaning exactly
 - Simplify vocabulary for grade {grade_level}
 - Do not translate proper nouns, formulas, or units
-- If a concept has no equivalent, explain it simply
+- If a concept has no direct equivalent, choose the closest natural phrase without expanding the lesson
 - Output only the translated content, no commentary
 - Translate the content once only; do not repeat paragraphs or restart the translation
 - Preserve paragraph structure and line breaks exactly
+- Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}
 Content:
 {content}"""
 
 _TRANSLATE_IMAGE_PROMPT = """\
 This educational image contains text and/or diagrams (textbook page, worksheet, or learning material).
-Translate and explain its full content into {target_language}.
+Extract the visible educational content and translate it into {target_language}.
 The reader is a student in grade {grade_level}, age {age}.
 Rules:
 - Extract and translate all visible text in the image
+- This is a strict conceptual translation task only
+- Do not summarize, explain, solve exercises, add study notes, add introductions, or add conclusions
+- Do not add headings, bullets, examples, warnings, or comments unless they already exist in the source image
 - Preserve all mathematical, scientific, and factual meaning exactly
 - Simplify vocabulary for grade {grade_level}
 - Do not translate proper nouns, formulas, or units
 - Output only the translated content, no commentary
 - Translate the content once only; do not repeat paragraphs or restart the translation
-- Preserve paragraph and section structure"""
+- Preserve paragraph and section structure
+- Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}"""
 
 _EXPLAIN_PROMPT = """\
 You are a patient tutor explaining educational content to {name}, age {age}, grade {grade_level}. Respond in {language}.
@@ -666,6 +678,7 @@ Explain the following material clearly and engagingly:
 - Use examples relevant to everyday life where possible
 - Use ## headings for each major concept
 - Keep total length appropriate for grade {grade_level}
+- Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}
 - Use gentle, non-judgmental correction language. Avoid labels that shame or blame the learner.
 Material:
 {translated_text}"""
@@ -674,6 +687,7 @@ _ASK_PROMPT = """\
 You are a patient tutor for {name}, age {age}, grade {grade_level}.
 Respond in {language}.
 Use gentle, non-judgmental correction language. Avoid labels that shame or blame the learner.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}.
 Context from the student's material:
 {context}
 Student's question: {question}
@@ -998,7 +1012,7 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
             pages = [{"page": 1, "text": fp.read_text(encoding="utf-8")}]
 
     target_pages = [p for p in pages if body.page is None or p["page"] == body.page] or pages
-    lang_name = _LANG_NAME.get(body.target_language, body.target_language)
+    lang_name = language_prompt_label(body.target_language)
     grade = student.get("grade_level", 1)
     age = student.get("age", 10)
 
@@ -1010,19 +1024,9 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                 cached_lang = _translation_cache.get(f"lang_{body.material_id}")
                 cached_text = _translation_cache.get(body.material_id)
                 if cached_lang == body.target_language and isinstance(cached_text, str) and cached_text.strip():
-                    logger.info("Feature1 translation cache hit material={} lang={}", body.material_id, body.target_language)
-                    yield _sse({"type": "page_complete", "page": 1, "full_text": cached_text})
-                    yield _sse({"type": "done", "total_pages": 1})
-                    return
-
-                material_lang = _translation_cache.get(f"db_lang_{body.material_id}") or material.get("target_language")
-                if (
-                    material_lang == body.target_language
-                    and material.get("translated_text")
-                ):
-                    cached_text = material["translated_text"]
+                    cached_text = normalize_ai_output(cached_text)
                     _translation_cache[body.material_id] = cached_text
-                    _translation_cache[f"lang_{body.material_id}"] = body.target_language
+                    logger.info("Feature1 translation cache hit material={} lang={}", body.material_id, body.target_language)
                     yield _sse({"type": "page_complete", "page": 1, "full_text": cached_text})
                     yield _sse({"type": "done", "total_pages": 1})
                     return
@@ -1039,10 +1043,11 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                         "grade": grade,
                         "source_hash": source_hash,
                     },
-                    prompt_version="feature1-translation-v1",
+                    prompt_version="feature1-translation-v2",
                 )
                 persisted_cached = await generated_cache.get_text(cache_key, "material.translation")
                 if persisted_cached:
+                    persisted_cached = normalize_ai_output(persisted_cached)
                     _translation_cache[body.material_id] = persisted_cached
                     _translation_cache[f"lang_{body.material_id}"] = body.target_language
                     yield _sse({"type": "page_complete", "page": 1, "full_text": persisted_cached})
@@ -1112,10 +1117,11 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                                 page_buf += data.get("content", "")
                                 yield sse_event
 
+                    page_buf = normalize_ai_output(page_buf)
                     full_parts.append(page_buf)
                     yield _sse({"type": "page_complete", "page": page_num, "full_text": page_buf})
 
-                full_text = "\n\n".join(full_parts)
+                full_text = normalize_ai_output("\n\n".join(full_parts))
                 _translation_cache[body.material_id] = full_text
                 _translation_cache[f"lang_{body.material_id}"] = body.target_language
                 await generated_cache.set_text(
@@ -1184,7 +1190,7 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
             status_code=404, detail="Translation not found — translate the material first."
         )
 
-    lang_name = _LANG_NAME.get(body.language, body.language)
+    lang_name = language_prompt_label(body.language)
     prompt = _EXPLAIN_PROMPT.format(
         name=student["name"],
         age=student.get("age", 10),
@@ -1202,13 +1208,14 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
             "grade": student.get("grade_level", 1),
             "source_hash": source_hash,
         },
-        prompt_version="feature1-explain-v1",
+        prompt_version="feature1-explain-v2",
     )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
             cached = await generated_cache.get_text(cache_key, "material.explanation")
             if cached:
+                cached = normalize_ai_output(cached)
                 yield _sse({"type": "token", "page": 1, "content": cached})
                 yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
                 return
@@ -1226,7 +1233,7 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, summary_chunks.append):
                 yield sse_event
-            summary_text = "".join(summary_chunks).strip()
+            summary_text = normalize_ai_output("".join(summary_chunks))
             if summary_text:
                 await db.update_material_tutor_summary(body.material_id, summary_text)
                 await generated_cache.set_text(
@@ -1278,7 +1285,7 @@ async def ask_question(body: AskRequest):
             translated_text = material["translated_text"]
 
     context = body.highlighted_text if body.highlighted_text else translated_text[:1000]
-    lang_name = _LANG_NAME.get(body.language, body.language)
+    lang_name = language_prompt_label(body.language)
 
     if body.format == "json":
         context = translated_text[:500] if translated_text else "general learning material"
@@ -1296,7 +1303,7 @@ async def ask_question(body: AskRequest):
                 "grade": student.get("grade_level", 1),
                 "source_hash": generated_cache.hash_text(context),
             },
-            prompt_version="feature1-suggestions-v1",
+            prompt_version="feature1-suggestions-v2",
         )
         cached_questions = await generated_cache.get_json(cache_key, "suggested.questions")
         if isinstance(cached_questions, list):
@@ -1360,13 +1367,14 @@ async def ask_question(body: AskRequest):
             "grade": student.get("grade_level", 1),
             "source_hash": source_hash,
         },
-        prompt_version="feature1-ask-v1",
+        prompt_version="feature1-ask-v2",
     )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
             cached = await generated_cache.get_text(cache_key, "material.qa")
             if cached:
+                cached = normalize_ai_output(cached)
                 yield _sse({"type": "token", "page": 1, "content": cached})
                 yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
                 return
@@ -1384,7 +1392,7 @@ async def ask_question(body: AskRequest):
             )
             async for sse_event in _sse_stream_with_keepalive(gen, 1, answer_chunks.append):
                 yield sse_event
-            answer_text = "".join(answer_chunks).strip()
+            answer_text = normalize_ai_output("".join(answer_chunks))
             if answer_text:
                 await db.append_material_tutor_history(
                     body.material_id,

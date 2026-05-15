@@ -15,7 +15,9 @@ from app.api.routes.auth import get_current_teacher
 from app.services.student_transfer import build_student_bundle, bundle_to_zip_bytes, import_zip_bytes
 from loguru import logger
 
+from app.core.languages import language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
+from app.core.text_formatting import normalize_ai_output
 from app.models.schemas import CreateStudentRequest
 from app.services import db, generated_cache
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
@@ -34,6 +36,7 @@ _PROGRESS_REPORT_PROMPT = """\
 Generate a 3-paragraph progress report for teacher use.
 Be specific: what the student has mastered, what they struggle with,
 one concrete recommendation for tomorrow's lesson.
+Use plain text for formulas; never output raw LaTeX such as $...$ or \\text{{}}.
 Student: {name}, age {age}, grade {grade_level}, language {language}
 Mastery: {topic_mastery_dict}
 Recent quizzes: {last_10_results}
@@ -87,7 +90,7 @@ async def get_student_report(
         for q in progress["recent_quizzes"]
     ]
 
-    lang_instruction = f" Write the report in {language}." if language != "en" else ""
+    lang_instruction = f" Write the report entirely in {language_prompt_label(language)}."
     prompt = _PROGRESS_REPORT_PROMPT.format(
         name=student["name"],
         age=student.get("age", "unknown"),
@@ -104,7 +107,7 @@ async def get_student_report(
             "language": language,
             "progress_hash": progress_hash,
         },
-        prompt_version="student-report-v1",
+        prompt_version="student-report-v2",
     )
 
     async def event_stream() -> AsyncGenerator[str, None]:
@@ -134,7 +137,7 @@ async def get_student_report(
                     continue
                 report_parts.append(token)
                 yield _sse({"type": "token", "content": token})
-            report_text = "".join(report_parts).strip()
+            report_text = normalize_ai_output("".join(report_parts))
             if report_text:
                 await generated_cache.set_text(
                     cache_key,

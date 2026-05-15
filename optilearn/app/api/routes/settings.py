@@ -1,5 +1,12 @@
 """
-Runtime settings routes for model routing.
+app/api/routes/settings.py — Runtime network-mode settings.
+
+Controls whether the app routes AI requests to the local Ollama instance
+(offline/forced-local) or automatically uses the Gemma 4 26B cloud API
+when latency is below the configured threshold (auto mode).
+
+The teacher's choice is persisted in data/user_settings.json and survives
+server restarts. POST /api/settings/network-mode to toggle.
 """
 from __future__ import annotations
 

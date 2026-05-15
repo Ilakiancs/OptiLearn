@@ -1,3 +1,11 @@
+/*
+ * App.jsx — Root router and auth context.
+ *
+ * Defines the full client-side route tree (student, teacher, live-quiz, setup).
+ * NetworkGate polls /api/health every 5 s and shows the offline screen after
+ * two consecutive failures. Auth state is read from localStorage and passed
+ * down via React Router's Outlet context.
+ */
 import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
