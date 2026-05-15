@@ -197,7 +197,14 @@ class OptiLearnAPI:
     
     def quit(self):
         """Close the PyWebView window, terminating the app."""
-        self.window.destroy()
+        def _destroy_window():
+            try:
+                self.window.destroy()
+            except Exception:
+                pass
+
+        threading.Thread(target=_destroy_window, daemon=True).start()
+        return True
 
 
 def _register_start_menu_shortcut(base_dir: str, ico_path: str, vbs_path: str) -> None:

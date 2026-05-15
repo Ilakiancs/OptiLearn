@@ -430,6 +430,42 @@ async def _migrate_students_for_auth(conn: aiosqlite.Connection) -> dict[str, An
     return {"migrated": migrated_count, "backup_file": str(backup) if backup else None}
 
 
+async def _sync_mastery_from_quiz_summaries(conn: aiosqlite.Connection) -> None:
+    """Rebuild topic mastery from completed quiz summary scores."""
+    cursor = await conn.execute(
+        """
+        SELECT student_id,
+               topic,
+               AVG(score) AS avg_score,
+               MAX(timestamp) AS last_timestamp
+        FROM quiz_results
+        WHERE question_text LIKE '%:summary'
+        GROUP BY student_id, topic
+        """
+    )
+    rows = await cursor.fetchall()
+
+    for row in rows:
+        mastery = float(row["avg_score"] or 0.0)
+        level = _mastery_level(mastery)
+        last_updated = row["last_timestamp"] or datetime.utcnow().isoformat()
+        await conn.execute(
+            """
+            INSERT INTO topic_mastery (student_id, topic, mastery, level, last_updated)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(student_id, topic) DO UPDATE SET
+                mastery = excluded.mastery,
+                level = excluded.level,
+                last_updated = excluded.last_updated
+            """,
+            (row["student_id"], row["topic"], mastery, level, last_updated),
+        )
+
+    if rows:
+        await conn.commit()
+        logger.info("Synced {} topic mastery rows from quiz summaries", len(rows))
+
+
 # ──────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────
@@ -478,6 +514,7 @@ async def init_db() -> None:
         await db.execute("CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expiry ON teacher_sessions(expires_at)")
         await db.commit()
         await _migrate_students_for_auth(db)
+        await _sync_mastery_from_quiz_summaries(db)
     logger.info("Database schema ready.")
 
 
@@ -1043,10 +1080,10 @@ async def update_mastery(
     new_score: float,
 ) -> dict[str, Any]:
     """
-    Update topic mastery using an exponential moving average.
+    Update topic mastery using average score across completed topic quiz summaries.
 
-    EMA formula: mastery = 0.7 * old_mastery + 0.3 * new_score
-    Level thresholds: >0.75 → advanced | >0.45 → intermediate | else → beginner
+    The incoming new_score is for the current completed quiz attempt and is
+    combined with prior summary attempts for this topic.
 
     Returns: {"mastery": float, "level": str, "previous_level": str}
     """
@@ -1065,7 +1102,21 @@ async def update_mastery(
             old_mastery = 0.0
             previous_level = "beginner"
 
-        new_mastery = 0.7 * old_mastery + 0.3 * new_score
+        summary_cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS cnt, COALESCE(SUM(score), 0.0) AS total
+            FROM quiz_results
+            WHERE student_id = ?
+              AND topic = ?
+              AND question_text LIKE '%:summary'
+            """,
+            (student_id, topic),
+        )
+        summary_row = await summary_cursor.fetchone()
+        prior_count = int(summary_row["cnt"] or 0) if summary_row else 0
+        prior_total = float(summary_row["total"] or 0.0) if summary_row else 0.0
+
+        new_mastery = (prior_total + float(new_score)) / max(1, prior_count + 1)
         new_level = _mastery_level(new_mastery)
 
         if existing:
