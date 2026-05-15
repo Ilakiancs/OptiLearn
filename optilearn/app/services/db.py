@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS quiz_results (
     id             TEXT PRIMARY KEY,
     student_id     TEXT REFERENCES students(id),
+    quiz_id        TEXT REFERENCES teacher_quizzes(id),
     session_id     TEXT REFERENCES sessions(id),
     topic          TEXT NOT NULL,
     question_text  TEXT,
@@ -188,6 +189,7 @@ CREATE TABLE IF NOT EXISTS live_games (
     current_question_index  INTEGER DEFAULT 0,
     is_answer_revealed      INTEGER DEFAULT 0,
     quiz_title              TEXT DEFAULT '',
+    subject                 TEXT DEFAULT '',
     questions_json          TEXT DEFAULT '[]',
     join_code               TEXT DEFAULT '',
     created_at              TEXT DEFAULT (datetime('now'))
@@ -197,6 +199,9 @@ CREATE TABLE IF NOT EXISTS live_participants (
     id          TEXT PRIMARY KEY,
     game_id     TEXT NOT NULL REFERENCES live_games(id),
     nickname    TEXT NOT NULL,
+    student_id  TEXT REFERENCES students(id),
+    mastery_recorded INTEGER DEFAULT 0,
+    mastery_recorded_score REAL,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
@@ -443,6 +448,7 @@ async def init_db() -> None:
             "ALTER TABLE students ADD COLUMN is_registered INTEGER DEFAULT 0",
             "ALTER TABLE teachers ADD COLUMN initial_password TEXT",
             "ALTER TABLE teacher_quizzes ADD COLUMN created_by TEXT",
+            "ALTER TABLE quiz_results ADD COLUMN quiz_id TEXT",
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
             "ALTER TABLE materials ADD COLUMN translated_text TEXT",
             "ALTER TABLE materials ADD COLUMN target_language TEXT",
@@ -458,6 +464,9 @@ async def init_db() -> None:
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language', 'en')",
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language_name', 'English')",
             "ALTER TABLE live_games ADD COLUMN join_code TEXT DEFAULT ''",
+            "ALTER TABLE live_participants ADD COLUMN student_id TEXT",
+            "ALTER TABLE live_participants ADD COLUMN mastery_recorded INTEGER DEFAULT 0",
+            "ALTER TABLE live_participants ADD COLUMN mastery_recorded_score REAL",
         ]:
             try:
                 await db.execute(migration)
@@ -989,12 +998,13 @@ async def get_session_for_student(session_id: str, student_id: str) -> dict[str,
 
 async def record_quiz_result(
     student_id: str,
-    session_id: str,
-    topic: str,
-    question_text: str,
-    student_answer: str,
-    correct: bool,
-    score: float,
+    quiz_id: str | None = None,
+    session_id: str | None = None,
+    topic: str = "",
+    question_text: str = "",
+    student_answer: str = "",
+    correct: bool = False,
+    score: float = 0.0,
 ) -> dict[str, Any]:
     """Persist a single quiz answer and return the stored record as a dict."""
     result_id = str(uuid.uuid4())
@@ -1003,12 +1013,13 @@ async def record_quiz_result(
         await db.execute(
             """
             INSERT INTO quiz_results
-                (id, student_id, session_id, topic, question_text, student_answer, correct, score, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, quiz_id, session_id, topic, question_text, student_answer, correct, score, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 result_id,
                 student_id,
+                quiz_id,
                 session_id,
                 topic,
                 question_text,

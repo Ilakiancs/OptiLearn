@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowSquareOut, PhoneDisconnect, X } from '@phosphor-icons/react'
+import { PersonaAvatarIcon } from '../utils/personaIcons'
 
 export default function PersonaVoiceChat({ callData, onClose }) {
   const { call_url, persona } = callData
@@ -44,9 +45,9 @@ export default function PersonaVoiceChat({ callData, onClose }) {
           width: 36, height: 36, borderRadius: '50%',
           background: persona.color || 'var(--accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '1.2rem', flexShrink: 0,
+          flexShrink: 0,
         }}>
-          {persona.emoji || '🤝'}
+          <PersonaAvatarIcon iconKey={persona.icon} size={18} color="#fff" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{persona.name}</div>
@@ -88,9 +89,8 @@ export default function PersonaVoiceChat({ callData, onClose }) {
               width: 72, height: 72, borderRadius: '50%',
               background: persona.color || 'var(--accent)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '2.2rem',
             }}>
-              {persona.emoji || '🤝'}
+              <PersonaAvatarIcon iconKey={persona.icon} size={34} color="#fff" />
             </div>
             <a
               href={call_url}

@@ -195,15 +195,16 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
 
   // Result screen
   if (result) {
-    const pct = Math.round(result.score * 100)
-    const correct = Math.round(result.score * total)
+    const quizScore = Math.round((result.score || 0) * 100)
+    const masteryPct = Math.round((result.mastery ?? result.score ?? 0) * 100)
+    const correct = Math.round((result.score || 0) * total)
     return (
       <div style={{ padding: '32px 16px', maxWidth: 480, margin: '0 auto', textAlign: 'center' }}>
         <div style={{
           fontSize: '3rem', fontWeight: 800, marginBottom: 8,
-          color: result.score >= 0.75 ? 'var(--color-success)' : result.score >= 0.4 ? '#EF9F27' : 'var(--color-danger)',
+          color: (result.score || 0) >= 0.75 ? 'var(--color-success)' : (result.score || 0) >= 0.4 ? '#EF9F27' : 'var(--color-danger)',
         }}>
-          {pct}%
+          {quizScore}%
         </div>
         <div style={{ color: 'var(--color-text-muted)', marginBottom: 24 }}>
           {correct} of {total} correct
@@ -213,24 +214,24 @@ function QuizFlow({ quiz, studentId, onClose, onComplete }) {
           borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: 24, textAlign: 'left',
         }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: 8 }}>
-            Mastery update — {quiz.subject || quiz.title}
+            Quiz score — {quiz.subject || quiz.title}
           </div>
           <div style={{ height: 8, background: 'var(--color-border)', borderRadius: 4, overflow: 'hidden' }}>
             <div style={{
               height: '100%',
-              width: `${Math.round((result.mastery || result.score) * 100)}%`,
-              background: result.score >= 0.75 ? 'var(--color-success)' : result.score >= 0.4 ? '#EF9F27' : 'var(--color-danger)',
+              width: `${quizScore}%`,
+              background: (result.score || 0) >= 0.75 ? 'var(--color-success)' : (result.score || 0) >= 0.4 ? '#EF9F27' : 'var(--color-danger)',
               transition: 'width 0.6s',
             }} />
           </div>
           <div style={{ fontSize: '0.78rem', color: 'var(--color-text-hint)', marginTop: 4 }}>
-            Level: {result.new_level}
+            Mastery now {masteryPct}% · Level: {result.new_level}
           </div>
         </div>
         <div style={{ fontSize: '1rem', fontStyle: 'italic', color: 'var(--color-text)', marginBottom: 24 }}>
-          {result.score === 1 ? 'Perfect score! Outstanding work.' :
-           result.score >= 0.75 ? 'Great job! Keep it up.' :
-           result.score >= 0.4 ? 'Good effort. Review the material and continue when ready.' :
+          {(result.score || 0) === 1 ? 'Perfect score! Outstanding work.' :
+           (result.score || 0) >= 0.75 ? 'Great job! Keep it up.' :
+           (result.score || 0) >= 0.4 ? 'Good effort. Review the material and continue when ready.' :
            "Let's go over this topic together."}
         </div>
         <button
@@ -470,7 +471,7 @@ export default function SubjectView() {
                 borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center',
                 color: 'var(--color-text-muted)',
               }}>
-                <div style={{ fontSize: '2rem', marginBottom: 12 }}>📭</div>
+                <div style={{ marginBottom: 12 }}><FileText size={32} weight="bold" /></div>
                 No materials uploaded for this subject yet.
               </div>
             ) : (
@@ -488,7 +489,10 @@ export default function SubjectView() {
                       {fileTypeBadge(m.file_path)}
                     </div>
                     {m.faiss_indexed ? (
-                      <span style={{ fontSize: '0.75rem', color: '#4ade80' }}>✓ Indexed for AI search</span>
+                      <span style={{ fontSize: '0.75rem', color: '#4ade80', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={13} weight="fill" />
+                        <span>Indexed for AI search</span>
+                      </span>
                     ) : null}
                     <div style={{ fontSize: '0.78rem', color: 'var(--color-text-hint)' }}>
                       Added {relativeTime(m.created_at)}
@@ -560,7 +564,7 @@ export default function SubjectView() {
                 borderRadius: 'var(--radius-lg)', padding: '40px 20px', textAlign: 'center',
                 color: 'var(--color-text-muted)',
               }}>
-                <div style={{ fontSize: '2rem', marginBottom: 12 }}>📝</div>
+                <div style={{ marginBottom: 12 }}><PencilSimpleLine size={32} weight="bold" /></div>
                 No quizzes assigned for this subject yet.
               </div>
             ) : (

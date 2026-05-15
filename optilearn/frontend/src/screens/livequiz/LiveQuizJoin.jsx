@@ -6,17 +6,67 @@
  */
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from '@phosphor-icons/react'
+import { ArrowLeft, GameController, HourglassHigh, RocketLaunch, WarningCircle } from '@phosphor-icons/react'
 import { joinLiveGame } from '../../api/client'
+import { useAuth } from '../../context/AuthContext'
 
-const COLORS = ['#6c63ff', '#ff6584', '#43b89c', '#f9a825']
+const COLORS = ['#4c8ff5', '#2f9fe8', '#43b89c', '#58b86f']
 
 export default function LiveQuizJoin() {
   const { gameId } = useParams()
   const navigate = useNavigate()
+  const auth = useAuth() || {}
+  const { studentId } = auth
   const [nickname, setNickname] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // If not logged in, redirect to student login
+  if (!studentId) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundImage: `radial-gradient(circle at top right, rgba(42, 141, 191, 0.08), transparent 50%), radial-gradient(circle at bottom left, rgba(44, 155, 125, 0.05), transparent 45%), radial-gradient(circle, var(--dot-color) var(--dot-size), transparent calc(var(--dot-size) + 0.4px))`,
+        backgroundSize: 'auto, auto, var(--dot-gap) var(--dot-gap)',
+        backgroundColor: 'var(--bg)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        fontFamily: "'Inter', 'Segoe UI', sans-serif",
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: 440,
+          textAlign: 'center',
+          background: 'var(--surface)',
+          borderRadius: 24,
+          padding: '32px 28px',
+          boxShadow: 'var(--shadow)',
+        }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: '1.5rem', fontWeight: 700 }}>Login Required</h2>
+          <p style={{ margin: '0 0 24px', color: 'var(--text-muted)' }}>
+            Please log in as a student to join this live quiz.
+          </p>
+          <button
+            onClick={() => navigate(`/join?redirect=/live-quiz/join/${gameId}`)}
+            style={{
+              padding: '12px 24px',
+              background: 'var(--color-primary)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontSize: '1rem',
+            }}
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   async function handleJoin(e) {
     e.preventDefault()
@@ -26,7 +76,7 @@ export default function LiveQuizJoin() {
     setError('')
     setLoading(true)
     try {
-      const result = await joinLiveGame(gameId, name)
+      const result = await joinLiveGame(gameId, name, studentId)
       // Store participant info for the play screen
       sessionStorage.setItem(`lq_participant_${gameId}`, JSON.stringify(result))
       navigate(`/live-quiz/play/${gameId}`)
@@ -39,7 +89,9 @@ export default function LiveQuizJoin() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'var(--bg)',
+      backgroundImage: `radial-gradient(circle at top right, rgba(42, 141, 191, 0.08), transparent 50%), radial-gradient(circle at bottom left, rgba(44, 155, 125, 0.05), transparent 45%), radial-gradient(circle, var(--dot-color) var(--dot-size), transparent calc(var(--dot-size) + 0.4px))`,
+      backgroundSize: 'auto, auto, var(--dot-gap) var(--dot-gap)',
+      backgroundColor: 'var(--bg)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -77,12 +129,11 @@ export default function LiveQuizJoin() {
             width: 72,
             height: 72,
             borderRadius: 20,
-            background: 'var(--accent)',
+            background: 'linear-gradient(135deg, #4c8ff5, #43b89c)',
             marginBottom: 18,
-            fontSize: '2rem',
             boxShadow: 'var(--shadow)',
           }}>
-            🎮
+            <GameController size={36} weight="fill" color="#fff" />
           </div>
           <h1 style={{
             margin: '0 0 8px',
@@ -126,10 +177,10 @@ export default function LiveQuizJoin() {
               placeholder="e.g. StarLearner42"
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              style={{
+                style={{
                 height: 52,
                 borderRadius: 14,
-                border: error ? '2px solid var(--danger)' : '1px solid var(--border)',
+                border: error ? '2px solid #2f9fe8' : '1px solid rgba(76,143,245,0.22)',
                 background: 'var(--surface-soft)',
                 color: 'var(--text)',
                 fontSize: '1.1rem',
@@ -139,8 +190,9 @@ export default function LiveQuizJoin() {
               }}
             />
             {error && (
-              <div style={{ color: 'var(--danger)', fontSize: '0.84rem', fontWeight: 600 }}>
-                {error}
+              <div style={{ color: '#2f9fe8', fontSize: '0.84rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <WarningCircle size={16} weight="fill" />
+                <span>{error}</span>
               </div>
             )}
           </div>
@@ -149,11 +201,12 @@ export default function LiveQuizJoin() {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             {COLORS.map((c, i) => (
               <div key={i} style={{
-                width: 10,
-                height: 10,
+                width: 14,
+                height: 14,
                 borderRadius: '50%',
                 background: c,
-                opacity: 0.7,
+                opacity: 0.95,
+                boxShadow: `0 0 0 4px ${c}22`,
               }} />
             ))}
           </div>
@@ -168,7 +221,7 @@ export default function LiveQuizJoin() {
               border: 'none',
               background: loading
                 ? 'var(--surface-soft)'
-                : 'var(--accent)',
+                : 'linear-gradient(135deg, #4c8ff5, #43b89c)',
               color: loading ? 'var(--text-muted)' : '#fff',
               fontWeight: 800,
               fontSize: '1.05rem',
@@ -176,9 +229,13 @@ export default function LiveQuizJoin() {
               opacity: !nickname.trim() ? 0.55 : 1,
               transition: 'all 0.2s',
               boxShadow: loading ? 'none' : 'var(--shadow)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
             }}
           >
-            {loading ? '⏳ Joining…' : '🚀 Join Game'}
+            {loading ? <><HourglassHigh size={18} weight="bold" /><span>Joining…</span></> : <><RocketLaunch size={18} weight="bold" /><span>Join Game</span></>}
           </button>
         </form>
 

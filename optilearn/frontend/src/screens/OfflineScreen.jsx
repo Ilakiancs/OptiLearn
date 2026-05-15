@@ -40,7 +40,7 @@ export default function OfflineScreen({ onRecover }) {
           flexShrink: 0,
         }}
       >
-        <img src="/icons/icon-192x192.png" alt="OptiLearn" style={{ width: '100%', height: '100%', display: 'block' }} />
+        <img src="/icons/icon.svg" alt="OptiLearn" style={{ width: '100%', height: '100%', display: 'block' }} />
       </div>
 
       <div>

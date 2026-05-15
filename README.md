@@ -4,7 +4,7 @@
 
 | Tool | Version |
 |---|---|
-| Python | 3.11 or 3.12 (3.13+ not supported) |
+| Python | 3.11 or 3.12 recommended for the full desktop app. Python 3.13+ can install the core server stack, but the PyWebView desktop launcher is skipped. |
 | Node.js | 18+ |
 | npm | 9+ |
 | Ollama | latest — [ollama.com](https://ollama.com) |
@@ -82,8 +82,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 # Install Python dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 
 # Initialise the database
 python -c "import asyncio; from app.services.db import init_db; asyncio.run(init_db())"
@@ -107,6 +107,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 # Classroom deployment (handles firewall + hotspot DNS automatically)
 # Right-click start_admin.bat → Run as administrator
 ```
+
+If you want the native teacher launcher ([`optilearn/desktop.py`](optilearn/desktop.py)), use Python 3.11 or 3.12 so `pywebview` and its Windows dependency chain can install cleanly.
 
 ---
 

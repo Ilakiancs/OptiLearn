@@ -277,29 +277,20 @@ def set_network_mode(mode: str) -> dict:
 
 async def check_network_status() -> dict:
     """
-    Returns network status with latency measurement.
+    Returns network status based on USE_LOCAL_OLLAMA setting.
     Returns: {
         "connected": bool,
         "latency_ms": int | None,
         "use_26b": bool
     }
     """
-    if not _has_26b_api_key():
-        return {"connected": False, "latency_ms": None, "use_26b": False}
-
-    if _is_force_offline():
-        return {"connected": False, "latency_ms": None, "use_26b": False}
-
-    latency_ms = await _measure_network_latency()
-    if latency_ms is not None:
-        use_26b = latency_ms < settings.LATENCY_THRESHOLD_MS
-        return {
-            "connected": True,
-            "latency_ms": latency_ms,
-            "use_26b": use_26b,
-        }
-
-    return {"connected": False, "latency_ms": None, "use_26b": False}
+    # Determine status purely based on USE_LOCAL_OLLAMA setting
+    if settings.USE_LOCAL_OLLAMA:
+        # Offline mode: using local ollama
+        return {"connected": True, "latency_ms": None, "use_26b": False}
+    else:
+        # Online mode: using API/cloud
+        return {"connected": True, "latency_ms": None, "use_26b": True}
 
 
 async def _measure_network_latency() -> int | None:

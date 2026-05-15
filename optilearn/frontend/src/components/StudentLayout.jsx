@@ -200,7 +200,7 @@ function Sidebar({ studentId, student, onNavigate }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 14, padding: 14 }}>
       <div className="surface-card" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="icon-only" aria-hidden>
-          <Student size={22} weight="duotone" />
+          <img src="/icons/icon.svg" alt="OptiLearn" style={{ width: 42, height: 42, display: 'block', objectFit: 'contain' }} />
         </span>
         <div>
           <div style={{ fontWeight: 800, letterSpacing: '0.02em' }}>OptiLearn</div>
@@ -278,6 +278,113 @@ export default function StudentLayout() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 980)
   const [menuOpen, setMenuOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
+  const [showQuickExitModal, setShowQuickExitModal] = useState(false)
+
+  // Platform detection (treat as desktop only when pywebview quit API is available)
+  const getPlatform = () => {
+    const ua = navigator.userAgent.toLowerCase()
+    const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/.test(ua)
+    const hasPyWebViewQuit = typeof window !== 'undefined' && window.pywebview && window.pywebview.api && typeof window.pywebview.api.quit === 'function'
+
+    if (hasPyWebViewQuit) return 'desktop'
+    if (isMobileDevice) return 'mobile'
+    return 'browser'
+  }
+
+  const showGoodbyePage = () => {
+    document.body.innerHTML = `
+      <div style="
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: var(--bg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: var(--text);
+        text-align: center;
+        padding: 20px;
+      ">
+        <div style="max-width: 520px;">
+          <h1 style="font-size: 1.5rem; margin-bottom: 16px;">You can now close this window</h1>
+          <p style="color: var(--text-muted); margin: 0; line-height: 1.6;">
+            If this did not close automatically, press <strong>Ctrl+W</strong> (Windows/Linux) or <strong>Cmd+W</strong> (Mac),
+            or use your device controls to exit the app.
+          </p>
+        </div>
+      </div>
+    `
+  }
+
+  // Perform the actual exit with robust fallbacks and timeout
+  const confirmExit = async () => {
+    const platform = getPlatform()
+    console.log('Confirming exit on platform:', platform)
+
+    const fallbackDelay = 800 // ms
+
+    try {
+      if (platform === 'desktop') {
+        // Prefer the pywebview API, but guard with a timeout fallback.
+        let finished = false
+        const tryQuit = async () => {
+          try {
+            await window.pywebview.api.quit()
+            finished = true
+          } catch (err) {
+            console.error('pywebview.api.quit() failed:', err)
+          }
+        }
+        tryQuit()
+        setTimeout(() => {
+          if (!finished) {
+            console.warn('Quit did not complete, falling back to window.close() and goodbye page')
+            try { window.close() } catch (_) {}
+            showGoodbyePage()
+          }
+        }, fallbackDelay)
+        return
+      }
+
+      if (platform === 'mobile') {
+        // Many mobile browsers/webviews disallow window.close(); replace content
+        // and attempt benign navigations that reduce visibility of the app.
+        try {
+          window.location.href = 'about:blank'
+        } catch (_) {}
+        setTimeout(() => showGoodbyePage(), 250)
+        return
+      }
+
+      // Browser/tab path: try window.close(), opener, PWA, then goodbye page.
+      try {
+        const closed = window.close()
+        console.log('window.close() attempted, returned:', closed)
+        if (closed) return
+      } catch (err) {
+        console.error('window.close() error:', err)
+      }
+
+      if (window.opener && !window.opener.closed) {
+        try { window.opener.focus(); window.close(); return } catch (_) {}
+      }
+
+      if (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches) {
+        try { window.close(); return } catch (_) {}
+      }
+
+      // Final fallback: show goodbye page so user can close manually.
+      showGoodbyePage()
+    } catch (err) {
+      console.error('confirmExit unexpected error:', err)
+      showGoodbyePage()
+    }
+  }
+
+  // Handle quick exit button click - show modal instead of immediate exit
+  const handleQuickExit = () => {
+    console.log('Quick exit button clicked')
+    setShowQuickExitModal(true)
+  }
 
   const { data: student } = useQuery({
     queryKey: ['student', studentId],
@@ -353,10 +460,16 @@ export default function StudentLayout() {
           Connection lost - your work is saved
         </div>
       )}
-      <a className="quick-exit" href="https://www.google.com" target="_blank" rel="noreferrer" title="Quick exit to a neutral page">
+      <button 
+        className="quick-exit"
+        onClick={handleQuickExit}
+        type="button"
+        title="Quick exit to a neutral page"
+        style={{ border: 'none', cursor: 'pointer' }}
+      >
         <DoorOpen size={16} weight="bold" />
         <span>Quick Exit</span>
-      </a>
+      </button>
 
       {!isMobile && (
         <aside className="student-sidebar-scroll" style={{
@@ -435,6 +548,102 @@ export default function StudentLayout() {
       }}>
         <Outlet context={{ student, studentId }} />
       </main>
+
+      {showQuickExitModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)',
+          display: 'grid',
+          placeItems: 'center',
+          zIndex: 3000,
+          padding: '16px',
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '18px',
+            padding: '28px',
+            maxWidth: '400px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.2)',
+            display: 'grid',
+            gap: '20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+              <div style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '12px',
+                background: 'var(--accent-soft)',
+                display: 'grid',
+                placeItems: 'center',
+                color: 'var(--accent)',
+                flexShrink: 0,
+              }}>
+                <DoorOpen size={22} weight="duotone" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)' }}>Exit OptiLearn?</h2>
+            </div>
+
+            <p style={{
+              margin: 0,
+              fontSize: '0.95rem',
+              color: 'var(--text-muted)',
+              lineHeight: '1.5',
+            }}>
+              Are you okay? If you need help, please contact your teacher before leaving.
+            </p>
+
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              marginTop: '12px',
+            }}>
+              <button
+                onClick={() => setShowQuickExitModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text)',
+                  borderRadius: '10px',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}
+                onMouseOver={(e) => e.target.style.background = 'var(--surface-soft)'}
+                onMouseOut={(e) => e.target.style.background = 'var(--surface)'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmExit}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: '#ffffff',
+                  borderRadius: '10px',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}
+                onMouseOver={(e) => e.target.style.opacity = '0.85'}
+                onMouseOut={(e) => e.target.style.opacity = '1'}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createTeacherQuiz, listTeacherQuizzes, listStudents, createLiveGame } from '../api/client'
-import { ClipboardText } from '@phosphor-icons/react'
+import { CheckCircle, ClipboardText, HourglassHigh, RocketLaunch } from '@phosphor-icons/react'
 import SubjectComboInput from '../components/SubjectComboInput'
 
 const BLANK_QUESTION = { question: '', options: ['', '', '', ''], correct_answer: '', explanation: '' }
@@ -109,8 +109,12 @@ function QuizPreview({ title, subject, questions }) {
                 background: opt === q.correct_answer ? '#14532d' : 'var(--color-surface)',
                 color: opt === q.correct_answer ? '#4ade80' : 'var(--color-text)',
                 border: '1px solid var(--color-border)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}>
-                {opt} {opt === q.correct_answer ? '✓' : ''}
+                <span>{opt}</span>
+                {opt === q.correct_answer ? <CheckCircle size={14} weight="fill" /> : null}
               </div>
             ))}
           </div>
@@ -134,7 +138,13 @@ export default function TeacherQuizBuilder({ embedded = false }) {
   const [launchingId, setLaunchingId] = useState(null)
 
   const { data: students } = useQuery({ queryKey: ['students'], queryFn: listStudents })
-  const { data: quizzes, isLoading } = useQuery({ queryKey: ['teacher-quizzes'], queryFn: listTeacherQuizzes, refetchInterval: 15000 })
+  const { data: quizzes, isLoading } = useQuery({
+    queryKey: ['teacher-quizzes'],
+    queryFn: listTeacherQuizzes,
+    refetchInterval: 15000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+  })
 
   const filteredQuizzes = useMemo(() => {
     const q = quizSearch.trim().toLowerCase()
@@ -355,18 +365,23 @@ export default function TeacherQuizBuilder({ embedded = false }) {
                     padding: '6px 14px',
                     borderRadius: 'var(--radius-md)',
                     border: 'none',
-                    background: launchingId === q.id ? 'var(--color-surface-2)' : 'linear-gradient(135deg, #6c63ff, #43b89c)',
+                    background: launchingId === q.id
+                      ? 'var(--color-surface-2)'
+                      : 'linear-gradient(135deg, #3f73e8 0%, #7c4dff 34%, #1fb7a6 68%, #7cc24a 100%)',
                     color: '#fff',
                     fontWeight: 700,
                     fontSize: '0.82rem',
                     cursor: launchingId === q.id ? 'default' : 'pointer',
                     minHeight: 36,
                     whiteSpace: 'nowrap',
-                    boxShadow: launchingId === q.id ? 'none' : '0 2px 10px rgba(108,99,255,0.3)',
+                    boxShadow: launchingId === q.id ? 'none' : '0 2px 12px rgba(63,115,232,0.28)',
                     transition: 'all 0.2s',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
                   }}
                 >
-                  {launchingId === q.id ? '⏳ Launching…' : '🎮 Launch Live Quiz'}
+                  {launchingId === q.id ? <><HourglassHigh size={16} weight="bold" /><span>Launching…</span></> : <><RocketLaunch size={16} weight="bold" /><span>Launch Live Quiz</span></>}
                 </button>
               </div>
             ))}

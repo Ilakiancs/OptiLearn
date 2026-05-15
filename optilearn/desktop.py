@@ -189,6 +189,17 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
     return False
 
 
+class OptiLearnAPI:
+    """API exposed to the web frontend for PyWebView desktop app."""
+    
+    def __init__(self, window):
+        self.window = window
+    
+    def quit(self):
+        """Close the PyWebView window, terminating the app."""
+        self.window.destroy()
+
+
 def _register_start_menu_shortcut(base_dir: str, ico_path: str, vbs_path: str) -> None:
     import subprocess
     try:
@@ -272,6 +283,10 @@ def main():
     start_kwargs = dict(debug=False, private_mode=False)
     if os.path.exists(ico_path):
         start_kwargs['icon'] = ico_path
+
+    # Bind the API to the window so frontend can call window.pywebview.api.quit()
+    api = OptiLearnAPI(window)
+    window.expose(api)
 
     webview.start(on_loaded, **start_kwargs)
 

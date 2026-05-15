@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle, ClipboardText, FunnelSimple, ListChecks, Play, Timer, X } from '@phosphor-icons/react'
 import { getStudentProgress, listStudentQuizzes } from '../api/client'
 import { QuizFlow } from './CoursePage'
@@ -43,13 +43,24 @@ export default function AssignmentsPage() {
   const { studentId } = useOutletContext()
   const [filter, setFilter] = useState('all')
   const [activeQuiz, setActiveQuiz] = useState(null)
+  const queryClient = useQueryClient()
 
   const { data: quizzes = [], isLoading } = useQuery({
     queryKey: ['student-quizzes', studentId],
     queryFn: () => listStudentQuizzes(studentId),
     enabled: !!studentId,
   })
-  const { data: progress } = useQuery({ queryKey: ['student-progress', studentId], queryFn: () => getStudentProgress(studentId) })
+  const { data: progress } = useQuery({
+    queryKey: ['student-progress', studentId],
+    queryFn: () => getStudentProgress(studentId),
+    refetchOnMount: 'always',
+  })
+
+  useEffect(() => {
+    if (!activeQuiz) {
+      queryClient.invalidateQueries({ queryKey: ['student-progress', studentId] })
+    }
+  }, [activeQuiz, queryClient, studentId])
 
   const attempts = progress?.recent_quizzes || []
 
@@ -75,14 +86,21 @@ export default function AssignmentsPage() {
         <div className="surface-card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
             <button
-              onClick={() => setActiveQuiz(null)}
+                onClick={() => setActiveQuiz(null)}
               style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: 'var(--radius-md)', padding: '6px 12px', cursor: 'pointer', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
               <X size={14} /> Back
             </button>
-            <span style={{ fontWeight: 700 }}>{activeQuiz.title}</span>
+              <span style={{ fontWeight: 700 }}>{activeQuiz.title}</span>
           </div>
-          <QuizFlow quiz={activeQuiz} studentId={studentId} onDone={() => setActiveQuiz(null)} />
+            <QuizFlow
+              quiz={activeQuiz}
+              studentId={studentId}
+              onDone={() => {
+                setActiveQuiz(null)
+                queryClient.invalidateQueries({ queryKey: ['student-progress', studentId] })
+              }}
+            />
         </div>
       </section>
     )

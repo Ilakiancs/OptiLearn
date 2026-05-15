@@ -57,6 +57,16 @@ async def submit_quiz(body: SubmitQuizRequest) -> dict:
         )
         results.append({**graded, "record_id": record["id"]})
 
+    await db.record_quiz_result(
+        student_id=body.student_id,
+        session_id=body.session_id,
+        topic=body.topic,
+        question_text=f"quiz:{body.session_id or body.topic}:summary",
+        student_answer=str(correct_count),
+        correct=correct_count == len(body.answers) if body.answers else False,
+        score=overall_score,
+    )
+
     return {
         "score": round(overall_score, 4),
         "new_level": progress["new_level"],

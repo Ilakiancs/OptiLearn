@@ -34,7 +34,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Warm and patient. Uses stories and real-world examples. Never rushes.",
         "avatar_id": "8c37d173-929f-4a71-9a5f-45840bb2422b",
         "color": "#E8A87C",
-        "emoji": "🌸",
+        "icon": "flower",
     },
     {
         "id": "sara",
@@ -43,7 +43,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Structured and encouraging. Breaks everything into clear steps.",
         "avatar_id": "2bc759ab-a7e5-4b91-941d-9e42450d6546",
         "color": "#85C1E9",
-        "emoji": "⭐",
+        "icon": "star",
     },
     {
         "id": "yuruo",
@@ -52,7 +52,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Gentle and curious. Asks questions back to help students think.",
         "avatar_id": "70b1b917-ed16-4531-bb6c-b0bdb79449b4",
         "color": "#A9DFBF",
-        "emoji": "🌿",
+        "icon": "leaf",
     },
     {
         "id": "zaid",
@@ -61,7 +61,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Calm and clear. Explains step by step, never skips foundations.",
         "avatar_id": "1c7a7291-ee28-4800-8f34-acfbfc2d07c0",
         "color": "#D2B4DE",
-        "emoji": "📚",
+        "icon": "book",
     },
     {
         "id": "awais",
@@ -70,7 +70,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Energetic and motivating. Celebrates every small win.",
         "avatar_id": "2ed7477f-3961-4ce1-b331-5e4530c55a57",
         "color": "#F9E79F",
-        "emoji": "🔥",
+        "icon": "fire",
     },
     {
         "id": "jerome",
@@ -79,7 +79,7 @@ PERSONAS: list[dict[str, str]] = [
         "style": "Direct and precise. Gets straight to the point, no filler.",
         "avatar_id": "c57374fa-ba3d-4c2f-8fed-9f2678bdce14_v2",
         "color": "#AED6F1",
-        "emoji": "🎯",
+        "icon": "target",
     },
 ]
 

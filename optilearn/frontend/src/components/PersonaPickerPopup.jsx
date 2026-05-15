@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Users, X, Waveform } from '@phosphor-icons/react'
 import { getPersonas } from '../api/client'
-
-const EMOJI_FALLBACK = ['🌸', '⭐', '🌿', '📚', '🔥', '🎯']
+import { PERSONA_ICON_KEYS, PersonaAvatarIcon } from '../utils/personaIcons'
 
 export default function PersonaPickerPopup({ onSelect, onDismiss }) {
   const [personas, setPersonas] = useState([])
@@ -79,7 +78,7 @@ export default function PersonaPickerPopup({ onSelect, onDismiss }) {
               <PersonaCard
                 key={p.id}
                 persona={p}
-                fallbackEmoji={EMOJI_FALLBACK[i] || '🤝'}
+                fallbackIconKey={PERSONA_ICON_KEYS[i] || 'flower'}
                 onSelect={() => onSelect(p)}
               />
             ))}
@@ -103,7 +102,7 @@ export default function PersonaPickerPopup({ onSelect, onDismiss }) {
   )
 }
 
-function PersonaCard({ persona, fallbackEmoji, onSelect }) {
+function PersonaCard({ persona, fallbackIconKey, onSelect }) {
   const [hovered, setHovered] = useState(false)
 
   return (
@@ -127,10 +126,9 @@ function PersonaCard({ persona, fallbackEmoji, onSelect }) {
         width: 52, height: 52, borderRadius: '50%',
         background: persona.color || 'var(--accent)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '1.6rem',
         flexShrink: 0,
       }}>
-        {persona.emoji || fallbackEmoji}
+        <PersonaAvatarIcon iconKey={persona.icon || fallbackIconKey} size={24} color="#fff" />
       </div>
       <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text)' }}>
         {persona.name}

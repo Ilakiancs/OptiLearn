@@ -125,7 +125,9 @@ export default function HomeScreen() {
     try {
       const student = await loginStudent({ username, pin: password })
       storeStudent(student.student_id)
-      navigate(`/student/${student.student_id}`, { replace: true })
+      const params = new URLSearchParams(location.search)
+      const redirect = params.get('redirect')
+      navigate(redirect || `/student/${student.student_id}`, { replace: true })
     } catch (_) {
       setError('Those details did not match. Please check them and continue.')
       setBusy(false)
@@ -161,7 +163,9 @@ export default function HomeScreen() {
         language: signup.language,
       })
       storeStudent(student.student_id)
-      navigate(`/student/${student.student_id}`, { replace: true })
+      const params = new URLSearchParams(location.search)
+      const redirect = params.get('redirect')
+      navigate(redirect || `/student/${student.student_id}`, { replace: true })
     } catch (err) {
       setError(err.message || 'Account could not be created.')
       setBusy(false)
@@ -240,14 +244,16 @@ export default function HomeScreen() {
   return (
     <main style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 18, boxSizing: 'border-box' }}>
       <section style={{ width: '100%', maxWidth: 460, display: 'grid', gap: 18 }}>
-        <header style={{ textAlign: 'center', display: 'grid', gap: 10 }}>
-          <span style={{ margin: '0 auto', width: 64, height: 64, borderRadius: 16, background: 'rgba(42,141,191,0.12)', color: '#2a8dbf', display: 'grid', placeItems: 'center' }}>
-            <Student size={34} weight="duotone" />
-          </span>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.7rem', lineHeight: 1.15 }}>OptiLearn</h1>
-            <p style={{ margin: '7px 0 0', color: 'var(--text-muted)' }}>Offline learning for every classroom.</p>
+        <header style={{ textAlign: 'center', display: 'grid', gap: 14 }}>
+          <div style={{ margin: '0 auto', width: 'max-content', display: 'grid', gap: 8, alignItems: 'center' }}>
+            <img
+              src="/icons/icon.svg"
+              alt="OptiLearn"
+              style={{ width: '100%', maxWidth: 120, height: 'auto', display: 'block', transform: 'translateY(-10px)' }}
+            />
+            <h1 style={{ margin: 0, fontSize: '1.7rem', lineHeight: 1.15, fontWeight: 800 }}>OptiLearn</h1>
           </div>
+          <p style={{ margin: '7px 0 0', color: 'var(--text-muted)' }}>Offline learning for every classroom.</p>
         </header>
 
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: 'var(--surface)' }}>

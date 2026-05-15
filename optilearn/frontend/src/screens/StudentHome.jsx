@@ -86,9 +86,10 @@ export default function StudentHome() {
         <StatTile Icon={Trophy} label="Level" value={progress?.level || '—'} tone="rgba(111, 168, 243, 0.16)" />
       </div>
 
-      <div className="tid-banner">
+      {/*<div className="tid-banner">
         You can go at your own pace. Nothing is permanent here and your work updates step by step.
-      </div>
+      </div>*/}
+    
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
         <ActionCard to={`/student/${studentId}/courses`} Icon={BookOpen} label="Courses" hint="Study by topic" />

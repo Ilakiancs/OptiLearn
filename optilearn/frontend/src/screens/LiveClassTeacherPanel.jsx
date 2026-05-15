@@ -344,7 +344,7 @@ export default function LiveClassTeacherPanel({ onEnd }) {
         {allComplete ? (
           <div style={{ background: '#f0fdf4', border: '1px solid #16a34a', borderRadius: 10, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', fontWeight: 600, fontSize: '0.9rem' }}>
             <CheckCircle size={18} color="#16a34a" weight="bold" />
-            All students have their translated transcript ✓
+            All students have their translated transcript
           </div>
         ) : (
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, color: 'var(--color-text-muted)', fontSize: '0.88rem' }}>
