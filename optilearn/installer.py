@@ -149,7 +149,7 @@ class InstallerApp:
 
         frame1 = tk.Frame(body, bg='#f0f7ff', relief='solid', bd=1)
         frame1.pack(fill='x', pady=4)
-        tk.Label(frame1, text='✅ Gemma 4 E2B  (Required — 7.2GB)',
+        tk.Label(frame1, text='Gemma 4 E2B  (Required — 7.2GB)',
                  font=('Segoe UI', 11, 'bold'), bg='#f0f7ff', fg='#1a73e8').pack(
                  anchor='w', padx=16, pady=12)
         tk.Label(frame1, text='Fast responses, works on 8GB RAM laptops',

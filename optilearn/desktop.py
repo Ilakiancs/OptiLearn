@@ -227,6 +227,17 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
     return False
 
 
+class OptiLearnAPI:
+    """API exposed to the web frontend for PyWebView desktop app."""
+    
+    def __init__(self, window):
+        self.window = window
+    
+    def quit(self):
+        """Close the PyWebView window, terminating the app."""
+        self.window.destroy()
+
+
 def _register_start_menu_shortcut(base_dir: str, ico_path: str, vbs_path: str) -> None:
     import subprocess
     try:

@@ -171,6 +171,7 @@ cd ..
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+If you want the native teacher launcher ([`optilearn/desktop.py`](optilearn/desktop.py)), use Python 3.11 or 3.12 so `pywebview` and its Windows dependency chain can install cleanly.
 **For classroom deployment on Windows — use `start_admin.bat` instead** (see below).
 
 The app will be available at `http://localhost:8000`.

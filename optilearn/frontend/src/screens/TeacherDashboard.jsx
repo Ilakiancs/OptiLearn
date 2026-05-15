@@ -1551,7 +1551,9 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
           <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.32)', zIndex: 150 }} />
           <aside className="student-sidebar-scroll" style={{ position: 'fixed', top: 0, left: 0, width: '84vw', height: '100vh', background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', zIndex: 160, overflowY: 'auto', boxSizing: 'border-box' }}>
             <div className="surface-card" style={{ color: 'var(--text)', textDecoration: 'none', minHeight: 70, display: 'inline-flex', alignItems: 'center', gap: 12, padding: 12 }}>
-              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}><Student size={24} weight="duotone" /></span>
+              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}>
+                <img src="/icons/icon.svg" alt="OptiLearn" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }} />
+              </span>
               <span style={{ display: 'grid', gap: 2 }}><span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span></span>
             </div>
             <div className="surface-card" style={{ padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1596,7 +1598,9 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
         {!isMobile && (
           <aside className="student-sidebar-scroll" style={{ height: '100vh', minHeight: 0, background: 'var(--color-bg)', borderRight: '1px solid var(--color-border)', padding: '14px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div className="surface-card" style={{ color: 'var(--text)', textDecoration: 'none', minHeight: 70, display: 'inline-flex', alignItems: 'center', gap: 12, padding: 12 }}>
-              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}><Student size={24} weight="duotone" /></span>
+              <span className="icon-only" style={{ width: 52, height: 52, borderRadius: 14 }}>
+                <img src="/icons/icon.svg" alt="OptiLearn" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }} />
+              </span>
               <span style={{ display: 'grid', gap: 2 }}><span style={{ fontWeight: 800, fontSize: '1.08rem', lineHeight: 1.1 }}>OptiLearn</span><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Teacher dashboard</span></span>
             </div>
             <div className="surface-card" style={{ padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1794,7 +1798,10 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
           maxWidth: 380, animation: 'olSlideUp 0.2s ease-out',
         }}>
           <span style={{ flex: 1 }}>
-            {reportToast.type === 'ok' ? '✓ ' : '✕ '}{reportToast.message}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {reportToast.type === 'ok' ? <CheckCircle size={16} weight="fill" /> : <WarningCircle size={16} weight="fill" />}
+              <span>{reportToast.message}</span>
+            </span>
           </span>
           {reportToast.type === 'error' && (
             <button onClick={() => setReportToast(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 6, width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1rem' }}>×</button>

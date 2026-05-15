@@ -70,7 +70,9 @@ reportlab>=4.2.2
 cryptography>=42.0.0
 
 # Desktop app (teacher launcher)
-pywebview>=5.0
+# pywebview pulls pythonnet, which is not installable on Python 3.13+ in this repo.
+# The core server still installs there; use Python 3.11/3.12 for the desktop launcher.
+pywebview>=5.0; python_version < "3.13"
 bottle>=0.12.25
 proxy_tools>=0.1.0
 

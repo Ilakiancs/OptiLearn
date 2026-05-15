@@ -6,7 +6,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft } from '@phosphor-icons/react'
+import { ArrowLeft, ArrowRight, GameController, HourglassHigh, WarningCircle } from '@phosphor-icons/react'
 import { findGameByCode } from '../../api/client'
 
 export default function LiveQuizCodeEntry() {
@@ -15,11 +15,9 @@ export default function LiveQuizCodeEntry() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Combined display value
   const code = digits.join('')
 
   function handleInput(e) {
-    // Accept paste or typing — strip non-digits, cap at 6
     const raw = e.target.value.replace(/\D/g, '').slice(0, 6)
     const arr = raw.split('').concat(Array(6).fill('')).slice(0, 6)
     setDigits(arr)
@@ -37,7 +35,6 @@ export default function LiveQuizCodeEntry() {
     setError('')
     try {
       const result = await findGameByCode(clean)
-      // Go straight to the nickname screen
       navigate(`/live-quiz/join/${result.game_id}`)
     } catch (err) {
       setError(err.message || 'Game not found. Check the code and continue.')
@@ -45,13 +42,14 @@ export default function LiveQuizCodeEntry() {
     }
   }
 
-  // Format as "XXX XXX" for display
   const formatted = `${code.slice(0, 3)}${code.length > 3 ? ' ' + code.slice(3) : ''}`
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'var(--bg)',
+      backgroundImage: `radial-gradient(circle at top right, rgba(42, 141, 191, 0.09), transparent 50%), radial-gradient(circle at bottom left, rgba(44, 155, 125, 0.05), transparent 45%), radial-gradient(circle, var(--dot-color) var(--dot-size), transparent calc(var(--dot-size) + 0.4px))`,
+      backgroundSize: 'auto, auto, var(--dot-gap) var(--dot-gap)',
+      backgroundColor: 'var(--bg)',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -60,7 +58,6 @@ export default function LiveQuizCodeEntry() {
       fontFamily: "'Inter', 'Segoe UI', sans-serif",
       position: 'relative',
     }}>
-      {/* Back button */}
       <button
         onClick={() => navigate('/')}
         style={{
@@ -77,44 +74,42 @@ export default function LiveQuizCodeEntry() {
       </button>
 
       <div style={{ width: '100%', maxWidth: 420, textAlign: 'center' }}>
+        <div style={{ marginBottom: 32 }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 80,
+            height: 80,
+            borderRadius: 24,
+            background: 'linear-gradient(135deg, #4c8ff5, #43b89c)',
+            marginBottom: 22,
+            boxShadow: 'var(--shadow)',
+          }}>
+            <GameController size={42} weight="fill" color="#fff" />
+          </div>
 
-        {/* Hero icon */}
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 80,
-          height: 80,
-          borderRadius: 24,
-          background: 'var(--accent)',
-          marginBottom: 22,
-          fontSize: '2.4rem',
-          boxShadow: 'var(--shadow)',
-        }}>
-          🎮
+          <h1 style={{
+            color: 'var(--text)',
+            fontSize: '2.2rem',
+            fontWeight: 900,
+            margin: '0 0 10px',
+            letterSpacing: '-0.03em',
+          }}>
+            Join a Quiz
+          </h1>
+          <p style={{
+            color: 'var(--text-muted)',
+            margin: '0 0 36px',
+            fontSize: '1rem',
+            lineHeight: 1.5,
+          }}>
+            Ask your teacher for the <strong style={{ color: 'var(--text)' }}>6-digit PIN</strong><br />
+            and enter it below
+          </p>
         </div>
 
-        <h1 style={{
-          color: 'var(--text)',
-          fontSize: '2.2rem',
-          fontWeight: 900,
-          margin: '0 0 10px',
-          letterSpacing: '-0.03em',
-        }}>
-          Join a Quiz
-        </h1>
-        <p style={{
-          color: 'var(--text-muted)',
-          margin: '0 0 36px',
-          fontSize: '1rem',
-          lineHeight: 1.5,
-        }}>
-          Ask your teacher for the <strong style={{ color: 'var(--text)' }}>6-digit PIN</strong><br />
-          and enter it below
-        </p>
-
         <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 20 }}>
-          {/* Big PIN input */}
           <div style={{ position: 'relative' }}>
             <input
               id="pin-input"
@@ -122,7 +117,7 @@ export default function LiveQuizCodeEntry() {
               inputMode="numeric"
               autoFocus
               autoComplete="off"
-              maxLength={7} /* 6 digits + possible space */
+              maxLength={7}
               value={formatted.trim()}
               onChange={handleInput}
               placeholder="000 000"
@@ -131,7 +126,7 @@ export default function LiveQuizCodeEntry() {
                 height: 90,
                 borderRadius: 20,
                 border: error
-                  ? '2px solid var(--danger)'
+                  ? '2px solid #2f9fe8'
                   : code.length === 6
                   ? '2px solid var(--success)'
                   : '2px solid var(--border)',
@@ -147,7 +142,6 @@ export default function LiveQuizCodeEntry() {
                 caretColor: 'var(--accent)',
               }}
             />
-            {/* Progress dots */}
             <div style={{
               position: 'absolute',
               bottom: 12,
@@ -172,22 +166,24 @@ export default function LiveQuizCodeEntry() {
             </div>
           </div>
 
-          {/* Error */}
           {error && (
             <div style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--danger)',
+              background: 'linear-gradient(135deg, rgba(47,159,232,0.10), rgba(67,184,156,0.08))',
+              border: '1px solid rgba(47,159,232,0.28)',
               borderRadius: 12,
               padding: '12px 16px',
-              color: 'var(--danger)',
+              color: '#2f9fe8',
               fontWeight: 600,
               fontSize: '0.9rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
             }}>
-              ⚠️ {error}
+              <WarningCircle size={16} weight="fill" />
+              <span>{error}</span>
             </div>
           )}
 
-          {/* Submit */}
           <button
             type="submit"
             id="enter-code-btn"
@@ -197,7 +193,7 @@ export default function LiveQuizCodeEntry() {
               borderRadius: 16,
               border: 'none',
               background: code.length === 6 && !loading
-                ? 'var(--accent)'
+                ? 'linear-gradient(135deg, #4c8ff5, #43b89c)'
                 : 'var(--surface)',
               color: code.length === 6 ? '#fff' : 'var(--text-muted)',
               fontWeight: 800,
@@ -208,13 +204,16 @@ export default function LiveQuizCodeEntry() {
                 ? 'var(--shadow)'
                 : 'none',
               letterSpacing: '0.02em',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
             }}
           >
-            {loading ? '⏳ Finding game…' : '→ Enter Game'}
+            {loading ? <><HourglassHigh size={18} weight="bold" /><span>Finding game…</span></> : <><ArrowRight size={18} weight="bold" /><span>Enter Game</span></>}
           </button>
         </form>
 
-        {/* Hint */}
         <p style={{
           marginTop: 28,
           color: 'var(--text-muted)',

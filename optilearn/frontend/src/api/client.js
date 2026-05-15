@@ -560,11 +560,25 @@ export function getLiveGameState(gameId) {
   return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}`)
 }
 
-export function joinLiveGame(gameId, nickname) {
+export function joinLiveGame(gameId, nickname, studentId = null) {
   return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/join`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nickname }),
+    body: JSON.stringify({ nickname, student_id: studentId }),
+  })
+}
+
+export function linkLiveParticipantStudent(gameId, participantId, studentId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/participants/${encodeURIComponent(participantId)}/link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ student_id: studentId }),
+  })
+}
+
+export function completeLiveParticipantGame(gameId, participantId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/participants/${encodeURIComponent(participantId)}/complete`, {
+    method: 'POST',
   })
 }
 
@@ -586,6 +600,12 @@ export function revealLiveAnswer(gameId) {
 
 export function endLiveGame(gameId) {
   return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/end`, { method: 'POST' })
+}
+
+export function kickLiveParticipant(gameId, participantId) {
+  return request(`/api/live-quiz/games/${encodeURIComponent(gameId)}/kick/${encodeURIComponent(participantId)}`, {
+    method: 'POST',
+  })
 }
 
 export function getLiveGameResults(gameId) {
