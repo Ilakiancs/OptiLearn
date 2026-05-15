@@ -59,6 +59,7 @@ optilearn/data/user_settings.json
 optilearn/data/materials/
 optilearn/data/ssl/
 optilearn/data/voices/
+optilearn/data/webview-profile/
 optilearn/data/whisper-models/
 
 # Local model weights and downloaded ML assets
