@@ -286,7 +286,7 @@ class InstallerApp:
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns(
                 '__pycache__', '*.pyc', '.git', 'node_modules', '.venv',
-                'dist', '=5.0'
+                'dist'
             ),
         )
 
@@ -380,11 +380,12 @@ class InstallerApp:
 
     def _launch_and_exit(self):
         install_dir = self.installed_dir or os.path.abspath(self.install_dir.get())
-        pythonw = self._venv_python(install_dir, windowed=True)
-        if not os.path.exists(pythonw):
-            pythonw = 'pythonw' if os.name == 'nt' else sys.executable
-        subprocess.Popen([pythonw, os.path.join(install_dir, 'desktop.py')],
-                        cwd=install_dir)
+        vbs_path = os.path.join(install_dir, 'OptiLearn.vbs')
+        if os.name == 'nt' and os.path.exists(vbs_path):
+            subprocess.Popen(['wscript.exe', '//nologo', vbs_path], cwd=install_dir)
+        else:
+            subprocess.Popen([sys.executable, os.path.join(install_dir, 'desktop.py')],
+                            cwd=install_dir)
         self.root.destroy()
 
 

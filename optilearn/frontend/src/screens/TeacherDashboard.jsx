@@ -25,6 +25,7 @@ import MasteryBadge from '../components/MasteryBadge'
 import TopicHeatmap from '../components/TopicHeatmap'
 import NetworkStatusPill from '../components/NetworkStatusPill'
 import TeacherCalendarModal from '../components/TeacherCalendarModal'
+import FormattedText from '../components/FormattedText'
 import Spinner from '../components/Spinner'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -89,6 +90,7 @@ function renderInline(text) {
 
 function renderMarkdown(text) {
   if (!text) return null
+  return <FormattedText text={text} compact fontSize={13} headingSize={15} color="var(--color-text)" />
   return text.split('\n').map((line, i) => {
     if (line.startsWith('## ')) {
       return <div key={i} style={{ fontWeight: 700, fontSize: '0.93rem', margin: '10px 0 3px', color: 'var(--color-text)' }}>{line.slice(3)}</div>
@@ -1298,7 +1300,7 @@ export default function TeacherDashboard({ initialView = 'overview' }) {
   // ── Calendar modal ──
   const [calendarOpen, setCalendarOpen] = useState(false)
 
-  // ── Language toggle ──
+  // ── Report language setting; shares the platform language catalog for future System Language expansion ──
   const { data: teacherSettings } = useQuery({ queryKey: ['teacher-settings'], queryFn: getTeacherSettings, staleTime: 60000 })
   const [masterLang, setMasterLang] = useState('en')
   const [masterLangName, setMasterLangName] = useState('English')

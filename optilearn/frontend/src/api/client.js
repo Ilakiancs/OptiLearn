@@ -1,3 +1,11 @@
+/*
+ * api/client.js — HTTP and SSE client for the OptiLearn backend.
+ *
+ * All requests go to window.location.origin (same-origin, no CORS needed).
+ * Teacher requests automatically include the Bearer token from localStorage.
+ * streamSSE() handles a token-batching optimisation: the first token is flushed
+ * immediately; subsequent tokens are batched per animation frame for smooth UI.
+ */
 const BASE = window.location.origin
 
 function authHeaders(headers = {}) {
@@ -225,6 +233,10 @@ export function getStudentProgress(studentId) {
 
 export function getHealth() {
   return request('/api/health')
+}
+
+export function warmupTutor() {
+  return request('/api/tutor/warmup', { method: 'POST' })
 }
 
 export function getPerformanceDiagnostics(limit = 100) {
@@ -501,7 +513,7 @@ export const feature1 = {
     return request('/api/feature1/languages')
   },
   upload(formData) {
-    return fetch(`${BASE}/api/feature1/upload`, { method: 'POST', body: formData })
+    return fetch(`${BASE}/api/feature1/upload`, { method: 'POST', headers: authHeaders(), body: formData })
       .then(async res => {
         if (!res.ok) {
           let msg = `HTTP ${res.status}`

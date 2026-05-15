@@ -1,3 +1,10 @@
+"""
+app/services/mdns_server.py — mDNS/Bonjour service registration.
+
+Broadcasts optilearn.local on the LAN so iOS/macOS devices can reach the
+server by hostname without knowing the hotspot IP. Uses the zeroconf library.
+Start with start_mdns(port); stop cleanly with stop_mdns().
+"""
 from __future__ import annotations
 
 import socket

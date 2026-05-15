@@ -10,6 +10,7 @@ import {
   StopCircle,
   Translate as Languages,
 } from '@phosphor-icons/react'
+import FormattedText, { normalizeOutputText } from '../components/FormattedText'
 import Spinner from '../components/Spinner'
 
 const C = {
@@ -69,6 +70,8 @@ function resampleFloat32Samples(samples, sourceRate, targetRate) {
 // ── Markdown renderer (subset) ─────────────────────────────────
 function renderMarkdown(text) {
   if (!text) return null
+  return <FormattedText text={text} fontSize={15} headingSize={16} color={C.textPrimary} />
+  /*
   return text.split('\n').map((line, i) => {
     if (line.startsWith('## '))
       return (
@@ -92,6 +95,18 @@ function renderMarkdown(text) {
     if (line.trim() === '') return <div key={i} style={{ height: 8 }} />
     return <p key={i} style={{ fontSize: 15, lineHeight: 1.7, color: C.textPrimary, margin: '3px 0' }}>{line}</p>
   })
+  */
+}
+
+function cleanOutput(value) {
+  return normalizeOutputText(value || '')
+}
+
+function cleanChunkOutput(chunk) {
+  const next = { ...(chunk || {}) }
+  if (typeof next.translated === 'string') next.translated = cleanOutput(next.translated)
+  if (typeof next.text === 'string') next.text = cleanOutput(next.text)
+  return next
 }
 
 // ── Pulsing dot indicator ──────────────────────────────────────
@@ -131,7 +146,7 @@ function useTTS() {
       const response = await fetch('/api/tts/speak-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 3000), language }),
+        body: JSON.stringify({ text: normalizeOutputText(text).slice(0, 3000), language }),
       })
       if (!response.ok) { stop(); return }
       const reader = response.body.getReader()
@@ -273,7 +288,7 @@ export default function LiveTranslator() {
 
   function setChunkAt(index, chunk) {
     const next = [...chunksRef.current]
-    next[index] = { ...(next[index] || {}), ...chunk }
+    next[index] = { ...(next[index] || {}), ...cleanChunkOutput(chunk) }
     chunksRef.current = next
     setChunks(next)
   }
@@ -283,7 +298,7 @@ export default function LiveTranslator() {
     let translatedText = chunksRef.current[index]?.translated || ''
     const commit = () => {
       scheduled = false
-      setChunkAt(index, { translated: translatedText })
+      setChunkAt(index, { translated: cleanOutput(translatedText) })
     }
     return {
       append(token) {
@@ -296,7 +311,7 @@ export default function LiveTranslator() {
       flush(finalText) {
         if (typeof finalText === 'string') translatedText = finalText
         if (scheduled) scheduled = false
-        setChunkAt(index, { translated: translatedText })
+        setChunkAt(index, { translated: cleanOutput(translatedText) })
       },
       value() {
         return translatedText
@@ -562,7 +577,7 @@ export default function LiveTranslator() {
                 setLiveChunks(prev => {
                   const exists = prev.find(c => c.chunk_index === ev.chunk_index)
                   if (exists) return prev
-                  return [...prev, { chunk_index: ev.chunk_index, text: ev.text, timestamp: ev.timestamp }]
+                  return [...prev, { chunk_index: ev.chunk_index, text: cleanOutput(ev.text), timestamp: ev.timestamp }]
                     .sort((a, b) => a.chunk_index - b.chunk_index)
                 })
               }
@@ -579,6 +594,9 @@ export default function LiveTranslator() {
                   // Stream notes word-by-word
                   streamLiveClassNotes(sid, lang)
                 }
+              } else if (ev.type === 'notes_ready' && ev.notes_text) {
+                setLiveNotes(cleanOutput(ev.notes_text))
+                setLiveNotesStreaming(false)
               }
             } catch (_) {}
           }
@@ -650,7 +668,7 @@ export default function LiveTranslator() {
       if (r.ok) {
         const data = await r.json()
         if (Array.isArray(data)) {
-          setLiveChunks(data.map(c => ({ chunk_index: c.chunk_index, text: c.translated_text, timestamp: c.created_at })))
+          setLiveChunks(data.map(c => ({ chunk_index: c.chunk_index, text: cleanOutput(c.translated_text), timestamp: c.created_at })))
         }
       }
     } catch (_) {}
@@ -683,7 +701,7 @@ export default function LiveTranslator() {
           try {
             const ev = JSON.parse(line.slice(6))
             if (ev.type === 'token') setLiveNotes(prev => prev + ev.content)
-            else if (ev.type === 'done') setLiveNotesStreaming(false)
+            else if (ev.type === 'done') { setLiveNotes(prev => cleanOutput(prev)); setLiveNotesStreaming(false) }
             else if (ev.type === 'error') { setLiveError(ev.message); setLiveNotesStreaming(false) }
           } catch (_) {}
         }
@@ -712,7 +730,7 @@ export default function LiveTranslator() {
           try {
             const ev = JSON.parse(line.slice(6))
             if (ev.type === 'token') setLiveNotes(prev => prev + ev.content)
-            else if (ev.type === 'done') setLiveNotesStreaming(false)
+            else if (ev.type === 'done') { setLiveNotes(prev => cleanOutput(prev)); setLiveNotesStreaming(false) }
             else if (ev.type === 'error') { setLiveError(ev.message); setLiveNotesStreaming(false) }
           } catch (_) {}
         }
@@ -806,12 +824,12 @@ export default function LiveTranslator() {
       const data = await r.json()
       setSessionId(sid)
       sessionIdRef.current = sid
-      setNotesText(data.notes_text || '')
+      setNotesText(cleanOutput(data.notes_text))
       setTargetLanguage(data.notes_language || 'en')
       const ch = Array.isArray(data.translated_chunks) ? data.translated_chunks : []
-      replaceChunks(ch)
+      replaceChunks(ch.map(cleanChunkOutput))
       const original = data.raw_transcript || ch.map(c => c.original).filter(Boolean).join('\n\n')
-      const translated = ch.map(c => c.translated).filter(Boolean).join('\n\n')
+      const translated = cleanOutput(ch.map(c => c.translated).filter(Boolean).join('\n\n'))
       setOriginalTranscriptText(original)
       setTranslatedTranscriptText(translated)
       setTranscriptText(translated || original)
@@ -1061,7 +1079,7 @@ export default function LiveTranslator() {
           },
         }))
       }
-      setChunkAt(translatedChunk.index, translatedChunk)
+      setChunkAt(translatedChunk.index, cleanChunkOutput(translatedChunk))
       scrollPanelsToChunk(translatedChunk.index)
     } catch (err) {
       console.error('[Translation] text chunk issue', chunk.index, err)
@@ -1114,9 +1132,9 @@ export default function LiveTranslator() {
     setTranslationProgress(100)
     setTranslationStatusText('Preparing study notes')
 
-    const finalChunks = chunksRef.current.filter(c => c?.original)
+    const finalChunks = chunksRef.current.filter(c => c?.original).map(cleanChunkOutput)
     const rawTranscript = rawTranscriptPartsRef.current.join('\n\n')
-    const translatedTranscript = finalChunks.map(c => c.translated || c.original).filter(Boolean).join('\n\n')
+    const translatedTranscript = cleanOutput(finalChunks.map(c => c.translated || c.original).filter(Boolean).join('\n\n'))
     setOriginalTranscriptText(rawTranscript)
     setTranslatedTranscriptText(translatedTranscript)
     setTranscriptText(translatedTranscript || rawTranscript)
@@ -1165,6 +1183,7 @@ export default function LiveTranslator() {
             if (event.type === 'token') {
               setNotesText(prev => prev + event.content)
             } else if (event.type === 'done') {
+              setNotesText(prev => cleanOutput(prev))
               setIsFinalizing(false)
               finalizingRef.current = false
             } else if (event.type === 'error') {
@@ -1373,7 +1392,7 @@ export default function LiveTranslator() {
                     liveChunks.map((c, i) => (
                       <div key={i} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
                         {c.timestamp && <div style={{ fontSize: 11, color: C.textSecondary, marginBottom: 4 }}>{typeof c.timestamp === 'string' ? c.timestamp.slice(11, 16) : c.timestamp}</div>}
-                        <div style={{ fontSize: 14, lineHeight: 1.7, color: C.textSecondary }}>{c.text}</div>
+                        <FormattedText text={c.text} compact fontSize={14} headingSize={15} color={C.textSecondary} />
                       </div>
                     ))
                   )}
@@ -1468,7 +1487,7 @@ export default function LiveTranslator() {
                       {typeof c.timestamp === 'string' ? c.timestamp.slice(11, 16) : c.timestamp}
                     </div>
                   )}
-                  <div style={{ fontSize: '0.95rem', lineHeight: 1.7, color: C.textPrimary }}>{c.text}</div>
+                  <FormattedText text={c.text} compact fontSize={15} headingSize={16} color={C.textPrimary} />
                 </div>
               ))}
             </div>
@@ -1753,7 +1772,9 @@ export default function LiveTranslator() {
                     {chunk.timestamp}
                   </div>
                   <div style={{ fontSize: 15, lineHeight: 1.7, color: C.textPrimary }}>
-                    {chunk.translated || (
+                    {chunk.translated ? (
+                      <FormattedText text={chunk.translated} compact fontSize={15} headingSize={16} color={C.textPrimary} />
+                    ) : (
                       <span style={{ color: C.textSecondary }}>
                         Translating this section...
                       </span>
@@ -1997,9 +2018,7 @@ export default function LiveTranslator() {
 
             <div style={panelScrollStyle}>
               {transcriptText ? (
-                <div style={{ fontSize: 14, lineHeight: 1.7, color: C.textSecondary, whiteSpace: 'pre-wrap' }}>
-                  {transcriptText}
-                </div>
+                <FormattedText text={transcriptText} fontSize={14} headingSize={16} color={C.textSecondary} />
               ) : (
                 <div style={{ color: C.textSecondary, fontSize: 13 }}>No translated transcript available.</div>
               )}

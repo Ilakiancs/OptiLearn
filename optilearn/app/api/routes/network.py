@@ -1,3 +1,10 @@
+"""
+app/api/routes/network.py — Network configuration and QR code endpoints.
+
+Exposes the server URL, hotspot IP, QR code image, and the online/offline
+mode toggle used by the teacher dashboard. Also returns the list of connected
+student devices tracked by client_tracker.
+"""
 from __future__ import annotations
 
 import base64

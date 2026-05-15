@@ -22,6 +22,7 @@ import {
   WarningCircle as AlertCircle,
 } from '@phosphor-icons/react'
 import { feature1 } from '../api/client'
+import FormattedText, { normalizeOutputText } from '../components/FormattedText'
 import Spinner from '../components/Spinner'
 // -- Section --
 const C = {
@@ -61,21 +62,7 @@ function renderInlineMarkdown(text) {
 
 function renderMarkdown(text, opts = {}) {
   if (!text) return null
-  const { fontSize = 15, headingSize = 18 } = opts
-  return cleanMarkdownText(text).split('\n').map((line, i) => {
-    const trimmed = line.trim()
-    const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/)
-    if (headingMatch)
-      return <div key={i} style={{ fontSize: headingSize, fontWeight: 700, paddingBottom: 8, borderBottom: `1px solid ${C.border}`, marginTop: 24, marginBottom: 8, color: C.textPrimary }}>{renderInlineMarkdown(headingMatch[1])}</div>
-    const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/)
-    if (bulletMatch)
-      return <div key={i} style={{ marginLeft: 18, lineHeight: 1.7, color: C.textPrimary, display: 'flex', gap: 8, fontSize }}><span style={{ color: C.textSecondary }}>•</span><span>{renderInlineMarkdown(bulletMatch[1])}</span></div>
-    const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.+)$/)
-    if (numberedMatch)
-      return <div key={i} style={{ marginLeft: 18, lineHeight: 1.7, color: C.textPrimary, display: 'flex', gap: 8, fontSize }}><span style={{ color: C.textSecondary }}>{numberedMatch[1]}.</span><span>{renderInlineMarkdown(numberedMatch[2])}</span></div>
-    if (line.trim() === '') return <div key={i} style={{ height: 10 }} />
-    return <p key={i} style={{ fontSize, lineHeight: 1.7, color: C.textPrimary, margin: '4px 0' }}>{renderInlineMarkdown(trimmed.replace(/^>\s*/, ''))}</p>
-  })
+  return <FormattedText text={text} {...opts} color={C.textPrimary} />
 }
 
 function SkeletonLines() {
@@ -547,7 +534,7 @@ export default function TranslateLearn() {
       const response = await fetch('/api/tts/speak-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 3000), language }),
+        body: JSON.stringify({ text: normalizeOutputText(text).slice(0, 3000), language }),
       })
       if (!response.ok) {
         if (playingPanelRef.current === panelName) {
@@ -866,8 +853,8 @@ export default function TranslateLearn() {
           <Maximize2 size={12} color={C.textSecondary} style={{ flexShrink: 0 }} />
         </div>
         {translatedText ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: 8, fontSize: 12, color: C.textPrimary, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-            {translatedText}
+          <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+            <FormattedText text={translatedText} compact fontSize={12} headingSize={14} color={C.textPrimary} />
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8 }}>
@@ -912,8 +899,8 @@ export default function TranslateLearn() {
           {appState === 'translating' && !translatedText ? (
             <SkeletonLines />
           ) : translatedText ? (
-            <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: C.textPrimary }}>
-              {translatedText}
+            <div style={{ fontSize: 15, color: C.textPrimary }}>
+              <FormattedText text={translatedText} fontSize={15} headingSize={18} color={C.textPrimary} />
               {appState === 'translating' && <span style={{ borderRight: '2px solid currentColor', animation: 'blink 1s step-end infinite', marginLeft: 2 }}>&nbsp;</span>}
             </div>
           ) : (

@@ -1,4 +1,14 @@
-"""Offline local authentication routes for teachers and students."""
+"""
+app/api/routes/auth.py — Offline authentication for teachers and students.
+
+Teachers authenticate with username + password and receive a Bearer JWT stored
+in teacher_sessions. Students use a PIN-based login; the PIN is visible to
+the teacher so they can help students who forget it.
+
+Setup flow: /api/auth/setup-required → /api/auth/setup (first admin creation)
+Teacher flow: POST /api/auth/teacher/login → Bearer token
+Student flow: POST /api/auth/student/login → {student_id, token}
+"""
 from __future__ import annotations
 
 import re
