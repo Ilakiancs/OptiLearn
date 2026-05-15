@@ -279,6 +279,7 @@ export default function StudentLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
   const [showQuickExitModal, setShowQuickExitModal] = useState(false)
+  const [isExiting, setIsExiting] = useState(false)
 
   // Platform detection (treat as desktop only when pywebview quit API is available)
   const getPlatform = () => {
@@ -322,19 +323,25 @@ export default function StudentLayout() {
 
     const fallbackDelay = 800 // ms
 
+    // Give immediate visible feedback that the Exit click was handled.
+    setIsExiting(true)
+
     try {
       if (platform === 'desktop') {
         // Prefer the pywebview API, but guard with a timeout fallback.
         let finished = false
-        const tryQuit = async () => {
+        setTimeout(() => {
           try {
-            await window.pywebview.api.quit()
-            finished = true
+            const quitApi = window.pywebview && window.pywebview.api && window.pywebview.api.quit
+            if (typeof quitApi === 'function') {
+              void quitApi.call(window.pywebview.api)
+            } else {
+              console.warn('pywebview quit API is unavailable')
+            }
           } catch (err) {
             console.error('pywebview.api.quit() failed:', err)
           }
-        }
-        tryQuit()
+        }, 0)
         setTimeout(() => {
           if (!finished) {
             console.warn('Quit did not complete, falling back to window.close() and goodbye page')
@@ -377,6 +384,7 @@ export default function StudentLayout() {
     } catch (err) {
       console.error('confirmExit unexpected error:', err)
       showGoodbyePage()
+      setIsExiting(false)
     }
   }
 
@@ -603,7 +611,9 @@ export default function StudentLayout() {
               marginTop: '12px',
             }}>
               <button
+                type="button"
                 onClick={() => setShowQuickExitModal(false)}
+                disabled={isExiting}
                 style={{
                   flex: 1,
                   padding: '12px 16px',
@@ -613,16 +623,19 @@ export default function StudentLayout() {
                   borderRadius: '10px',
                   fontSize: '0.95rem',
                   fontWeight: '600',
-                  cursor: 'pointer',
+                  cursor: isExiting ? 'not-allowed' : 'pointer',
                   transition: 'background 0.2s',
+                  opacity: isExiting ? 0.65 : 1,
                 }}
-                onMouseOver={(e) => e.target.style.background = 'var(--surface-soft)'}
-                onMouseOut={(e) => e.target.style.background = 'var(--surface)'}
+                onMouseOver={(e) => { e.currentTarget.style.background = 'var(--surface-soft)' }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'var(--surface)' }}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={confirmExit}
+                disabled={isExiting}
                 style={{
                   flex: 1,
                   padding: '12px 16px',
@@ -632,13 +645,14 @@ export default function StudentLayout() {
                   borderRadius: '10px',
                   fontSize: '0.95rem',
                   fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s',
+                  cursor: isExiting ? 'not-allowed' : 'pointer',
+                  transition: 'opacity 0.2s',
+                  opacity: isExiting ? 0.65 : 1,
                 }}
-                onMouseOver={(e) => e.target.style.opacity = '0.85'}
-                onMouseOut={(e) => e.target.style.opacity = '1'}
+                onMouseOver={(e) => { e.currentTarget.style.opacity = '0.85' }}
+                onMouseOut={(e) => { e.currentTarget.style.opacity = '1' }}
               >
-                Exit
+                {isExiting ? 'Exiting...' : 'Exit'}
               </button>
             </div>
           </div>

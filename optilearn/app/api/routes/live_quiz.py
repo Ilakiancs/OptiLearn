@@ -122,7 +122,7 @@ async def _finalize_participant_progress(game_id: str, participant: dict[str, An
     try:
         cur = await conn.execute(
             """
-            SELECT question_index, score
+            SELECT question_index, score, is_correct
             FROM live_answers
             WHERE game_id = ? AND participant_id = ?
             ORDER BY question_index
@@ -145,7 +145,11 @@ async def _finalize_participant_progress(game_id: str, participant: dict[str, An
         a = _row(arow)
         q_idx = int(a.get("question_index") or 0)
         qids.append(f"live:{game_id}:{q_idx}")
-        if bool(a.get("is_correct")):
+        # Prefer persisted correctness flag; fall back to score for older rows.
+        is_correct = a.get("is_correct")
+        if is_correct is None:
+            is_correct = 1 if int(a.get("score") or 0) > 0 else 0
+        if int(is_correct or 0) == 1:
             correct_count += 1
 
     num_q = len(questions) or len(answers)

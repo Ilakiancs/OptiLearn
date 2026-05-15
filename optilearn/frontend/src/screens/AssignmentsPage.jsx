@@ -67,9 +67,29 @@ export default function AssignmentsPage() {
   const rows = useMemo(
     () =>
       quizzes.map((quiz) => {
-        const attempt = attempts.find((a) => a.quiz_id === quiz.id || a.topic?.toLowerCase() === quiz.subject?.toLowerCase())
-        const score = attempt ? Math.round((attempt.score || 0) * 100) : null
-        return { quiz, completed: Boolean(attempt), score }
+        const matching = attempts.filter(
+          (a) => a.quiz_id === quiz.id || a.topic?.toLowerCase() === quiz.subject?.toLowerCase()
+        )
+
+        const summary = matching.find((a) => String(a.question_text || '').endsWith(':summary'))
+        if (summary) {
+          return {
+            quiz,
+            completed: true,
+            score: Math.round((summary.score || 0) * 100),
+          }
+        }
+
+        if (matching.length > 0) {
+          const perQuestion = matching.filter((a) => !String(a.question_text || '').endsWith(':summary'))
+          if (perQuestion.length > 0) {
+            const correctCount = perQuestion.reduce((acc, a) => acc + (Number(a.correct) ? 1 : 0), 0)
+            const score = Math.round((correctCount / perQuestion.length) * 100)
+            return { quiz, completed: true, score }
+          }
+        }
+
+        return { quiz, completed: false, score: null }
       }),
     [quizzes, attempts]
   )
