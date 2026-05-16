@@ -87,6 +87,41 @@ body {
   line-height: 1.45;
 }
 
+/* OpenDyslexic font files (place files under public/fonts/opendyslexic-0.92/) */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/opendyslexic-0.92/OpenDyslexic-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/opendyslexic-0.92/OpenDyslexic-Italic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/opendyslexic-0.92/OpenDyslexic-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/opendyslexic-0.92/OpenDyslexic-BoldItalic.otf') format('opentype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* When the UI font is set to OpenDyslexia, prefer that font for the whole app */
+:root[data-font='opendyslexia'] body {
+  font-family: 'OpenDyslexic', 'Atkinson Hyperlegible', 'Segoe UI', Tahoma, sans-serif;
+}
+
 .app-shell {
   min-height: 100vh;
   color: var(--text);

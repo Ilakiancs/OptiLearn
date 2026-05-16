@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { RocketLaunch, X } from '@phosphor-icons/react'
+import { RocketLaunch, X, TextAa } from '@phosphor-icons/react'
 import { getPrompt, clearPrompt, subscribe, unsubscribe } from '../pwaInstall'
 
 const KEY_INSTALLED = 'optilearn_pwa_installed'
@@ -24,7 +24,7 @@ function isStandalone() {
 }
 
 function isDesktopApp() {
-  return sessionStorage.getItem('optilearn_desktop_mode') === '1'
+  return sessionStorage.getItem('optilearn_desktop_mode') === '1' || (typeof window !== 'undefined' && !!window.pywebview)
 }
 
 function isIOS() {
@@ -44,9 +44,10 @@ function getPlatformInstructions() {
 export default function GetAppBanner({ compact = false }) {
   const [deferredPrompt, setDeferredPrompt] = useState(() => getPrompt())
   const [showModal, setShowModal] = useState(false)
-
-  // Never show in standalone (already installed) or inside the desktop VBS app
-  if (isStandalone() || isDesktopApp()) return null
+  const [showFontModal, setShowFontModal] = useState(false)
+  const [fontChoice, setFontChoice] = useState(() => localStorage.getItem('optilearn_font') || 'default')
+  const standalone = isStandalone()
+  const desktopApp = isDesktopApp()
 
   useEffect(() => {
     migrateOldKeys()
@@ -62,6 +63,29 @@ export default function GetAppBanner({ compact = false }) {
       window.removeEventListener('appinstalled', onInstalled)
     }
   }, [])
+
+  useEffect(() => {
+    // Apply saved font choice on mount
+    const saved = localStorage.getItem('optilearn_font') || 'default'
+    applyFontChoice(saved, false)
+  }, [])
+
+  function applyFontChoice(choice, persist = true) {
+    if (choice === 'opendyslexia') {
+      document.documentElement.setAttribute('data-font', 'opendyslexia')
+    } else {
+      document.documentElement.removeAttribute('data-font')
+    }
+    setFontChoice(choice)
+    if (persist) localStorage.setItem('optilearn_font', choice)
+  }
+
+  const fontButton = (
+    <button type="button" className="pill-button" onClick={() => setShowFontModal(true)}>
+      <TextAa size={18} weight="duotone" />
+      <span>Change Font</span>
+    </button>
+  )
 
   async function handleInstall() {
     const prompt = deferredPrompt || getPrompt()
@@ -107,6 +131,69 @@ export default function GetAppBanner({ compact = false }) {
     </div>
   )
 
+  const fontModal = showFontModal && (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'grid', placeItems: 'center', zIndex: 9000, padding: 16 }}
+      onClick={() => setShowFontModal(false)}
+    >
+      <div
+        style={{ background: 'var(--color-surface, var(--surface))', borderRadius: 16, padding: 18, maxWidth: 420, width: '100%', display: 'grid', gap: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.22)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ background: 'rgba(42,141,191,0.08)', color: 'var(--color-primary, #2a8dbf)', borderRadius: 10, padding: 8, display: 'flex' }}>
+            <RocketLaunch size={18} weight="duotone" />
+          </span>
+          <strong style={{ fontSize: '1rem' }}>Change UI font</strong>
+        </div>
+        <p style={{ margin: 0, fontSize: '0.92rem', color: 'var(--color-text-muted, var(--text-muted))', lineHeight: 1.5 }}>
+          Choose a dyslexia-friendly font for the UI. This will apply immediately and be remembered.
+        </p>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="radio" name="optilearn-font" checked={fontChoice === 'default'} onChange={() => applyFontChoice('default')} />
+            <span>Default UI font</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="radio" name="optilearn-font" checked={fontChoice === 'opendyslexia'} onChange={() => applyFontChoice('opendyslexia')} />
+            <span>OpenDyslexia (dyslexia-friendly)</span>
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <button
+            type="button"
+            onClick={() => setShowFontModal(false)}
+            style={{ background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={() => { applyFontChoice(fontChoice); setShowFontModal(false) }}
+            style={{ background: '#2a8dbf', color: '#fff', border: 'none', borderRadius: 10, padding: '8px 12px', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // Never show in standalone (already installed) unless this is the desktop app.
+  if (standalone && !desktopApp) return null
+
+
+  if (desktopApp) {
+    return (
+      <>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {fontButton}
+        </div>
+        {fontModal}
+      </>
+    )
+  }
+
   if (compact) {
     return (
       <>
@@ -120,6 +207,7 @@ export default function GetAppBanner({ compact = false }) {
           <span>Add to Home Screen</span>
         </button>
         {modal}
+        {fontModal}
       </>
     )
   }
@@ -143,8 +231,12 @@ export default function GetAppBanner({ compact = false }) {
           <RocketLaunch size={17} weight="duotone" />
           Add to Home Screen
         </button>
+      <div style={{ marginTop: 8 }}>
+        {fontButton}
+      </div>
       </div>
       {modal}
+      {fontModal}
     </>
   )
 }

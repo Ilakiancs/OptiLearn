@@ -18,6 +18,7 @@ import {
   SignOut,
   Sparkle,
   Student,
+  TextAa,
   Sun,
   Trophy,
   X,
@@ -190,6 +191,31 @@ function Sidebar({ studentId, student, onNavigate }) {
   const { logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const [pinOpen, setPinOpen] = useState(false)
+  const [fontModalOpen, setFontModalOpen] = useState(false)
+  const [fontDraft, setFontDraft] = useState(() => localStorage.getItem('optilearn_font') || 'default')
+  const [fontChoice, setFontChoice] = useState(() => localStorage.getItem('optilearn_font') || 'default')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('optilearn_font') || 'default'
+    setFontChoice(saved)
+    setFontDraft(saved)
+    if (saved === 'opendyslexia') {
+      document.documentElement.setAttribute('data-font', 'opendyslexia')
+    } else {
+      document.documentElement.removeAttribute('data-font')
+    }
+  }, [])
+
+  const applyFontChoice = (choice) => {
+    setFontChoice(choice)
+    setFontDraft(choice)
+    localStorage.setItem('optilearn_font', choice)
+    if (choice === 'opendyslexia') {
+      document.documentElement.setAttribute('data-font', 'opendyslexia')
+    } else {
+      document.documentElement.removeAttribute('data-font')
+    }
+  }
 
   const primaryLinks = useMemo(
     () => NAV_ITEMS.map((item) => ({ ...item, route: item.end ? `/student/${studentId}` : `/student/${studentId}/${item.to}` })),
@@ -247,6 +273,10 @@ function Sidebar({ studentId, student, onNavigate }) {
 
       <div style={{ marginTop: 'auto', display: 'grid', gap: 10 }}>
         <GetAppBanner compact />
+        <button type="button" onClick={() => { setFontDraft(fontChoice); setFontModalOpen(true) }} className="pill-button" aria-label="Change UI font">
+          <TextAa size={18} weight="duotone" />
+          <span>Change Font</span>
+        </button>
         <button type="button" onClick={toggleTheme} className="pill-button" aria-label="Toggle theme">
           {theme === 'dark' ? <Sun size={18} weight="duotone" /> : <Moon size={18} weight="duotone" />}
           <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
@@ -267,6 +297,60 @@ function Sidebar({ studentId, student, onNavigate }) {
           <span>Sign Out</span>
         </button>
       </div>
+
+      {fontModalOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 2200, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', padding: 18 }}
+          onClick={() => setFontModalOpen(false)}
+        >
+          <div
+            style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: 22, display: 'grid', gap: 14, boxShadow: 'var(--shadow)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--accent-soft)', display: 'grid', placeItems: 'center', color: 'var(--accent)' }}>
+                <TextAa size={18} weight="duotone" />
+              </span>
+              <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Change Font</h2>
+              <button type="button" onClick={() => setFontModalOpen(false)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-soft)', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="font-choice"
+                  value="default"
+                  checked={fontDraft === 'default'}
+                  onChange={() => setFontDraft('default')}
+                />
+                <span>Default UI font</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-soft)', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="font-choice"
+                  value="opendyslexia"
+                  checked={fontDraft === 'opendyslexia'}
+                  onChange={() => setFontDraft('opendyslexia')}
+                />
+                <span>OpenDyslexia font</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setFontModalOpen(false)} style={{ minHeight: 44, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontWeight: 700, cursor: 'pointer', flex: 1 }}>
+                Cancel
+              </button>
+              <button type="button" onClick={() => { applyFontChoice(fontDraft); setFontModalOpen(false) }} style={{ minHeight: 44, borderRadius: 12, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 700, cursor: 'pointer', flex: 1 }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pinOpen && <ChangePinModal studentId={studentId} onClose={() => setPinOpen(false)} />}
     </div>
