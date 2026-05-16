@@ -635,6 +635,89 @@ def _detect_material_language(text: str) -> tuple[str, float]:
         return "en", 0.6
     return "unknown", 0.0
 
+
+def _normalize_extracted_text(text: str) -> str:
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _ocr_image_text(raw_bytes: bytes) -> str:
+    try:
+        import fitz
+        from PIL import Image
+        import io as _io
+
+        image = Image.open(_io.BytesIO(raw_bytes)).convert("RGB")
+        png_buffer = _io.BytesIO()
+        image.save(png_buffer, format="PNG")
+
+        doc = fitz.open()
+        page = doc.new_page(width=image.width, height=image.height)
+        page.insert_image(page.rect, stream=png_buffer.getvalue())
+        text_page = page.get_textpage_ocr(full=True, dpi=300)
+        extracted = page.get_text(textpage=text_page)
+        doc.close()
+        return _normalize_extracted_text(extracted)
+    except Exception as exc:
+        logger.warning("Image OCR failed: {}", exc)
+        return ""
+
+
+async def _vision_transcribe_image_text(image_b64: str) -> str:
+    prompt = """Transcribe all visible text in this educational image.
+Return only the text you can see.
+Rules:
+- Do not translate.
+- Do not summarize.
+- Do not explain.
+- Preserve line breaks and paragraph order.
+- If a word is unclear, guess minimally and keep the original reading order.
+- Output plain text only."""
+
+    pieces: list[str] = []
+    try:
+        gen = route_generate_with_fallback(
+            prompt,
+            "TRANSLATION",
+            system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
+            enable_thinking=False,
+            image_b64=image_b64,
+            ollama_options={"num_ctx": 4096, "num_predict": 1024, "repeat_penalty": 1.0, "temperature": 0.0},
+            lane="background",
+            feature="feature1.image_ocr",
+            profile="notes_balanced",
+        )
+        async for token in gen:
+            pieces.append(token)
+    except Exception as exc:
+        logger.warning("Vision transcription failed: {}", exc)
+        return ""
+
+    return _normalize_extracted_text("".join(pieces))
+
+
+def _extract_pdf_page_text(page: object, page_num: int) -> str:
+    try:
+        raw_text = _normalize_extracted_text(page.get_text())  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("PDF text extraction failed on page {}: {}", page_num, exc)
+        raw_text = ""
+
+    if raw_text and (len(raw_text) >= 100 or len(raw_text.split()) >= 15):
+        return raw_text
+
+    try:
+        text_page = page.get_textpage_ocr(full=True, dpi=300)  # type: ignore[attr-defined]
+        ocr_text = _normalize_extracted_text(page.get_text(textpage=text_page))  # type: ignore[attr-defined]
+        if ocr_text:
+            return ocr_text
+    except Exception as exc:
+        logger.warning("PDF OCR failed on page {}: {}", page_num, exc)
+
+    return raw_text
+
 _TRANSLATE_PROMPT = """\
 Translate the following educational content into {target_language}.
 The reader is a student in grade {grade_level}, age {age}.
@@ -915,17 +998,23 @@ async def upload_material(
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)
             image_b64 = base64.b64encode(buf.getvalue()).decode()
-            preview = image_b64
+            ocr_text = _ocr_image_text(raw)
+            if not ocr_text:
+                ocr_text = await _vision_transcribe_image_text(image_b64)
+            preview = ocr_text if ocr_text else image_b64
             mat_type = "image"
             page_count = 1
-            pages = [{"page": 1, "text": ""}]
+            pages = [{"page": 1, "text": ocr_text}]
             _translation_cache[f"image_b64_{material_id[:16].replace('-','')}"] = image_b64
 
         elif is_pdf:
             import fitz
             doc = fitz.open(stream=raw, filetype="pdf")
             page_count = len(doc)
-            pages = [{"page": i + 1, "text": doc[i].get_text()} for i in range(page_count)]
+            pages = [
+                {"page": i + 1, "text": _extract_pdf_page_text(doc[i], i + 1)}
+                for i in range(page_count)
+            ]
             preview = pages[0]["text"][:500] if pages else ""
             mat_type = "pdf"
 
@@ -1081,9 +1170,21 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             buf = _io.BytesIO()
                             img.save(buf, format="JPEG", quality=85)
                             image_b64 = base64.b64encode(buf.getvalue()).decode()
-                        prompt = _TRANSLATE_IMAGE_PROMPT.format(
-                            target_language=lang_name, grade_level=grade, age=age
-                        )
+
+                        if content.strip():
+                            prompt = _TRANSLATE_PROMPT.format(
+                                target_language=lang_name,
+                                grade_level=grade,
+                                age=age,
+                                source_language_hint=source_language_hint,
+                                content=content,
+                            )
+                            image_b64 = None
+                        else:
+                            prompt = _TRANSLATE_IMAGE_PROMPT.format(
+                                target_language=lang_name, grade_level=grade, age=age
+                            )
+
                         page_buf = ""
                         gen = route_generate_with_fallback(
                             prompt,
