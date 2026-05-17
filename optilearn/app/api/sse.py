@@ -4,4 +4,7 @@ import json
 
 def sse(event: dict) -> str:
     """Format a dict as an SSE data line."""
-    return f"data: {json.dumps(event)}\n\n"
+    try:
+        return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    except TypeError:
+        return f"data: {json.dumps({'type': 'error', 'message': 'serialization_failed'})}\n\n"

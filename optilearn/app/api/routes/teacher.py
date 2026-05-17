@@ -10,6 +10,7 @@ Covers:
 """
 from __future__ import annotations
 
+import io
 import json
 import traceback
 from datetime import datetime, timedelta
@@ -422,7 +423,6 @@ h1{{font-size:17pt;margin:0 0 3pt;}}
 </html>"""
 
     # ── reportlab PDF render ─────────────────────────────────────
-    from io import BytesIO
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib import colors
@@ -467,7 +467,7 @@ h1{{font-size:17pt;margin:0 0 3pt;}}
         if v is None: return colors.HexColor("#AAAAAA")
         return colors.HexColor("#E24B4A") if v < 0.40 else colors.HexColor("#EF9F27") if v < 0.75 else colors.HexColor("#639922")
 
-    buf = BytesIO()
+    buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=18 * mm, rightMargin=18 * mm,

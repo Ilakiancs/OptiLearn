@@ -15,12 +15,12 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from PIL import Image
 
+from app.api.sse import sse as _sse
 from app.core.config import settings
 from app.core.prompts import build_system_prompt
 from app.models.schemas import ChatRequest
 from app.services import context_prep, db
 from app.services.model_client import ToolCallEvent, model_client, start_tutor_model_warmup
-from app.api.sse import sse as _sse
 from app.tools.agent_tools import TOOL_SCHEMAS, detect_language, generate_quiz, retrieve_curriculum, update_progress
 
 router = APIRouter(prefix="/api", tags=["chat"])

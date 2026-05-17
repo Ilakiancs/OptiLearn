@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     DB_PATH: str = "./data/optilearn.db"
     FAISS_INDEX_PATH: str = "./data/curriculum.index"
     FAISS_META_PATH: str = "./data/curriculum_meta.json"
+    CURRICULUM_DIR: str = "./data/curriculum"
 
     # Embeddings
     EMBED_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"
