@@ -403,7 +403,6 @@ export default function StudentLayout() {
   // Perform the actual exit with robust fallbacks and timeout
   const confirmExit = async () => {
     const platform = getPlatform()
-    console.log('Confirming exit on platform:', platform)
 
     const fallbackDelay = 800 // ms
 
@@ -449,7 +448,6 @@ export default function StudentLayout() {
       // Browser/tab path: try window.close(), opener, PWA, then goodbye page.
       try {
         const closed = window.close()
-        console.log('window.close() attempted, returned:', closed)
         if (closed) return
       } catch (err) {
         console.error('window.close() error:', err)
@@ -474,7 +472,6 @@ export default function StudentLayout() {
 
   // Handle quick exit button click - show modal instead of immediate exit
   const handleQuickExit = () => {
-    console.log('Quick exit button clicked')
     setShowQuickExitModal(true)
   }
 

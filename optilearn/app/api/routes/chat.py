@@ -20,6 +20,7 @@ from app.core.prompts import build_system_prompt
 from app.models.schemas import ChatRequest
 from app.services import context_prep, db
 from app.services.model_client import ToolCallEvent, model_client, start_tutor_model_warmup
+from app.api.sse import sse as _sse
 from app.tools.agent_tools import TOOL_SCHEMAS, detect_language, generate_quiz, retrieve_curriculum, update_progress
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -40,11 +41,6 @@ async def _dispatch_tool(tool_name: str, arguments: dict) -> Any:
     if fn is None:
         raise ValueError(f"Unknown tool '{tool_name}'")
     return await fn(**arguments)
-
-
-def _sse(event: dict) -> str:
-    """Format a dict as an SSE data line."""
-    return f"data: {json.dumps(event)}\n\n"
 
 
 def _should_plan_tools(message: str, has_image: bool = False) -> bool:

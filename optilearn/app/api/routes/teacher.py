@@ -10,14 +10,12 @@ Covers:
 """
 from __future__ import annotations
 
-import io
 import json
 import traceback
 from datetime import datetime, timedelta
 from typing import AsyncGenerator
 
 import html as html_lib
-import os
 import re
 from pathlib import Path
 from urllib.parse import quote
@@ -31,6 +29,7 @@ from app.core.languages import language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.core.text_formatting import normalize_ai_output
 from app.api.routes.auth import get_current_admin, get_current_teacher
+from app.api.sse import sse as _sse
 from app.models.schemas import TeacherChatRequest
 from app.services import db, generated_cache
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
@@ -161,10 +160,6 @@ Be concise, warm, and practical. If a teacher asks about a specific student, rem
 you don't have live access to their data but they can check the dashboard. Never fabricate \
 student data. Respond in the same language the teacher writes in.
 """
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event)}\n\n"
 
 
 @router.get("/students")
