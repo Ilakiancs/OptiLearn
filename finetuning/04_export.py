@@ -1,7 +1,7 @@
 """
 04_export.py
 Convert fine-tuned PolyTutor weights to GGUF and register with Ollama.
-Run locally after downloading weights from Kaggle.
+Run locally after downloading weights from HuggingFace or Kaggle output.
 """
 
 import shutil
@@ -9,13 +9,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-WEIGHTS_PATH = "training/outputs/polytutor-weights"
-GGUF_PATH = "training/outputs/polytutor-gemma3-q4_K_M.gguf"
+WEIGHTS_PATH = "finetuning/outputs/polytutor-weights"
+GGUF_PATH = "finetuning/outputs/polytutor-gemma4-q4_K_M.gguf"
 MODELS_DIR = "models"
-MODELS_GGUF = f"{MODELS_DIR}/polytutor-gemma3-q4_K_M.gguf"
+MODELS_GGUF = f"{MODELS_DIR}/polytutor-gemma4-q4_K_M.gguf"
 LLAMA_CPP_SCRIPT = "llama.cpp/convert_hf_to_gguf.py"
-OLLAMA_MODEL_NAME = "polytutor-gemma3"
-MODELFILE_PATH = "Modelfile"
+OLLAMA_MODEL_NAME = "polytutor-gemma4"
+MODELFILE_PATH = "finetuning/Modelfile"
 
 
 def check_llama_cpp():
@@ -101,10 +101,10 @@ def smoke_test():
 
 def print_next_steps():
     print("\n" + "=" * 60)
-    print("Model registered as polytutor-gemma3 in Ollama.")
+    print("Model registered as polytutor-gemma4 in Ollama.")
     print("To switch from Gemini API to local model:")
     print("  1. Set USE_LOCAL_OLLAMA=true in .env")
-    print("  2. Set OLLAMA_MODEL=polytutor-gemma3 in .env")
+    print("  2. Set OLLAMA_MODEL=polytutor-gemma4 in .env")
     print("  3. Restart the server: ./scripts/start.sh")
     print("=" * 60)
 

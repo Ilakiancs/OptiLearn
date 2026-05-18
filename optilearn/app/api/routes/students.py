@@ -239,8 +239,11 @@ async def delete_student(student_id: str, teacher: dict = Depends(get_current_te
         
         # Hard delete: remove all related records
         async with db._get_db() as conn:
-            # Delete related records in order (respecting foreign keys)
+            # Disable FK enforcement for the duration so order doesn't matter
+            await conn.execute("PRAGMA foreign_keys=OFF")
             await conn.execute("DELETE FROM import_history WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM live_class_participants WHERE student_id = ?", (student_id,))
+            await conn.execute("DELETE FROM live_participants WHERE student_id = ?", (student_id,))
             await conn.execute("DELETE FROM quiz_results WHERE student_id = ?", (student_id,))
             await conn.execute("DELETE FROM topic_mastery WHERE student_id = ?", (student_id,))
             await conn.execute("DELETE FROM class_notes WHERE student_id = ?", (student_id,))
@@ -248,6 +251,7 @@ async def delete_student(student_id: str, teacher: dict = Depends(get_current_te
             await conn.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE student_id = ?)", (student_id,))
             await conn.execute("DELETE FROM sessions WHERE student_id = ?", (student_id,))
             await conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
+            await conn.execute("PRAGMA foreign_keys=ON")
             await conn.commit()
         
         logger.info(f"Student {student_id} deleted by teacher {teacher.get('id')}")

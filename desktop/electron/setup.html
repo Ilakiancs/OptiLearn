@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';" />
+  <title>OptiLearn Setup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f2730;
+      --card: #162f3a;
+      --border: #1e4558;
+      --accent: #2a8dbf;
+      --accent2: #1a6a99;
+      --text: #e8f4fa;
+      --muted: rgba(232,244,250,0.5);
+      --success: #2ecc71;
+      --warn: #f39c12;
+      --error: #e74c3c;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 32px 16px 24px; min-height: 100%; overflow-y: auto; }
+
+    .logo { font-size: 1.7rem; font-weight: 800; color: var(--accent); letter-spacing: -0.5px; margin-bottom: 6px; }
+    .tagline { font-size: 0.85rem; color: var(--muted); margin-bottom: 32px; }
+
+    .steps { display: flex; gap: 8px; margin-bottom: 32px; align-items: center; }
+    .step-dot {
+      width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700; color: var(--muted); transition: all 0.25s;
+    }
+    .step-dot.active { border-color: var(--accent); color: var(--accent); background: rgba(42,141,191,0.12); }
+    .step-dot.done { border-color: var(--success); background: var(--success); color: #fff; }
+    .step-line { width: 32px; height: 2px; background: var(--border); }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px 28px 24px; width: 100%; max-width: 480px;
+    }
+    .card-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+    .card-desc { font-size: 0.85rem; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .field input {
+      width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 0.9rem; outline: none; transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: var(--accent); }
+    .field input::placeholder { color: rgba(232,244,250,0.25); }
+    .field .hint { font-size: 0.78rem; color: var(--muted); margin-top: 5px; }
+
+    .toggle-row { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; background: var(--border); border-radius: 999px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .slider:before {
+      content: ''; position: absolute; width: 18px; height: 18px;
+      left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s;
+    }
+    .toggle input:checked + .slider { background: var(--accent); }
+    .toggle input:checked + .slider:before { transform: translateX(20px); }
+    .toggle-label { font-size: 0.88rem; }
+    .toggle-sub { font-size: 0.78rem; color: var(--muted); }
+
+    .status-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      margin-bottom: 16px; font-size: 0.88rem;
+    }
+    .status-row.ok { border-color: rgba(46,204,113,0.3); background: rgba(46,204,113,0.07); }
+    .status-row.err { border-color: rgba(231,76,60,0.3); background: rgba(231,76,60,0.07); }
+    .status-row.checking { border-color: rgba(42,141,191,0.3); background: rgba(42,141,191,0.07); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--success); }
+    .dot.red { background: var(--error); }
+    .dot.spin {
+      border: 2px solid rgba(42,141,191,0.3); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite; background: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-wrap { margin-bottom: 16px; }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.3s; }
+    .progress-label { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+
+    .btn {
+      width: 100%; padding: 12px; border-radius: 10px; border: none; cursor: pointer;
+      font-size: 0.95rem; font-weight: 600; transition: all 0.2s; margin-top: 4px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px; }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    .model-list { margin-bottom: 20px; }
+    .model-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px; border-radius: 10px; border: 1px solid var(--border);
+      margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s;
+    }
+    .model-item.selected { border-color: var(--accent); background: rgba(42,141,191,0.08); }
+    .model-radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); margin-top: 2px; flex-shrink: 0; transition: all 0.2s; }
+    .model-item.selected .model-radio { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px var(--card); }
+    .model-name { font-size: 0.88rem; font-weight: 600; }
+    .model-desc { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+    .log-box {
+      background: #0a1e26; border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; height: 100px; overflow-y: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .log-line { margin-bottom: 2px; }
+    .log-line.ok { color: var(--success); }
+    .log-line.err { color: var(--error); }
+
+    .skip-link { text-align: center; margin-top: 16px; font-size: 0.82rem; color: var(--muted); cursor: pointer; }
+    .skip-link:hover { color: var(--accent); }
+
+    .page { display: none; width: 100%; max-width: 480px; }
+    .page.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="logo">OptiLearn</div>
+  <div class="tagline">First-time setup — takes about 2 minutes</div>
+
+  <div class="steps">
+    <div class="step-dot active" id="dot1">1</div>
+    <div class="step-line"></div>
+    <div class="step-dot" id="dot2">2</div>
+    <div class="step-line"></div>
+    <div class="step-dot" id="dot3">3</div>
+  </div>
+
+  <!-- ── Page 1: API Keys ── -->
+  <div class="page active" id="page1">
+    <div class="card">
+      <div class="card-title">API Keys</div>
+      <div class="card-desc">
+        OptiLearn works fully offline with a local AI model. API keys unlock the cloud AI (Gemini) for richer responses and the Beyond Presence voice avatar.
+        <br><br>You can skip these and add them later in Settings.
+      </div>
+
+      <div class="toggle-row">
+        <label class="toggle">
+          <input type="checkbox" id="offlineToggle" />
+          <span class="slider"></span>
+        </label>
+        <div>
+          <div class="toggle-label">Offline-only mode</div>
+          <div class="toggle-sub">Use only the local AI model, no API keys needed</div>
+        </div>
+      </div>
+
+      <div id="keyFields">
+        <div class="field">
+          <label>Google Gemini API Key <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+          <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off" />
+          <div class="hint">Google AI Studio → Create API key. Free tier available.</div>
+        </div>
+        <div class="field">
+          <label>Beyond Presence API Key <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+          <input type="password" id="beyKey" placeholder="byp-..." autocomplete="off" />
+          <div class="hint">Required for the AI avatar voice chat feature.</div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn1">Continue →</button>
+      <div class="skip-link" id="skipSetup">Skip everything and set up later</div>
+    </div>
+  </div>
+
+  <!-- ── Page 2: Ollama ── -->
+  <div class="page" id="page2">
+    <div class="card">
+      <div class="card-title">Local AI Runtime</div>
+      <div class="card-desc">
+        OptiLearn uses Ollama to run the AI model locally on your computer — no internet needed in class.
+      </div>
+
+      <div class="status-row checking" id="ollamaStatus">
+        <div class="dot spin" id="ollamaDot"></div>
+        <span id="ollamaStatusText">Checking for Ollama…</span>
+      </div>
+
+      <div id="ollamaInstallSection" style="display:none">
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:14px;line-height:1.5;">
+          Ollama is not installed. Click below to download it, install it, then come back and click <strong style="color:var(--text)">Check again</strong>.
+        </p>
+        <button class="btn btn-primary" id="btnDownloadOllama">Download Ollama</button>
+        <button class="btn btn-ghost" id="btnRecheck" style="margin-top:10px">Check again</button>
+      </div>
+
+      <div id="ollamaOkSection" style="display:none">
+        <button class="btn btn-primary" id="btn2">Continue →</button>
+      </div>
+
+      <div class="skip-link" id="skipOllama">Skip — I'll install Ollama later (online mode only)</div>
+    </div>
+  </div>
+
+  <!-- ── Page 3: Model Download ── -->
+  <div class="page" id="page3">
+    <div class="card">
+      <div class="card-title">Download AI Model</div>
+      <div class="card-desc">
+        Choose a model to download. The model runs entirely on your device — no internet needed after this step.
+      </div>
+
+      <div class="model-list" id="modelList">
+        <div class="model-item selected" data-model="gemma4:e2b" onclick="selectModel(this)">
+          <div class="model-radio"></div>
+          <div>
+            <div class="model-name">Gemma 4 2B <span style="color:var(--accent);font-size:0.75rem">Recommended</span></div>
+            <div class="model-desc">Fast, lightweight — works on any computer. ~1.5 GB download.</div>
+          </div>
+        </div>
+        <div class="model-item" data-model="gemma4:e4b" onclick="selectModel(this)">
+          <div class="model-radio"></div>
+          <div>
+            <div class="model-name">Gemma 4 4B</div>
+            <div class="model-desc">Smarter responses, needs more RAM. ~2.5 GB download.</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="downloadSection">
+        <button class="btn btn-primary" id="btnPullModel">Download Model (~1.5 GB)</button>
+      </div>
+
+      <div id="downloadProgress" style="display:none">
+        <div class="progress-wrap">
+          <div style="font-size:0.85rem;font-weight:600" id="pullStatus">Downloading…</div>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="progress-label" id="progressLabel"></div>
+        </div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+
+      <div id="downloadDone" style="display:none">
+        <div class="status-row ok" style="margin-bottom:16px">
+          <div class="dot green"></div>
+          <span>Model downloaded and ready</span>
+        </div>
+        <button class="btn btn-primary" id="btnLaunch">Launch OptiLearn →</button>
+      </div>
+
+      <div class="skip-link" id="skipModel">Skip — I already have a model or will download later</div>
+    </div>
+  </div>
+
+  <script>
+    const ipc = window.setupBridge
+
+    let currentPage = 1
+    let selectedModel = 'gemma4:e2b'
+
+    function setPage(n) {
+      document.querySelectorAll('.page').forEach((p, i) => {
+        p.classList.toggle('active', i + 1 === n)
+      })
+      for (let i = 1; i <= 3; i++) {
+        const dot = document.getElementById('dot' + i)
+        if (i < n) { dot.textContent = '✓'; dot.className = 'step-dot done' }
+        else if (i === n) { dot.className = 'step-dot active' }
+        else { dot.textContent = String(i); dot.className = 'step-dot' }
+      }
+      currentPage = n
+      if (n === 2) checkOllama()
+    }
+
+    // Page 1
+    document.getElementById('offlineToggle').addEventListener('change', (e) => {
+      document.getElementById('keyFields').style.display = e.target.checked ? 'none' : 'block'
+    })
+
+    document.getElementById('btn1').addEventListener('click', async () => {
+      const offline = document.getElementById('offlineToggle').checked
+      const gemini = document.getElementById('geminiKey').value.trim()
+      const bey = document.getElementById('beyKey').value.trim()
+      await ipc.saveEnv({
+        USE_LOCAL_OLLAMA: offline ? 'true' : (gemini ? 'false' : 'true'),
+        GEMMA_API_KEY: gemini,
+        BEY_API_KEY: bey,
+      })
+      setPage(2)
+    })
+
+    document.getElementById('skipSetup').addEventListener('click', () => {
+      ipc.saveEnv({ USE_LOCAL_OLLAMA: 'true', GEMMA_API_KEY: '', BEY_API_KEY: '' })
+      ipc.launchApp()
+    })
+
+    // Page 2
+    async function checkOllama() {
+      const statusRow = document.getElementById('ollamaStatus')
+      const dot = document.getElementById('ollamaDot')
+      const text = document.getElementById('ollamaStatusText')
+      const installSection = document.getElementById('ollamaInstallSection')
+      const okSection = document.getElementById('ollamaOkSection')
+
+      statusRow.className = 'status-row checking'
+      dot.className = 'dot spin'
+      text.textContent = 'Checking for Ollama…'
+      installSection.style.display = 'none'
+      okSection.style.display = 'none'
+
+      const ok = await ipc.checkOllama()
+      if (ok) {
+        statusRow.className = 'status-row ok'
+        dot.className = 'dot green'
+        text.textContent = 'Ollama is installed and running'
+        okSection.style.display = 'block'
+      } else {
+        statusRow.className = 'status-row err'
+        dot.className = 'dot red'
+        text.textContent = 'Ollama not found'
+        installSection.style.display = 'block'
+      }
+    }
+
+    document.getElementById('btnDownloadOllama').addEventListener('click', () => ipc.openOllamaDownload())
+    document.getElementById('btnRecheck').addEventListener('click', checkOllama)
+    document.getElementById('btn2').addEventListener('click', () => setPage(3))
+    document.getElementById('skipOllama').addEventListener('click', () => ipc.launchApp())
+
+    // Page 3
+    function selectModel(el) {
+      document.querySelectorAll('.model-item').forEach(m => m.classList.remove('selected'))
+      el.classList.add('selected')
+      selectedModel = el.dataset.model
+      const sizeMap = { 'gemma4:e2b': '~1.5 GB', 'gemma4:e4b': '~2.5 GB' }
+      document.getElementById('btnPullModel').textContent = `Download Model (${sizeMap[selectedModel] || ''})`
+    }
+
+    document.getElementById('btnPullModel').addEventListener('click', async () => {
+      document.getElementById('downloadSection').style.display = 'none'
+      document.getElementById('downloadProgress').style.display = 'block'
+
+      const logBox = document.getElementById('logBox')
+      const fill = document.getElementById('progressFill')
+      const label = document.getElementById('progressLabel')
+      const status = document.getElementById('pullStatus')
+
+      function addLog(msg, type) {
+        const line = document.createElement('div')
+        line.className = 'log-line' + (type ? ' ' + type : '')
+        line.textContent = msg
+        logBox.appendChild(line)
+        logBox.scrollTop = logBox.scrollHeight
+      }
+
+      ipc.onPullProgress((data) => {
+        if (data.pct !== undefined) {
+          fill.style.width = data.pct + '%'
+          label.textContent = data.label || ''
+        }
+        if (data.log) addLog(data.log, data.type)
+        if (data.status === 'done') {
+          document.getElementById('downloadProgress').style.display = 'none'
+          document.getElementById('downloadDone').style.display = 'block'
+        }
+        if (data.status === 'error') {
+          status.textContent = 'Download failed'
+          status.style.color = 'var(--error)'
+          addLog(data.error || 'Unknown error', 'err')
+        }
+      })
+
+      await ipc.pullModel(selectedModel)
+    })
+
+    document.getElementById('btnLaunch').addEventListener('click', () => ipc.launchApp())
+    document.getElementById('skipModel').addEventListener('click', () => ipc.launchApp())
+  </script>
+</body>
+</html>

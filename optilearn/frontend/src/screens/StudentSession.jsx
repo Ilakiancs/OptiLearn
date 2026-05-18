@@ -502,6 +502,7 @@ export default function StudentSession() {
           setQuizResult(result)
           setMode('result')
         } catch (_) {
+          setUiMessage('Could not save quiz results. Please check your connection.')
           setMode('chat')
         }
       }

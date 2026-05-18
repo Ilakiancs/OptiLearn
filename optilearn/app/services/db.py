@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     username    TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     display_name TEXT,
+    email       TEXT,
     is_admin   INTEGER DEFAULT 0,
     original_password_hash TEXT,
     initial_password TEXT,
@@ -490,6 +491,7 @@ async def init_db() -> None:
             "ALTER TABLE students ADD COLUMN pin_visible TEXT",
             "ALTER TABLE students ADD COLUMN is_registered INTEGER DEFAULT 0",
             "ALTER TABLE teachers ADD COLUMN initial_password TEXT",
+            "ALTER TABLE teachers ADD COLUMN email TEXT",
             "ALTER TABLE teacher_quizzes ADD COLUMN created_by TEXT",
             "ALTER TABLE quiz_results ADD COLUMN quiz_id TEXT",
             "ALTER TABLE materials ADD COLUMN student_id TEXT",
@@ -638,6 +640,7 @@ async def create_teacher(
     is_admin: bool = False,
     initial_password: str | None = None,
     created_by: str | None = None,
+    email: str | None = None,
 ) -> dict[str, Any]:
     teacher_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -645,16 +648,17 @@ async def create_teacher(
         await db.execute(
             """
             INSERT INTO teachers (
-                id, username, password_hash, display_name, is_admin,
+                id, username, password_hash, display_name, email, is_admin,
                 original_password_hash, initial_password, created_by, created_at, is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             """,
             (
                 teacher_id,
                 username.strip().lower(),
                 password_hash,
                 display_name.strip() or username.strip(),
+                (email or "").strip().lower() or None,
                 1 if is_admin else 0,
                 password_hash,
                 initial_password,
@@ -1752,9 +1756,9 @@ async def get_teacher_quizzes_for_student(student_id: str) -> list[dict[str, Any
                FROM teacher_quizzes q
                LEFT JOIN teachers t ON t.id = q.created_by
                WHERE q.assigned_to = 'all'
-                  OR q.assigned_to LIKE ?
+                  OR (',' || q.assigned_to || ',') LIKE ?
                ORDER BY q.created_at DESC""",
-            (f"%{student_id}%",),
+            (f"%,{student_id},%",),
         )
         rows = await cursor.fetchall()
     result = []

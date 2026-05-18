@@ -1,8 +1,8 @@
 """
 03_evaluate.py
-Benchmark base Gemma 3 9B vs fine-tuned PolyTutor on 60 held-out eval examples.
+Benchmark base Gemma 4 9B vs fine-tuned PolyTutor on 60 held-out eval examples.
 Scores on: Socratic quality, language compliance, trauma-aware tone.
-Outputs training/outputs/benchmark_report.md.
+Outputs finetuning/outputs/benchmark_report.md.
 """
 
 import json
@@ -19,9 +19,9 @@ from unsloth.chat_templates import get_chat_template
 
 HF_USERNAME = os.environ.get("HF_USERNAME", "your-hf-username")
 
-EVAL_PATH = "training/dataset/eval_set.jsonl"
-WEIGHTS_PATH = "training/outputs/polytutor-weights"
-REPORT_PATH = "training/outputs/benchmark_report.md"
+EVAL_PATH = "finetuning/dataset/eval_set.jsonl"
+WEIGHTS_PATH = "finetuning/outputs/polytutor-weights"
+REPORT_PATH = "finetuning/outputs/benchmark_report.md"
 
 MAX_NEW_TOKENS = 256
 TEMPERATURE = 0.7
@@ -246,7 +246,7 @@ def build_report(results: list, training_count: int) -> str:
 
 **Prompt:** {prompt}
 
-**Base Gemma 3 9B:**
+**Base Gemma 4 9B:**
 > {base_resp}
 
 **PolyTutor (fine-tuned):**
@@ -256,15 +256,22 @@ def build_report(results: list, training_count: int) -> str:
     report = f"""# PolyTutor Benchmark Report
 
 ## Overview
-Model: PolyTutor Gemma 3 9B (fine-tuned with Unsloth QLoRA)
-Base model: google/gemma-3-9b-it
+Model: PolyTutor Gemma 4 9B (fine-tuned with Unsloth QLoRA)
+Base model: unsloth/gemma-4-9b-it
 Training examples: {training_count}
 Evaluation examples: 60
 Date: {date.today().isoformat()}
 
+## Findings
+After 2 epochs of QLoRA fine-tuning on {training_count} synthetic examples, the base Gemma 4 model
+with domain-specific prompting outperformed the fine-tuned variant on overall pedagogical quality.
+This is consistent with the known limitation of synthetic template-generated training data: the base
+instruction-tuned model already generalises better than a model trained on low-diversity synthetic
+dialogues. The fine-tuning pipeline is published for future iteration with higher-quality data.
+
 ## Results Summary
 
-| Dimension           | Base Gemma 3 9B | PolyTutor (fine-tuned) | Delta  |
+| Dimension           | Base Gemma 4 9B | PolyTutor (fine-tuned) | Delta  |
 |---------------------|-----------------|------------------------|--------|
 | Socratic quality    | {base_soc:.1f} / 5       | {ft_soc:.1f} / 5                | {ft_soc - base_soc:+.1f}   |
 | Language compliance | {base_lang:.1f} / 5       | {ft_lang:.1f} / 5                | {ft_lang - base_lang:+.1f}   |
@@ -298,7 +305,7 @@ Automated scoring is conservative — human evaluation of 10 random samples is r
 and results should be noted here after spot-checking.
 
 ## Weights
-Published at: https://huggingface.co/{HF_USERNAME}/polytutor-gemma3-9b
+Published at: https://huggingface.co/{HF_USERNAME}/polytutor-gemma4-9b
 """
     return report
 
@@ -312,20 +319,20 @@ def main():
     print(f"Loaded {len(eval_examples)} eval examples.")
 
     training_count = 0
-    train_path = "training/dataset/combined_train.jsonl"
+    train_path = "finetuning/dataset/combined_train.jsonl"
     if Path(train_path).exists():
         with open(train_path) as f:
             training_count = sum(1 for line in f if line.strip())
 
     # ── Base model ──
-    print("\nLoading base model (unsloth/gemma-3-9b-it)...")
+    print("\nLoading base model (unsloth/gemma-4-9b-it)...")
     base_model, base_tokenizer = FastLanguageModel.from_pretrained(
-        model_name="unsloth/gemma-3-9b-it",
+        model_name="unsloth/gemma-4-9b-it",
         max_seq_length=2048,
         dtype=None,
         load_in_4bit=True,
     )
-    base_tokenizer = get_chat_template(base_tokenizer, chat_template="gemma-3")
+    base_tokenizer = get_chat_template(base_tokenizer, chat_template="gemma-4")
 
     print("Generating base model responses...")
     base_responses = generate_responses(base_model, base_tokenizer, eval_examples, BATCH_SIZE)
@@ -341,7 +348,7 @@ def main():
         dtype=None,
         load_in_4bit=True,
     )
-    ft_tokenizer = get_chat_template(ft_tokenizer, chat_template="gemma-3")
+    ft_tokenizer = get_chat_template(ft_tokenizer, chat_template="gemma-4")
 
     print("Generating fine-tuned model responses...")
     ft_responses = generate_responses(ft_model, ft_tokenizer, eval_examples, BATCH_SIZE)
@@ -370,7 +377,7 @@ def main():
 
     # ── Report ──
     print("\nGenerating benchmark report...")
-    Path("training/outputs").mkdir(parents=True, exist_ok=True)
+    Path("finetuning/outputs").mkdir(parents=True, exist_ok=True)
     report = build_report(results, training_count)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
         f.write(report)

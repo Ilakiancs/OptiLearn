@@ -29,7 +29,7 @@ export default function SetupScreen() {
   const [required, setRequired] = useState(false)
   const [showHotspotStep, setShowHotspotStep] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [form, setForm] = useState({ display_name: '', username: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ display_name: '', username: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -60,6 +60,7 @@ export default function SetupScreen() {
       const payload = await setupAdmin({
         display_name: form.display_name.trim(),
         username: form.username.trim(),
+        email: form.email.trim(),
         password: form.password,
       })
       loginTeacher(payload)
@@ -161,6 +162,10 @@ export default function SetupScreen() {
           <label style={{ display: 'grid', gap: 5 }}>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Username</span>
             <input style={inputStyle} value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="admin" autoComplete="username" />
+          </label>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Email <span style={{ opacity: 0.5 }}>(optional)</span></span>
+            <input style={inputStyle} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="teacher@school.org" autoComplete="email" />
           </label>
           <label style={{ display: 'grid', gap: 5 }}>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Password</span>

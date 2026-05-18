@@ -36,7 +36,7 @@ def select_chat_history(
         if id(item) not in recent_ids
     ]
     selected = relevant + recent
-    selected.sort(key=lambda item: cleaned.index(item))
+    selected.sort(key=lambda item: cleaned.index(item) if item in cleaned else 0)
     return selected
 
 

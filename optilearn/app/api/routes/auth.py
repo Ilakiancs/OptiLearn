@@ -91,6 +91,7 @@ class SetupRequest(BaseModel):
     username: str
     password: str
     display_name: str
+    email: str = ""
 
 
 def _clean_username(username: str) -> str:
@@ -220,6 +221,7 @@ async def setup_first_admin(body: SetupRequest) -> dict:
         is_admin=True,
         initial_password=body.password,
         created_by=None,
+        email=body.email or None,
     )
     return await _create_login_session(teacher)
 

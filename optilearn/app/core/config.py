@@ -3,14 +3,20 @@ app/core/config.py — centralised configuration via pydantic-settings BaseSetti
 
 All other files import `settings` from here. No file may read os.environ directly.
 """
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Desktop app passes ENV_FILE pointing to the user data dir. Web/dev mode uses
+# the default .env next to the project root.
+_env_file = os.environ.get("ENV_FILE", ".env")
 
 
 class Settings(BaseSettings):
     """Application settings loaded from the .env file."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_file,
         env_file_encoding="utf-8",
         case_sensitive=True,
     )
