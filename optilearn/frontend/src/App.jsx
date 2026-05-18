@@ -6,17 +6,15 @@
  * two consecutive failures. Auth state is read from localStorage and passed
  * down via React Router's Outlet context.
  */
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import HomeScreen from './screens/HomeScreen'
 import SetupScreen from './screens/SetupScreen'
-import StudentSession from './screens/StudentSession'
-import TeacherDashboard from './screens/TeacherDashboard'
-import StudentProgress from './screens/StudentProgress'
 import StudentLayout from './components/StudentLayout'
 import StudentHome from './screens/StudentHome'
+import StudentSession from './screens/StudentSession'
 import CoursesPage from './screens/CoursesPage'
 import CoursePage from './screens/CoursePage'
 import AssignmentsPage from './screens/AssignmentsPage'
@@ -28,10 +26,16 @@ import TranslateLearn from './screens/TranslateLearn'
 import LiveTranslator from './screens/LiveTranslator'
 import LiveQuizJoin from './screens/livequiz/LiveQuizJoin'
 import LiveQuizPlay from './screens/livequiz/LiveQuizPlay'
-import LiveQuizHost from './screens/livequiz/LiveQuizHost'
 import LiveQuizCodeEntry from './screens/livequiz/LiveQuizCodeEntry'
 import { getTeacherMe } from './api/client'
 import OfflineScreen from './screens/OfflineScreen'
+
+// Teacher-only screens loaded lazily — never downloaded by students
+const TeacherDashboard = lazy(() => import('./screens/TeacherDashboard'))
+const StudentProgress = lazy(() => import('./screens/StudentProgress'))
+const LiveQuizHost = lazy(() => import('./screens/livequiz/LiveQuizHost'))
+
+const _TeacherShell = <div className="page-shell" style={{ minHeight: '100vh' }} />
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -232,13 +236,13 @@ export default function App() {
             <Route path="/live-quiz/join/:gameId" element={<LiveQuizJoin />} />
             <Route path="/live-quiz/play/:gameId" element={<LiveQuizPlay />} />
 
-            {/* Live Quiz — teacher host (protected) */}
-            <Route path="/teacher/live-quiz/:gameId" element={<TeacherRoute><LiveQuizHost /></TeacherRoute>} />
-            <Route path="/teacher" element={<TeacherRoute><TeacherDashboard /></TeacherRoute>} />
-            <Route path="/teacher/student/:studentId" element={<TeacherRoute><StudentProgress /></TeacherRoute>} />
-            <Route path="/teacher/materials" element={<TeacherRoute><TeacherDashboard initialView="materials" /></TeacherRoute>} />
-            <Route path="/teacher/quiz-builder" element={<TeacherRoute><TeacherDashboard initialView="quiz-builder" /></TeacherRoute>} />
-            <Route path="/teacher/diagnostics" element={<TeacherRoute><TeacherDashboard initialView="diagnostics" /></TeacherRoute>} />
+            {/* Live Quiz — teacher host (protected, lazy-loaded) */}
+            <Route path="/teacher/live-quiz/:gameId" element={<TeacherRoute><Suspense fallback={_TeacherShell}><LiveQuizHost /></Suspense></TeacherRoute>} />
+            <Route path="/teacher" element={<TeacherRoute><Suspense fallback={_TeacherShell}><TeacherDashboard /></Suspense></TeacherRoute>} />
+            <Route path="/teacher/student/:studentId" element={<TeacherRoute><Suspense fallback={_TeacherShell}><StudentProgress /></Suspense></TeacherRoute>} />
+            <Route path="/teacher/materials" element={<TeacherRoute><Suspense fallback={_TeacherShell}><TeacherDashboard initialView="materials" /></Suspense></TeacherRoute>} />
+            <Route path="/teacher/quiz-builder" element={<TeacherRoute><Suspense fallback={_TeacherShell}><TeacherDashboard initialView="quiz-builder" /></Suspense></TeacherRoute>} />
+            <Route path="/teacher/diagnostics" element={<TeacherRoute><Suspense fallback={_TeacherShell}><TeacherDashboard initialView="diagnostics" /></Suspense></TeacherRoute>} />
 
             {/* Student LMS — nested under sidebar layout */}
             <Route path="/student/:studentId" element={<StudentRoute><StudentLayout /></StudentRoute>}>

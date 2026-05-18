@@ -15,7 +15,7 @@ function readDisplay(status) {
   }
   if (network.connected) {
     return {
-      label: 'Local',
+      label: 'Offline',
       dot: 'var(--color-primary)',
       pulse: false,
     }

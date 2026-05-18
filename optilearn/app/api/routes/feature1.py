@@ -739,10 +739,10 @@ Content:
 
 _TRANSLATE_IMAGE_PROMPT = """\
 This educational image contains text and/or diagrams (textbook page, worksheet, or learning material).
-Extract the visible educational content and translate it into {target_language}.
-The reader is a student in grade {grade_level}, age {age}.
+First extract ALL visible text from the image exactly as written, then translate that text into {target_language}.
+{source_language_hint}The reader is a student in grade {grade_level}, age {age}.
 Rules:
-- Extract and translate all visible text in the image
+- Read every word visible in the image before translating
 - This is a strict conceptual translation task only
 - Do not summarize, explain, solve exercises, add study notes, add introductions, or add conclusions
 - Do not add headings, bullets, examples, warnings, or comments unless they already exist in the source image
@@ -988,6 +988,14 @@ async def upload_material(
         if is_image:
             from PIL import Image
             import io
+            from app.services import ocr_client
+
+            # Run OCR in a thread — PaddleOCR inference blocks for 1-5s
+            ocr_text = await asyncio.to_thread(
+                ocr_client.extract_text, raw, source_language_hint or None
+            )
+
+            # Resize for vision-model fallback only
             img = Image.open(io.BytesIO(raw)).convert("RGB")
             max_px = settings.IMAGE_MAX_PX
             if max(img.size) > max_px:
@@ -998,10 +1006,12 @@ async def upload_material(
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)
             image_b64 = base64.b64encode(buf.getvalue()).decode()
-            ocr_text = _ocr_image_text(raw)
+
+            if not ocr_text:
+                ocr_text = await asyncio.to_thread(_ocr_image_text, raw)
             if not ocr_text:
                 ocr_text = await _vision_transcribe_image_text(image_b64)
-            preview = ocr_text if ocr_text else image_b64
+            preview = ocr_text[:500] if ocr_text else f"[image:{filename}]"
             mat_type = "image"
             page_count = 1
             pages = [{"page": 1, "text": ocr_text}]
@@ -1093,16 +1103,39 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
     if student is None:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    mat_type: str = _translation_cache.get(f"type_{body.material_id}", "text")  # type: ignore[assignment]
+    # Derive mat_type from DB record if cache was lost (e.g. server restart)
+    _db_mat_type = (material.get("material_type") or "text").lower()
+    mat_type: str = _translation_cache.get(f"type_{body.material_id}", _db_mat_type)  # type: ignore[assignment]
     pages: list[dict] = _translation_cache.get(f"pages_{body.material_id}", [])  # type: ignore[assignment]
 
     if not pages:
         fp = Path(material["file_path"])
-        if fp.suffix.lower() == ".pdf" and fp.exists():
+        if mat_type == "image":
+            # Re-run OCR in a thread — PaddleOCR blocks for 1-5s
+            ocr_text = ""
+            if fp.exists():
+                from app.services import ocr_client as _ocr_mod
+                try:
+                    _src_hint = material.get("source_language") or None
+                    _raw_bytes = await asyncio.to_thread(fp.read_bytes)
+                    ocr_text = await asyncio.to_thread(
+                        _ocr_mod.extract_text, _raw_bytes, _src_hint
+                    )
+                except Exception:
+                    pass
+            pages = [{"page": 1, "text": ocr_text}]
+            if not _translation_cache.get(f"image_b64_{body.material_id}") and fp.exists():
+                from PIL import Image
+                import io as _io
+                img = Image.open(str(fp)).convert("RGB")
+                buf = _io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                _translation_cache[f"image_b64_{body.material_id}"] = base64.b64encode(buf.getvalue()).decode()
+        elif fp.suffix.lower() == ".pdf" and fp.exists():
             import fitz
             doc = fitz.open(str(fp))
             pages = [{"page": i + 1, "text": doc[i].get_text()} for i in range(len(doc))]
-        elif fp.exists():
+        elif fp.exists() and fp.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
             pages = [{"page": 1, "text": fp.read_text(encoding="utf-8")}]
 
     target_pages = [p for p in pages if body.page is None or p["page"] == body.page] or pages
@@ -1159,7 +1192,8 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                     page_num = pg["page"]
                     content = pg.get("text", "")
 
-                    if mat_type == "image":
+                    if mat_type == "image" and not content.strip():
+                        # OCR returned nothing — fall back to vision model
                         image_b64: str | None = _translation_cache.get(  # type: ignore[assignment]
                             f"image_b64_{body.material_id}"
                         )
@@ -1170,29 +1204,23 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             buf = _io.BytesIO()
                             img.save(buf, format="JPEG", quality=85)
                             image_b64 = base64.b64encode(buf.getvalue()).decode()
-
-                        if content.strip():
-                            prompt = _TRANSLATE_PROMPT.format(
-                                target_language=lang_name,
-                                grade_level=grade,
-                                age=age,
-                                source_language_hint=source_language_hint,
-                                content=content,
-                            )
-                            image_b64 = None
-                        else:
-                            prompt = _TRANSLATE_IMAGE_PROMPT.format(
-                                target_language=lang_name, grade_level=grade, age=age
-                            )
-
+                            _translation_cache[f"image_b64_{body.material_id}"] = image_b64
+                        if not image_b64:
+                            yield _sse({"type": "error", "message": "Image file not found. Please re-upload."})
+                            return
+                        logger.info("Image OCR returned empty — using vision model fallback")
+                        prompt = _TRANSLATE_IMAGE_PROMPT.format(
+                            target_language=lang_name, grade_level=grade, age=age,
+                            source_language_hint=source_language_hint,
+                        )
                         page_buf = ""
                         gen = route_generate_with_fallback(
                             prompt,
                             "TRANSLATION",
                             system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
-                            enable_thinking=True,
+                            enable_thinking=False,
                             image_b64=image_b64,
-                            ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
+                            ollama_options={"num_ctx": 4096, "num_predict": 1024, "repeat_penalty": 1.0, "temperature": 0.1},
                             lane="background",
                             feature="feature1.material_translation",
                             profile="notes_balanced",
@@ -1205,6 +1233,7 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                                 page_buf += data.get("content", "")
                                 yield sse_event
                     else:
+                        # Normal text path: used for PDF, plain text, AND images with OCR text
                         if not content.strip():
                             yield _sse({"type": "page_complete", "page": page_num, "full_text": ""})
                             continue
@@ -1217,8 +1246,8 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                             prompt,
                             "TRANSLATION",
                             system_prompt=OPTILEARN_26B_SYSTEM_PROMPT,
-                            enable_thinking=True,
-                            ollama_options={"num_ctx": 4096, "num_predict": 2048, "repeat_penalty": 1.0},
+                            enable_thinking=False,
+                            ollama_options={"num_ctx": 4096, "num_predict": 1500, "repeat_penalty": 1.0, "temperature": 0.1},
                             lane="background",
                             feature="feature1.material_translation",
                             profile="notes_balanced",
@@ -1232,6 +1261,12 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                                 yield sse_event
 
                     page_buf = normalize_ai_output(page_buf)
+                    if mat_type == "image" and not page_buf.strip():
+                        yield _sse({
+                            "type": "error",
+                            "message": "The AI could not read text from this image. Try a clearer photo, or paste the text directly.",
+                        })
+                        return
                     full_parts.append(page_buf)
                     yield _sse({"type": "page_complete", "page": page_num, "full_text": page_buf})
 
@@ -1339,8 +1374,8 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
             gen = route_generate(
                 prompt,
                 "TUTOR",
-                enable_thinking=True,
-                ollama_options={"num_ctx": 8192},
+                enable_thinking=False,
+                ollama_options={"num_ctx": 4096, "num_predict": 1024},
                 lane="student_chat",
                 feature="feature1.explain",
                 profile="tutor_fast",
@@ -1498,8 +1533,8 @@ async def ask_question(body: AskRequest):
             gen = route_generate(
                 prompt,
                 "TUTOR",
-                enable_thinking=True,
-                ollama_options={"num_ctx": 8192},
+                enable_thinking=False,
+                ollama_options={"num_ctx": 4096, "num_predict": 800},
                 lane="student_chat",
                 feature="feature1.ask",
                 profile="tutor_fast",

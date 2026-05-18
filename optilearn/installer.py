@@ -236,6 +236,8 @@ class InstallerApp:
                  lambda: self._ensure_env_file(install_dir)),
                 ('Preparing Python environment...', 'Creating .venv and installing requirements', 30,
                  lambda: self._install_python_packages(install_dir)),
+                ('Downloading OCR models...', 'PaddleOCR models for English & Arabic (~40 MB)', 42,
+                 lambda: self._prefetch_ocr_models(install_dir)),
                 ('Building frontend...', 'npm install && npm run build', 55,
                  lambda: self._build_frontend(install_dir)),
                 ('Downloading Gemma 4 E2B...', '~7.2GB download, this takes a while', 70,
@@ -311,6 +313,49 @@ class InstallerApp:
             cwd=install_dir,
             check=True,
         )
+        subprocess.run(
+            [python_exe, '-m', 'pip', 'install', '--no-deps', 'paddleocr==2.7.0.3', '-q'],
+            cwd=install_dir,
+            check=True,
+        )
+        self._patch_imgaug_numpy2(python_exe)
+
+    def _patch_imgaug_numpy2(self, python_exe):
+        patch_code = r'''
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.find_spec("imgaug")
+if spec is None or spec.origin is None:
+    raise SystemExit(0)
+
+path = Path(spec.origin)
+text = path.read_text(encoding="utf-8")
+old = ''' + repr('''if NP_VERSION < 2:
+    NP_FLOAT_TYPES = set(np.sctypes["float"])
+    NP_INT_TYPES = set(np.sctypes["int"])
+    NP_UINT_TYPES = set(np.sctypes["uint"])
+else:
+    NP_FLOAT_TYPES = {np.float16, np.float32, np.float64}
+    NP_INT_TYPES = {np.int8, np.int16, np.int32, np.int64}
+    NP_UINT_TYPES = {np.uint8, np.uint16, np.uint32, np.uint64}''') + r'''
+new = ''' + repr('''NP_FLOAT_TYPES = {np.float16, np.float32, np.float64}
+NP_INT_TYPES = {np.int8, np.int16, np.int32, np.int64}
+NP_UINT_TYPES = {np.uint8, np.uint16, np.uint32, np.uint64}''') + r'''
+if old in text:
+    path.write_text(text.replace(old, new), encoding="utf-8")
+'''
+        subprocess.run([python_exe, '-c', patch_code], check=True)
+
+    def _prefetch_ocr_models(self, install_dir):
+        venv_python = self._venv_python(install_dir)
+        warmup = (
+            "from paddleocr import PaddleOCR\n"
+            "for lang in ['en', 'arabic']:\n"
+            "    PaddleOCR(use_angle_cls=True, lang=lang, show_log=False)\n"
+            "    print(f'OCR ready: {lang}', flush=True)\n"
+        )
+        subprocess.run([venv_python, '-c', warmup], check=True)
 
     def _build_frontend(self, install_dir):
         fe_dir = os.path.join(install_dir, 'frontend')

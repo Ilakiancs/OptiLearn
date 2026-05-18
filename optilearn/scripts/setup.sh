@@ -47,6 +47,29 @@ echo ""
 echo "▶ Installing dependencies (this may take a few minutes)..."
 pip install --upgrade pip --quiet
 pip install -r requirements.txt
+pip install --no-deps paddleocr==2.7.0.3
+python - <<'PY'
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.find_spec("imgaug")
+if spec is not None and spec.origin is not None:
+    path = Path(spec.origin)
+    text = path.read_text(encoding="utf-8")
+    old = '''if NP_VERSION < 2:
+    NP_FLOAT_TYPES = set(np.sctypes["float"])
+    NP_INT_TYPES = set(np.sctypes["int"])
+    NP_UINT_TYPES = set(np.sctypes["uint"])
+else:
+    NP_FLOAT_TYPES = {np.float16, np.float32, np.float64}
+    NP_INT_TYPES = {np.int8, np.int16, np.int32, np.int64}
+    NP_UINT_TYPES = {np.uint8, np.uint16, np.uint32, np.uint64}'''
+    new = '''NP_FLOAT_TYPES = {np.float16, np.float32, np.float64}
+NP_INT_TYPES = {np.int8, np.int16, np.int32, np.int64}
+NP_UINT_TYPES = {np.uint8, np.uint16, np.uint32, np.uint64}'''
+    if old in text:
+        path.write_text(text.replace(old, new), encoding="utf-8")
+PY
 echo "  ✓ Dependencies installed"
 
 # ──────────────────────────────────────────

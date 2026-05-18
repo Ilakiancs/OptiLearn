@@ -294,6 +294,8 @@ CREATE TABLE IF NOT EXISTS live_class_participants (
 CREATE INDEX IF NOT EXISTS idx_live_class_chunks_session ON live_class_chunks(session_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_live_class_translations_session ON live_class_translations(session_id, target_language, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_live_class_participants_session ON live_class_participants(session_id);
+
+CREATE INDEX IF NOT EXISTS idx_students_last_active ON students(last_active);
 """
 
 
@@ -321,6 +323,10 @@ async def _get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA foreign_keys=ON;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
+        await db.execute("PRAGMA cache_size=-32000;")
+        await db.execute("PRAGMA temp_store=MEMORY;")
+        await db.execute("PRAGMA mmap_size=134217728;")
         yield db
 
 
@@ -497,6 +503,7 @@ async def init_db() -> None:
             "ALTER TABLE materials ADD COLUMN tutor_summary TEXT",
             "ALTER TABLE materials ADD COLUMN tutor_history TEXT DEFAULT '[]'",
             "ALTER TABLE materials ADD COLUMN updated_at TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_materials_student_date ON materials(student_id, COALESCE(updated_at, created_at) DESC)",
             "ALTER TABLE class_notes ADD COLUMN created_at TEXT DEFAULT (datetime('now'))",
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language', 'en')",
             "INSERT OR IGNORE INTO teacher_settings (key, value) VALUES ('master_language_name', 'English')",
@@ -802,8 +809,6 @@ async def invalidate_teacher_sessions(teacher_id: str, keep_token: str | None = 
 async def get_teacher_by_session(token: str) -> dict[str, Any] | None:
     now = datetime.utcnow().isoformat() + "Z"
     async with _get_db() as db:
-        await db.execute("DELETE FROM teacher_sessions WHERE expires_at <= ?", (now,))
-        await db.commit()
         cursor = await db.execute(
             """
             SELECT t.*
@@ -959,9 +964,14 @@ async def add_message(
             (message_id, session_id, role, content or "", tool_name, now),
         )
         await db.commit()
-        cursor = await db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))
-        row = await cursor.fetchone()
-    return _row_to_dict(row)
+    return {
+        "id": message_id,
+        "session_id": session_id,
+        "role": role,
+        "content": content or "",
+        "tool_name": tool_name,
+        "timestamp": now,
+    }
 
 
 async def get_session_messages(session_id: str) -> list[dict[str, Any]]:

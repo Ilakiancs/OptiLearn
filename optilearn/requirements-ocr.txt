@@ -1,0 +1,17 @@
+# PaddleOCR special install — run AFTER pip install -r requirements.txt
+#
+# paddleocr 2.7.0.3 declares PyMuPDF<1.21.0 in its metadata, but OptiLearn
+# needs PyMuPDF>=1.24.0. Install paddleocr with --no-deps to skip that conflict.
+# All required runtime deps are already listed in requirements.txt.
+#
+# Install command:
+#   pip install --no-deps paddleocr==2.7.0.3
+#
+# One-liner for full setup:
+#   pip install -r requirements.txt && pip install --no-deps paddleocr==2.7.0.3
+#
+# After install, patch imgaug for NumPy 2.x compatibility (see installer.py).
+#
+# Do not add an active paddleocr requirement in this file. pip requirement
+# files cannot express a per-package --no-deps install, and a plain
+# paddleocr==2.7.0.3 line would downgrade PyMuPDF.

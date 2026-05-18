@@ -77,3 +77,7 @@ optilearn/test*.raw
 optilearn/uvicorn
 uvicorn
 optilearn/uvicorn_check.*.log
+
+# Accidental pip shell redirection files (e.g. ">=2.6.0" from unquoted install)
+=*
+>=*
