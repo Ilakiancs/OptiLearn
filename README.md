@@ -6,7 +6,7 @@ A teacher in a refugee camp opens a laptop. Within 30 seconds, every phone and t
 
 That's OptiLearn.
 
-Built for the **[Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/gemma-4-good-hackathon/)** · Education track · Opti5 Labs
+Built for the **[Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/gemma-4-good-hackathon/)** · Opti5 Labs
 
 ---
 
@@ -84,20 +84,20 @@ The AI knows each student by name, tracks what they've mastered, speaks their la
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Teacher Laptop                        │
-│                                                          │
-│  ┌────────────┐   ┌──────────────────────────────────┐   │
-│  │  Ollama    │◄──│        OptiLearn Server           │   │
-│  │ Gemma 4 2B │   │     FastAPI · uvicorn · :8000     │   │
-│  │  :11434    │   │                                  │   │
-│  └────────────┘   │  SQLite WAL · FAISS · Piper TTS  │   │
-│                   │  React 18 SPA (served as static)  │   │
-│                   └──────────────────────────────────┘   │
-│                              ▲ :8000 / :8443 (mic)       │
-│                   WiFi Hotspot 192.168.137.1              │
+│                    Teacher Laptop                       │
+│                                                         │
+│  ┌────────────┐   ┌──────────────────────────────────┐  │
+│  │  Ollama    │◄──│        OptiLearn Server          │  │
+│  │ Gemma 4 2B │   │     FastAPI · uvicorn · :8000    │  │
+│  │  :11434    │   │                                  │  │
+│  └────────────┘   │  SQLite WAL · FAISS · Piper TTS  │  │
+│                   │  React 18 SPA (served as static) │  │
+│                   └──────────────────────────────────┘  │
+│                              ▲ :8000 / :8443 (mic)      │
+│                   WiFi Hotspot 192.168.137.1            │
 └──────────────────────────────┼──────────────────────────┘
                                │
-          ┌────────────────────┼─────────────────────┐
+          ┌────────────────────┼────────────────────┐
 ┌─────────▼──────┐  ┌──────────▼──────┐  ┌──────────▼─────┐
 │  Phone/Tablet  │  │  Tablet/Laptop  │  │  Any browser   │
 │  (no app)      │  │  (no app)       │  │  (no app)      │
