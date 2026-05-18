@@ -1,6 +1,6 @@
 """
 02_finetune.py
-QLoRA fine-tuning of Gemma 3 9B using Unsloth.
+QLoRA fine-tuning of Gemma 4 9B using Unsloth.
 Designed to run on Kaggle A100 (40GB VRAM).
 """
 
@@ -35,11 +35,11 @@ Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
 # ──────────────────────────────────────────────────────────────────────────────
 
 print("=" * 60)
-print("Loading model: unsloth/gemma-3-9b-it")
+print("Loading model: unsloth/gemma-4-9b-it")
 print("=" * 60)
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name="unsloth/gemma-3-9b-it",
+    model_name="unsloth/gemma-4-9b-it",
     max_seq_length=2048,
     dtype=None,        # auto-detect
     load_in_4bit=True, # NF4 quantization
@@ -73,7 +73,7 @@ model = FastLanguageModel.get_peft_model(
 
 print("\nLoading and formatting dataset...")
 
-tokenizer = get_chat_template(tokenizer, chat_template="gemma-3")
+tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")
 
 raw_dataset = load_dataset("json", data_files=DATASET_PATH, split="train")
 print(f"  Raw examples loaded: {len(raw_dataset)}")
@@ -116,32 +116,6 @@ print(torch.cuda.memory_summary(abbreviated=True))
 # ──────────────────────────────────────────────────────────────────────────────
 
 print("\nConfiguring trainer...")
-
-
-class LoggingCallback:
-    """Writes loss to training_log.jsonl every logging_steps steps."""
-
-    def __init__(self, log_path: str):
-        self.log_path = log_path
-        self.log_file = open(log_path, "w", encoding="utf-8")
-
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is not None:
-            entry = {
-                "step": state.global_step,
-                "loss": logs.get("loss"),
-                "learning_rate": logs.get("learning_rate"),
-                "epoch": logs.get("epoch"),
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-            self.log_file.write(json.dumps(entry) + "\n")
-            self.log_file.flush()
-
-    def __del__(self):
-        try:
-            self.log_file.close()
-        except Exception:
-            pass
 
 
 from transformers import TrainerCallback
@@ -226,7 +200,7 @@ print(f"  LoRA adapter saved to: {LORA_DIR}")
 # Push to Hugging Face Hub
 # ──────────────────────────────────────────────────────────────────────────────
 
-repo_id = f"{HF_USERNAME}/polytutor-gemma3-9b"
+repo_id = f"{HF_USERNAME}/polytutor-gemma4-9b"
 print(f"\nPushing to Hugging Face Hub: {repo_id}")
 
 model.push_to_hub(repo_id, token=HF_TOKEN)
