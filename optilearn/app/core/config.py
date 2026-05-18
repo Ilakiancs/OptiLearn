@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     MATERIALS_DIR: str = "./data/materials"
 
     # Beyond Presence (AI avatar video — online only)
-    BEY_API_KEY: str = ""
+    BEY_API_KEY: str = "sk-0mu53Gos0U-StdMxD52VN0NSyIHPkP1kwNEYQ7VRQGM"
 
     # Whisper / TTS (Phase 2–3, not used yet)
     WHISPER_BINARY: str = "./bin/whisper"
