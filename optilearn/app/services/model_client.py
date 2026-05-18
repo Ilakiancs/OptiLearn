@@ -505,12 +505,12 @@ async def stream_26b(
     else:
         parts = [genai_types.Part(text=prompt)]
     contents = [genai_types.Content(role="user", parts=parts)]
-    thinking_cfg_kwargs: dict[str, Any] = {"include_thoughts": enable_thinking}
-    if not enable_thinking:
-        thinking_cfg_kwargs["thinking_budget"] = 0
     try:
+        thinking_cfg_kwargs: dict[str, Any] = {"include_thoughts": enable_thinking}
+        if not enable_thinking:
+            thinking_cfg_kwargs["thinking_budget"] = 0
         thinking_cfg = genai_types.ThinkingConfig(**thinking_cfg_kwargs)
-    except TypeError:
+    except Exception:
         thinking_cfg = genai_types.ThinkingConfig(include_thoughts=enable_thinking)
 
     config_kwargs: dict[str, Any] = {

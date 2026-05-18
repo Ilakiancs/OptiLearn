@@ -51,6 +51,7 @@ VOICE_MAP: dict[str, tuple[str, str]] = {
 }
 
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="tts")
+_tts_no_voices_warned = False
 
 # Lazy MMS-TTS model cache: loaded once per language, reused across requests.
 _mms_cache: dict[str, tuple] = {}
@@ -254,7 +255,10 @@ async def speak_sentences(text: str, language: str) -> AsyncGenerator[bytes, Non
         if not voice_path.exists():
             voice_path = Path(settings.VOICES_DIR) / "en_US-lessac-medium.onnx"
         if not voice_path.exists():
-            logger.error("No voice models found in {}", settings.VOICES_DIR)
+            global _tts_no_voices_warned
+            if not _tts_no_voices_warned:
+                logger.warning("TTS unavailable: no voice models found in {} — read-aloud disabled", settings.VOICES_DIR)
+                _tts_no_voices_warned = True
             return
         voice_path_str = str(voice_path)
         # Submit all sentences to the executor immediately so they synthesise in parallel.
