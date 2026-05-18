@@ -1,0 +1,87 @@
+{
+  "name": "optilearn-desktop",
+  "version": "1.0.0",
+  "description": "OptiLearn — Offline AI Tutor for Refugee Classrooms",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder --win --mac"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "org.optilearn.app",
+    "productName": "OptiLearn",
+    "copyright": "Copyright © 2025 OptiLearn",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "assets"
+    },
+    "files": [
+      "electron/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../optilearn",
+        "to": "optilearn",
+        "filter": [
+          "**/*",
+          "!**/.venv/**",
+          "!**/node_modules/**",
+          "!**/frontend/node_modules/**",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/data/*.db",
+          "!**/data/*.db-*",
+          "!**/data/*.index",
+          "!**/data/materials/**",
+          "!**/data/ssl/**",
+          "!**/data/voices/**",
+          "!**/data/webview-profile/**",
+          "!**/dist-electron/**",
+          "!**/.env",
+          "!**/.git/**"
+        ]
+      },
+      {
+        "from": "python-runtime",
+        "to": "python-runtime",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.education",
+      "hardenedRuntime": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OptiLearn"
+    },
+    "dmg": {
+      "title": "OptiLearn Installer",
+      "icon": "assets/icon.icns",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist-electron/
+python-runtime/
+assets/icon.icns
+assets/icon.png
+assets/icon-tray.png
