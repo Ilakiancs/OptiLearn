@@ -82,3 +82,6 @@ optilearn/uvicorn_check.*.log
 =*
 >=*
 .gstack/
+
+# Root-level stray lock file
+/package-lock.json
