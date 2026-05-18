@@ -87,17 +87,34 @@ if command -v convert &>/dev/null && [ -f "$DESKTOP_DIR/assets/icon.ico" ]; then
 fi
 echo "  ✓ Icons ready"
 
-# ── Step 5: Ensure 'python' is on PATH (electron-builder needs it) ────────────
-# On macOS/Linux, 'python' may not exist — only 'python3'. Create a temporary
-# symlink in a local bin dir and prepend it to PATH for the build step.
+# ── Step 5: Ensure 'python' on PATH points to a compatible version ────────────
+# electron-builder's dmg-builder vendor scripts use 'python' to build the DMG.
+# On macOS, 'python' may not exist, and Python 3.14 has a pyexpat/libexpat
+# symbol mismatch that breaks dmg-builder. Use Python 3.11 or 3.12 if available.
 _TMP_BIN="$DESKTOP_DIR/.tmp-bin"
 mkdir -p "$_TMP_BIN"
-_PYTHON3="$(command -v python3 2>/dev/null || true)"
-if [ -n "$_PYTHON3" ] && [ ! -f "$_TMP_BIN/python" ]; then
-    ln -sf "$_PYTHON3" "$_TMP_BIN/python"
+
+# Prefer 3.11/3.12/3.13 over 3.14+ for dmg-builder compatibility
+_COMPAT_PYTHON=""
+for _V in python3.11 python3.12 python3.13 python3; do
+    if command -v "$_V" &>/dev/null; then
+        _COMPAT_PYTHON="$(command -v "$_V")"
+        break
+    fi
+done
+# Also try Homebrew explicit paths
+if [ -z "$_COMPAT_PYTHON" ]; then
+    for _P in /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.11; do
+        [ -f "$_P" ] && _COMPAT_PYTHON="$_P" && break
+    done
 fi
+_COMPAT_PYTHON="${_COMPAT_PYTHON:-python3}"
+
+ln -sf "$_COMPAT_PYTHON" "$_TMP_BIN/python"
+ln -sf "$_COMPAT_PYTHON" "$_TMP_BIN/python3"
 export PATH="$_TMP_BIN:$PATH"
-export PYTHON_PATH="${_PYTHON3:-python3}"
+export PYTHON_PATH="$_COMPAT_PYTHON"
+echo "  Using Python for build: $(_COMPAT_PYTHON --version 2>&1 || echo $_COMPAT_PYTHON)"
 
 # Cleanup trap — remove temp bin regardless of success/failure
 trap 'rm -rf "$_TMP_BIN"' EXIT
