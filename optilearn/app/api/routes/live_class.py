@@ -25,12 +25,13 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.api.routes.auth import get_current_teacher
+from app.api.sse import sse as _sse
 from app.core.config import settings
 from app.core.languages import language_display_name, language_output_issue, language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.core.text_formatting import normalize_ai_output
 from app.services import db as db_service
-from app.services import faiss_store, job_manager
+from app.services import faiss_store
 from app.services.model_client import MODEL_SWITCH_TOKEN, route_generate_with_fallback
 from app.services.model_scheduler import LANE_LIVE_CLASS_TRANSLATION
 from app.services.whisper_client import transcribe_chunk
@@ -462,12 +463,6 @@ async def _generate_class_notes(session_id: str, target_language: str) -> None:
         ev = _lc_notes_ready.get(key)
         if ev and not ev.is_set():
             ev.set()
-
-
-# ── SSE helper ─────────────────────────────────────────────────
-
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data)}\n\n"
 
 
 # ─────────────────────────────────────────────────────────────────

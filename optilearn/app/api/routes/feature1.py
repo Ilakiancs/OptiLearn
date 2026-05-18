@@ -15,7 +15,6 @@ import base64
 import html
 import json
 import re
-import tempfile
 import traceback
 import uuid
 from pathlib import Path
@@ -27,6 +26,7 @@ from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from app.api.sse import sse as _sse
 from app.core.config import settings
 from app.core.languages import language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
@@ -784,10 +784,6 @@ Example: ["Question one?", "Question two?", "Question three?"]
 Write all 3 questions in {language}.
 Generate 3 questions a grade {grade_level} student might ask about:
 {context}"""
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event)}\n\n"
 
 
 def _parse_tutor_history(raw: str | None) -> list[dict]:

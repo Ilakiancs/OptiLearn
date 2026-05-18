@@ -34,8 +34,9 @@ from app.core.grades import normalize_grade_level
 from app.core.languages import language_display_name, language_output_issue, language_prompt_label
 from app.core.prompts import OPTILEARN_26B_SYSTEM_PROMPT
 from app.core.text_formatting import normalize_ai_output
+from app.api.sse import sse as _sse
 from app.services import db, faiss_store, generated_cache, job_manager
-from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, get_network_status, has_26b_api_key, is_force_offline, route_generate_with_fallback
+from app.services.model_client import MODEL_SWITCH_TOKEN, ensure_ollama_model, has_26b_api_key, is_force_offline, route_generate_with_fallback
 from app.services.whisper_client import (
     get_transcriber_status,
     transcribe_chunk,
@@ -182,13 +183,6 @@ def _lang_name(code: str) -> str:
 
 def _lang_prompt(code: str) -> str:
     return language_prompt_label(code)
-
-
-# ──────────────────────────────────────────────────────────────
-# SSE helper
-# ──────────────────────────────────────────────────────────────
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event)}\n\n"
 
 
 # ──────────────────────────────────────────────────────────────

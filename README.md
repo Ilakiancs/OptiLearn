@@ -286,7 +286,6 @@ All configuration is in `optilearn/.env`. The file is created from `.env.example
 | `GEMMA_API_KEY` | _(empty)_ | Google AI Studio key — required when `USE_LOCAL_OLLAMA=false` |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model identifier (API fallback only) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `OLLAMA_MODEL` | `gemma4:e2b` | Default Ollama model tag |
 | `OLLAMA_MODEL_FAST` | `gemma4:e2b` | Fast routing model (most routes) |
 | `OLLAMA_MODEL_DEEP` | `gemma4:e4b` | Deep routing model (complex explanations) |
 | `DB_PATH` | `./data/optilearn.db` | SQLite database file path |

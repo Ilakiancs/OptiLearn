@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 import io
 
 from app.api.routes.auth import get_current_teacher
+from app.api.sse import sse as _sse
 from app.services.student_transfer import build_student_bundle, bundle_to_zip_bytes, import_zip_bytes
 from loguru import logger
 
@@ -41,10 +42,6 @@ Student: {name}, age {age}, grade {grade_level}, language {language}
 Mastery: {topic_mastery_dict}
 Recent quizzes: {last_10_results}
 """
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event)}\n\n"
 
 
 @router.post("")

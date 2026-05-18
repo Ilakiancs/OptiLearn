@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from PIL import Image
 
+from app.api.sse import sse as _sse
 from app.core.config import settings
 from app.core.prompts import build_system_prompt
 from app.models.schemas import ChatRequest
@@ -40,11 +41,6 @@ async def _dispatch_tool(tool_name: str, arguments: dict) -> Any:
     if fn is None:
         raise ValueError(f"Unknown tool '{tool_name}'")
     return await fn(**arguments)
-
-
-def _sse(event: dict) -> str:
-    """Format a dict as an SSE data line."""
-    return f"data: {json.dumps(event)}\n\n"
 
 
 def _should_plan_tools(message: str, has_image: bool = False) -> bool:

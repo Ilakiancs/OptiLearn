@@ -24,11 +24,9 @@ class Settings(BaseSettings):
     GEMMA_26B_API_KEY: str = ""
     GEMMA_26B_MODEL: str = "gemma-4-31b-it"
     GEMMA_26B_BASE_URL: str = "https://generativelanguage.googleapis.com"
-    LATENCY_THRESHOLD_MS: int = 200
 
     # Ollama (primary — offline/local)
     OLLAMA_HOST: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "gemma4:e2b"
     OLLAMA_MODEL_FAST: str = "gemma4:e2b"
     OLLAMA_MODEL_DEEP: str = "gemma4:e4b"
     OLLAMA_TUTOR_MODEL: str = "gemma4:e2b"  # FUTURE: replace with optilearn-gemma4-e2b
