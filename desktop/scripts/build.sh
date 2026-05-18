@@ -89,23 +89,26 @@ echo "  ✓ Icons ready"
 
 # ── Step 5: Ensure 'python' on PATH points to a compatible version ────────────
 # electron-builder's dmg-builder vendor scripts use 'python' to build the DMG.
-# On macOS, 'python' may not exist, and Python 3.14 has a pyexpat/libexpat
-# symbol mismatch that breaks dmg-builder. Use Python 3.11 or 3.12 if available.
+# Homebrew Python (all versions) is linked against Homebrew libexpat which lacks
+# the _XML_SetAllocTrackerActivationThreshold symbol expected by macOS system
+# libexpat.1.dylib — causing an ImportError in dmg-builder's plistlib usage.
+# macOS system Python (/usr/bin/python3) is linked against the correct system
+# libexpat so it must be preferred for the DMG build step.
 _TMP_BIN="$DESKTOP_DIR/.tmp-bin"
 mkdir -p "$_TMP_BIN"
 
-# Prefer 3.11/3.12/3.13 over 3.14+ for dmg-builder compatibility
+# Prefer system Python (correct libexpat linkage) over Homebrew Python
 _COMPAT_PYTHON=""
-for _V in python3.11 python3.12 python3.13 python3; do
-    if command -v "$_V" &>/dev/null; then
-        _COMPAT_PYTHON="$(command -v "$_V")"
-        break
-    fi
+for _P in /usr/bin/python3 /usr/bin/python; do
+    [ -x "$_P" ] && _COMPAT_PYTHON="$_P" && break
 done
-# Also try Homebrew explicit paths
+# Fall back to Homebrew only if system Python is genuinely absent
 if [ -z "$_COMPAT_PYTHON" ]; then
-    for _P in /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.11; do
-        [ -f "$_P" ] && _COMPAT_PYTHON="$_P" && break
+    for _V in python3.11 python3.12 python3.13 python3; do
+        if command -v "$_V" &>/dev/null; then
+            _COMPAT_PYTHON="$(command -v "$_V")"
+            break
+        fi
     done
 fi
 _COMPAT_PYTHON="${_COMPAT_PYTHON:-python3}"
@@ -114,7 +117,7 @@ ln -sf "$_COMPAT_PYTHON" "$_TMP_BIN/python"
 ln -sf "$_COMPAT_PYTHON" "$_TMP_BIN/python3"
 export PATH="$_TMP_BIN:$PATH"
 export PYTHON_PATH="$_COMPAT_PYTHON"
-echo "  Using Python for build: $(_COMPAT_PYTHON --version 2>&1 || echo $_COMPAT_PYTHON)"
+echo "  Using Python for build: $("$_COMPAT_PYTHON" --version 2>&1 || echo "$_COMPAT_PYTHON")"
 
 # Cleanup trap — remove temp bin regardless of success/failure
 trap 'rm -rf "$_TMP_BIN"' EXIT
