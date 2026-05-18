@@ -22,7 +22,6 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.api.routes import auth, chat, dashboard, feature1, live_class, live_quiz, materials, network, persona, quiz, sessions, settings as settings_routes, students, teacher, teacher_quiz, translate as translate_routes
-from app.api.routes.persona import _load_agent_cache
 from app.api.routes.auth import get_current_admin
 from app.api.routes.feature1 import tts_router
 from app.core.config import settings
@@ -221,7 +220,6 @@ def _ensure_ssl_cert() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("OptiLearn starting up…")
     load_user_network_settings()
-    _load_agent_cache()
     _ensure_noto_fonts()
     _ensure_ssl_cert()
     await db.init_db()
