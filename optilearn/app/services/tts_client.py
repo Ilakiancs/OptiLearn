@@ -205,6 +205,9 @@ def _piper_speak_sync(voice_path: str, text: str) -> bytes:
         timeout=30,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    if result.returncode != 0 or not result.stdout:
+        logger.warning("Piper exited with code {} for voice {}", result.returncode, voice_path)
+        return b""
     return raw_pcm_to_wav(result.stdout)
 
 

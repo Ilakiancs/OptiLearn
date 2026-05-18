@@ -248,19 +248,20 @@ async def _translate_and_store(session_id: str, chunk_index: int, source_text: s
         logger.error("Live class translation error chunk={} lang={}: {}", chunk_index, target_language, exc)
         translated = ""
 
+    if not translated:
+        translated = source_text  # fallback: show original if translation failed
+        logger.warning(
+            "live_class chunk={} lang={}: all retries failed, using source as fallback",
+            chunk_index,
+            target_language,
+        )
+
     async with aiosqlite.connect(settings.DB_PATH) as conn:
-        if translated:
-            await conn.execute(
-                "UPDATE live_class_translations SET translated_text=?, status='ready' "
-                "WHERE session_id=? AND chunk_index=? AND target_language=?",
-                (translated, session_id, chunk_index, target_language),
-            )
-        else:
-            await conn.execute(
-                "UPDATE live_class_translations SET status='error' "
-                "WHERE session_id=? AND chunk_index=? AND target_language=?",
-                (session_id, chunk_index, target_language),
-            )
+        await conn.execute(
+            "UPDATE live_class_translations SET translated_text=?, status='ready' "
+            "WHERE session_id=? AND chunk_index=? AND target_language=?",
+            (translated, session_id, chunk_index, target_language),
+        )
         await conn.commit()
     logger.info("live_class chunk={} lang={} translated={} chars", chunk_index, target_language, len(translated))
 
@@ -623,23 +624,28 @@ async def get_stream_token(session_id: str, teacher: dict = Depends(get_current_
 async def _teacher_stream_generator(session_id: str) -> AsyncGenerator[str, None]:
     last_chunk = -1
     while True:
-        session = await _get_session(session_id)
-        status = (session or {}).get("status", "ended")
+        try:
+            session = await _get_session(session_id)
+            status = (session or {}).get("status", "ended")
 
-        new_chunks = await _get_source_chunks(session_id, last_chunk)
-        for chunk in new_chunks:
-            yield _sse({"type": "source_chunk", "chunk_index": chunk["chunk_index"],
-                        "text": chunk["source_text"], "timestamp": chunk["created_at"]})
-            last_chunk = chunk["chunk_index"]
+            new_chunks = await _get_source_chunks(session_id, last_chunk)
+            for chunk in new_chunks:
+                yield _sse({"type": "source_chunk", "chunk_index": chunk["chunk_index"],
+                            "text": chunk["source_text"], "timestamp": chunk["created_at"]})
+                last_chunk = chunk["chunk_index"]
 
-        stats = await _get_participant_stats(session_id)
-        yield _sse({"type": "stats", **stats})
+            stats = await _get_participant_stats(session_id)
+            yield _sse({"type": "stats", **stats})
 
-        if status == "ended":
-            yield _sse({"type": "session_ended"})
-            break
+            if status == "ended":
+                yield _sse({"type": "session_ended"})
+                break
 
-        await asyncio.sleep(2)
+            await asyncio.sleep(2)
+        except Exception as exc:
+            logger.warning("teacher stream error session={}: {}", session_id, exc)
+            yield ": keepalive\n\n"
+            await asyncio.sleep(2)
 
 
 @router.get("/{session_id}/teacher-stream")
@@ -733,35 +739,40 @@ async def _student_stream_generator(session_id: str, student_id: str, target_lan
 
     # 2. Live polling
     while True:
-        session = await _get_session(session_id)
-        status = (session or {}).get("status", "ended")
-
-        new = await _get_translations(session_id, target_language, after_index=last_sent)
-        for t in new:
-            yield _sse({"type": "translated_chunk", "chunk_index": t["chunk_index"],
-                        "text": t["translated_text"], "timestamp": t["created_at"]})
-            last_sent = t["chunk_index"]
-
-        yield _sse({"type": "session_status", "status": status})
-
-        if status == "ended":
-            notes = await _get_notes(session_id, target_language)
-            if notes and notes.get("status") == "ready":
-                yield _sse({"type": "notes_ready", "notes_text": notes["notes_text"]})
-            break
-
-        # Update heartbeat
         try:
-            async with aiosqlite.connect(settings.DB_PATH) as conn:
-                await conn.execute(
-                    "UPDATE live_class_participants SET last_seen_at=? WHERE session_id=? AND student_id=?",
-                    (_now_iso(), session_id, student_id),
-                )
-                await conn.commit()
-        except Exception:
-            pass
+            session = await _get_session(session_id)
+            status = (session or {}).get("status", "ended")
 
-        await asyncio.sleep(1)
+            new = await _get_translations(session_id, target_language, after_index=last_sent)
+            for t in new:
+                yield _sse({"type": "translated_chunk", "chunk_index": t["chunk_index"],
+                            "text": t["translated_text"], "timestamp": t["created_at"]})
+                last_sent = t["chunk_index"]
+
+            yield _sse({"type": "session_status", "status": status})
+
+            if status == "ended":
+                notes = await _get_notes(session_id, target_language)
+                if notes and notes.get("status") == "ready":
+                    yield _sse({"type": "notes_ready", "notes_text": notes["notes_text"]})
+                break
+
+            # Update heartbeat
+            try:
+                async with aiosqlite.connect(settings.DB_PATH) as conn:
+                    await conn.execute(
+                        "UPDATE live_class_participants SET last_seen_at=? WHERE session_id=? AND student_id=?",
+                        (_now_iso(), session_id, student_id),
+                    )
+                    await conn.commit()
+            except Exception:
+                pass
+
+            await asyncio.sleep(1)
+        except Exception as exc:
+            logger.warning("student stream error session={}: {}", session_id, exc)
+            yield ": keepalive\n\n"
+            await asyncio.sleep(1)
 
 
 @router.get("/{session_id}/stream")

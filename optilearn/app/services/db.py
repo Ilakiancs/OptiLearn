@@ -1752,9 +1752,9 @@ async def get_teacher_quizzes_for_student(student_id: str) -> list[dict[str, Any
                FROM teacher_quizzes q
                LEFT JOIN teachers t ON t.id = q.created_by
                WHERE q.assigned_to = 'all'
-                  OR q.assigned_to LIKE ?
+                  OR (',' || q.assigned_to || ',') LIKE ?
                ORDER BY q.created_at DESC""",
-            (f"%{student_id}%",),
+            (f"%,{student_id},%",),
         )
         rows = await cursor.fetchall()
     result = []

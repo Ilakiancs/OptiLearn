@@ -1149,13 +1149,13 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
     async def event_stream() -> AsyncGenerator[str, None]:
         full_parts: list[str] = []
         try:
-            lock = _translation_locks.setdefault(body.material_id, asyncio.Lock())
+            _translation_cache_key = f"{body.material_id}:{body.target_language}"
+            lock = _translation_locks.setdefault(_translation_cache_key, asyncio.Lock())
             async with lock:
-                cached_lang = _translation_cache.get(f"lang_{body.material_id}")
-                cached_text = _translation_cache.get(body.material_id)
-                if cached_lang == body.target_language and isinstance(cached_text, str) and cached_text.strip():
+                cached_text = _translation_cache.get(_translation_cache_key)
+                if isinstance(cached_text, str) and cached_text.strip():
                     cached_text = normalize_ai_output(cached_text)
-                    _translation_cache[body.material_id] = cached_text
+                    _translation_cache[_translation_cache_key] = cached_text
                     logger.info("Feature1 translation cache hit material={} lang={}", body.material_id, body.target_language)
                     yield _sse({"type": "page_complete", "page": 1, "full_text": cached_text})
                     yield _sse({"type": "done", "total_pages": 1})
@@ -1178,8 +1178,7 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                 persisted_cached = await generated_cache.get_text(cache_key, "material.translation")
                 if persisted_cached:
                     persisted_cached = normalize_ai_output(persisted_cached)
-                    _translation_cache[body.material_id] = persisted_cached
-                    _translation_cache[f"lang_{body.material_id}"] = body.target_language
+                    _translation_cache[_translation_cache_key] = persisted_cached
                     yield _sse({"type": "page_complete", "page": 1, "full_text": persisted_cached})
                     yield _sse({"type": "done", "total_pages": 1, "cache_hit": True})
                     return
@@ -1267,8 +1266,7 @@ async def translate_material(body: TranslateRequest) -> StreamingResponse:
                     yield _sse({"type": "page_complete", "page": page_num, "full_text": page_buf})
 
                 full_text = normalize_ai_output("\n\n".join(full_parts))
-                _translation_cache[body.material_id] = full_text
-                _translation_cache[f"lang_{body.material_id}"] = body.target_language
+                _translation_cache[_translation_cache_key] = full_text
                 await generated_cache.set_text(
                     cache_key,
                     "material.translation",
@@ -1598,174 +1596,6 @@ async def export_translation_pdf(
         translated_text=translated_text,
         target_language=target_language,
     )
-
-    try:
-        import io
-        import os
-        from reportlab.lib import colors
-        from reportlab.lib.colors import HexColor, white
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import ParagraphStyle
-        from reportlab.lib.units import mm
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.platypus import (
-            HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
-        )
-
-        fonts_dir = "data/fonts"
-
-        # Map language → script-specific Noto font file
-        _SCRIPT_FONT = {
-            "si": "NotoSansSinhala-Regular.ttf",
-            "ta": "NotoSansTamil-Regular.ttf",
-            "ar": "NotoSansArabic-Regular.ttf",
-            "fa": "NotoSansArabic-Regular.ttf",
-            "ur": "NotoSansArabic-Regular.ttf",
-            "am": "NotoSansEthiopic-Regular.ttf",
-            "ti": "NotoSansEthiopic-Regular.ttf",
-            "hi": "NotoSansDevanagari-Regular.ttf",
-            "mr": "NotoSansDevanagari-Regular.ttf",
-            "ne": "NotoSansDevanagari-Regular.ttf",
-            "bn": "NotoSansBengali-Regular.ttf",
-            "my": "NotoSansMyanmar-Regular.ttf",
-            "th": "NotoSansThai-Regular.ttf",
-        }
-
-        def _try_register(font_name: str, file_path: str) -> bool:
-            try:
-                if os.path.exists(file_path):
-                    pdfmetrics.registerFont(TTFont(font_name, file_path))
-                    return True
-            except Exception:
-                pass
-            return False
-
-        # Always register NotoSans for headers/footer
-        _try_register("NotoSans", os.path.join(fonts_dir, "NotoSans-Regular.ttf"))
-        _try_register("NotoSans-Bold", os.path.join(fonts_dir, "NotoSans-Bold.ttf"))
-
-        # Pick body font: script-specific if available, else NotoSans, else Helvetica
-        script_file = _SCRIPT_FONT.get(target_language)
-        if script_file:
-            script_path = os.path.join(fonts_dir, script_file)
-            font_id = f"NotoScript-{target_language}"
-            if _try_register(font_id, script_path):
-                base_font = font_id
-            elif os.path.exists(os.path.join(fonts_dir, "NotoSans-Regular.ttf")):
-                base_font = "NotoSans"
-            else:
-                base_font = "Helvetica"
-        elif os.path.exists(os.path.join(fonts_dir, "NotoSans-Regular.ttf")):
-            base_font = "NotoSans"
-        else:
-            base_font = "Helvetica"
-
-        bold_font = "NotoSans-Bold" if os.path.exists(os.path.join(fonts_dir, "NotoSans-Bold.ttf")) else "Helvetica-Bold"
-
-        rtl_languages = {"ar", "fa", "ur", "he"}
-        is_rtl = target_language in rtl_languages
-        text_align = TA_RIGHT if is_rtl else TA_LEFT
-
-        watermark_style = ParagraphStyle("watermark",
-            fontName=base_font, fontSize=8,
-            textColor=HexColor("#2a8dbf"), spaceAfter=2)
-        title_style = ParagraphStyle("title",
-            fontName=bold_font, fontSize=22,
-            textColor=HexColor("#202124"), spaceAfter=4,
-            alignment=text_align)
-        subtitle_style = ParagraphStyle("subtitle",
-            fontName=base_font, fontSize=10,
-            textColor=HexColor("#5f6368"), spaceAfter=16,
-            alignment=text_align)
-        body_style = ParagraphStyle("body",
-            fontName=base_font, fontSize=11,
-            leading=20, textColor=HexColor("#202124"),
-            spaceAfter=8, spaceBefore=0,
-            alignment=text_align)
-        heading_style = ParagraphStyle("heading",
-            fontName=bold_font, fontSize=13,
-            textColor=HexColor("#202124"), spaceBefore=10,
-            spaceAfter=4, alignment=text_align)
-        footer_style = ParagraphStyle("footer",
-            fontName=base_font, fontSize=8,
-            textColor=HexColor("#aaaaaa"), alignment=TA_CENTER)
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, pagesize=A4,
-            leftMargin=22 * mm, rightMargin=22 * mm,
-            topMargin=20 * mm, bottomMargin=20 * mm,
-            title=f"OptiLearn Translation — {student['name']}",
-            author="OptiLearn",
-        )
-
-        header_data = [[
-            Paragraph("OptiLearn", ParagraphStyle("hl",
-                fontName=bold_font, fontSize=10, textColor=white)),
-            Paragraph("Translated Material", ParagraphStyle("hr",
-                fontName=base_font, fontSize=10, textColor=white, alignment=TA_RIGHT)),
-        ]]
-        header_table = Table(header_data, colWidths=[83 * mm, 83 * mm])
-        header_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#2a8dbf")),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("LEFTPADDING", (0, 0), (0, -1), 8),
-            ("RIGHTPADDING", (-1, 0), (-1, -1), 8),
-        ]))
-
-        doc_title = os.path.splitext(material.get("title", "Translated Document"))[0]
-        lang_display = _LANG_NAME.get(target_language, target_language.upper())
-
-        story = [
-            header_table,
-            Spacer(1, 6 * mm),
-            Paragraph(doc_title, title_style),
-            Paragraph(
-                f"Student: {student['name']}  ·  Grade {student.get('grade_level', '')}  ·  Translated to: {lang_display}",
-                subtitle_style,
-            ),
-            HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"), spaceAfter=6 * mm),
-        ]
-
-        paragraphs = [p.strip() for p in translated_text.split("\n") if p.strip()]
-        for i, para_text in enumerate(paragraphs):
-            safe = para_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            if safe.startswith("##"):
-                story.append(Paragraph(safe.lstrip("#").strip(), heading_style))
-            else:
-                story.append(Paragraph(safe, body_style))
-            if i < len(paragraphs) - 1:
-                story.append(Spacer(1, 1 * mm))
-
-        story.extend([
-            Spacer(1, 8 * mm),
-            HRFlowable(width="100%", thickness=1, color=HexColor("#dadce0"),
-                       spaceBefore=4 * mm, spaceAfter=3 * mm),
-            Paragraph(
-                "Generated by OptiLearn · Gemma 4 Good Hackathon 2026 · Opti5 Labs",
-                footer_style,
-            ),
-        ])
-
-        doc.build(story)
-        buffer.seek(0)
-
-        safe_name = student["name"].replace(" ", "_")
-        filename = f"optilearn_{safe_name}_translation.pdf"
-        return Response(
-            content=buffer.read(),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-
-    except ImportError:
-        raise HTTPException(status_code=500, detail="reportlab is not installed. Run: pip install reportlab")
-    except Exception as exc:
-        logger.error("PDF export error: {}\n{}", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ──────────────────────────────────────────────────────────────

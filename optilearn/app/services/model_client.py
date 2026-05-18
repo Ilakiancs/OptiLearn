@@ -748,8 +748,8 @@ async def route_generate(
     reason = (
         "manual override"
         if _is_force_offline()
-        else f"latency={status['latency_ms']}ms"
-        if status["connected"]
+        else f"latency={status.get('latency_ms', '?')}ms"
+        if status.get("connected")
         else "offline"
     )
     logger.info(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any
 
 import numpy as np
@@ -20,6 +21,8 @@ from app.core.config import settings
 # ──────────────────────────────────────────────────────────────
 # Lazy singleton state
 # ──────────────────────────────────────────────────────────────
+_store_lock = threading.Lock()
+
 _index: Any | None = None
 _meta: list[dict] | None = None
 _embed_model: Any | None = None
@@ -53,29 +56,35 @@ def _load_embed_model() -> Any | None:
     """Load the embedding model without contacting Hugging Face."""
     global _embed_error, _embed_model, _embed_resolved_model  # noqa: PLW0603
 
+    # Fast path: model already loaded — no lock needed.
     if _embed_model is not None:
         return _embed_model
 
-    _offline_env()
-    _embed_resolved_model = _resolve_model_ref(settings.EMBED_MODEL, "embeddings")
-    try:
-        from sentence_transformers import SentenceTransformer
+    with _store_lock:
+        # Re-check after acquiring the lock (double-checked locking pattern).
+        if _embed_model is not None:
+            return _embed_model
 
-        logger.info("Loading embedding model: {}", _embed_resolved_model)
-        _embed_model = SentenceTransformer(
-            _embed_resolved_model,
-            local_files_only=settings.HF_LOCAL_FILES_ONLY,
-        )
-        _embed_error = ""
-        logger.info("Embedding model ready.")
-        return _embed_model
-    except Exception as exc:
-        _embed_error = (
-            f"{exc!r}. Put the embedding model in ./models/embeddings/ or set "
-            "EMBED_MODEL to a local folder."
-        )
-        logger.warning("Embedding model unavailable; vector indexing disabled: {}", _embed_error)
-        return None
+        _offline_env()
+        _embed_resolved_model = _resolve_model_ref(settings.EMBED_MODEL, "embeddings")
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            logger.info("Loading embedding model: {}", _embed_resolved_model)
+            _embed_model = SentenceTransformer(
+                _embed_resolved_model,
+                local_files_only=settings.HF_LOCAL_FILES_ONLY,
+            )
+            _embed_error = ""
+            logger.info("Embedding model ready.")
+            return _embed_model
+        except Exception as exc:
+            _embed_error = (
+                f"{exc!r}. Put the embedding model in ./models/embeddings/ or set "
+                "EMBED_MODEL to a local folder."
+            )
+            logger.warning("Embedding model unavailable; vector indexing disabled: {}", _embed_error)
+            return None
 
 
 def get_embed_status() -> dict[str, Any]:
@@ -98,38 +107,70 @@ def _load() -> bool:
     """
     global _index, _meta, _embed_model  # noqa: PLW0603
 
-    index_path = settings.FAISS_INDEX_PATH
-    meta_path = settings.FAISS_META_PATH
+    # Fast path: already loaded — no lock needed.
+    if _index is not None and _embed_model is not None:
+        return True
 
-    if not os.path.exists(index_path):
-        logger.warning(
-            "FAISS index not found at {}. Topic retrieval disabled. "
-            "Run 'python data/scripts/build_index.py' to build it.",
-            index_path,
-        )
-        return False
+    with _store_lock:
+        # Re-check after acquiring the lock (double-checked locking pattern).
+        if _index is not None and _embed_model is not None:
+            return True
 
-    if not os.path.exists(meta_path):
-        logger.warning(
-            "FAISS metadata not found at {}. Topic retrieval disabled.",
-            meta_path,
-        )
-        return False
+        index_path = settings.FAISS_INDEX_PATH
+        meta_path = settings.FAISS_META_PATH
 
-    logger.info("Loading FAISS index from {}", index_path)
-    import faiss
-    _index = faiss.read_index(index_path)
+        if not os.path.exists(index_path):
+            logger.warning(
+                "FAISS index not found at {}. Topic retrieval disabled. "
+                "Run 'python data/scripts/build_index.py' to build it.",
+                index_path,
+            )
+            return False
 
-    with open(meta_path, encoding="utf-8") as fh:
-        _meta = json.load(fh)
+        if not os.path.exists(meta_path):
+            logger.warning(
+                "FAISS metadata not found at {}. Topic retrieval disabled.",
+                meta_path,
+            )
+            return False
 
-    logger.info("Loaded {} passages from metadata.", len(_meta))
+        logger.info("Loading FAISS index from {}", index_path)
+        import faiss
+        _index = faiss.read_index(index_path)
 
-    _embed_model = _load_embed_model()
-    if _embed_model is None:
-        return False
+        with open(meta_path, encoding="utf-8") as fh:
+            _meta = json.load(fh)
 
-    return True
+        logger.info("Loaded {} passages from metadata.", len(_meta))
+
+        # _load_embed_model() acquires _store_lock itself; call the inner logic
+        # directly here since we already hold the lock.
+        _offline_env()
+        _embed_resolved_model_local = _resolve_model_ref(settings.EMBED_MODEL, "embeddings")
+        global _embed_error, _embed_resolved_model  # noqa: PLW0603
+        _embed_resolved_model = _embed_resolved_model_local
+        if _embed_model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+
+                logger.info("Loading embedding model: {}", _embed_resolved_model)
+                _embed_model = SentenceTransformer(
+                    _embed_resolved_model,
+                    local_files_only=settings.HF_LOCAL_FILES_ONLY,
+                )
+                _embed_error = ""
+                logger.info("Embedding model ready.")
+            except Exception as exc:
+                _embed_error = (
+                    f"{exc!r}. Put the embedding model in ./models/embeddings/ or set "
+                    "EMBED_MODEL to a local folder."
+                )
+                logger.warning("Embedding model unavailable; vector indexing disabled: {}", _embed_error)
+
+        if _embed_model is None:
+            return False
+
+        return True
 
 
 # ──────────────────────────────────────────────────────────────
@@ -213,6 +254,8 @@ def add_passages(passages: list[dict]) -> int:
     if not passages:
         return 0
 
+    # Encode outside the lock — CPU-bound but read-only on the model.
+    # Ensure model is loaded first (acquires lock internally).
     if _embed_model is None:
         _embed_model = _load_embed_model()
         if _embed_model is None:
@@ -223,40 +266,41 @@ def add_passages(passages: list[dict]) -> int:
     import numpy as np
     embeddings = _embed_model.encode(texts, convert_to_numpy=True).astype(np.float32)
 
-    if _index is None:
-        import faiss
-        dim = embeddings.shape[1]
-        _index = faiss.IndexFlatL2(dim)
-        _meta = []
+    with _store_lock:
+        if _index is None:
+            import faiss
+            dim = embeddings.shape[1]
+            _index = faiss.IndexFlatL2(dim)
+            _meta = []
 
-    _index.add(embeddings)
+        _index.add(embeddings)
 
-    import uuid as _uuid
-    if _meta is None:
-        _meta = []
-    for p in passages:
-        _meta.append({
-            "id": str(_uuid.uuid4()),
-            "text": p["text"],
-            "source": p.get("source", "upload"),
-            "grade_hint": p.get("grade_hint", "all"),
-            "student_id": p.get("student_id"),
-        })
+        import uuid as _uuid
+        if _meta is None:
+            _meta = []
+        for p in passages:
+            _meta.append({
+                "id": str(_uuid.uuid4()),
+                "text": p["text"],
+                "source": p.get("source", "upload"),
+                "grade_hint": p.get("grade_hint", "all"),
+                "student_id": p.get("student_id"),
+            })
 
-    import faiss as _faiss, json as _json, os as _os, tempfile as _tf
-    index_dir = _os.path.dirname(settings.FAISS_INDEX_PATH) or "."
-    _os.makedirs(index_dir, exist_ok=True)
-    _faiss.write_index(_index, settings.FAISS_INDEX_PATH)
-    with _tf.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False,
-        dir=_os.path.dirname(settings.FAISS_META_PATH) or ".",
-    ) as tmp:
-        _json.dump(_meta, tmp, ensure_ascii=False)
-        tmp_path = tmp.name
-    _os.replace(tmp_path, settings.FAISS_META_PATH)
+        import faiss as _faiss, json as _json, os as _os, tempfile as _tf
+        index_dir = _os.path.dirname(settings.FAISS_INDEX_PATH) or "."
+        _os.makedirs(index_dir, exist_ok=True)
+        _faiss.write_index(_index, settings.FAISS_INDEX_PATH)
+        with _tf.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False,
+            dir=_os.path.dirname(settings.FAISS_META_PATH) or ".",
+        ) as tmp:
+            _json.dump(_meta, tmp, ensure_ascii=False)
+            tmp_path = tmp.name
+        _os.replace(tmp_path, settings.FAISS_META_PATH)
 
-    logger.info("add_passages: added {} passages, index total={}", len(passages), _index.ntotal)
-    return len(passages)
+        logger.info("add_passages: added {} passages, index total={}", len(passages), _index.ntotal)
+        return len(passages)
 
 
 def reset_index() -> None:

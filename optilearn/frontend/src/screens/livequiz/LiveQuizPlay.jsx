@@ -199,12 +199,12 @@ export default function LiveQuizPlay() {
     } catch (_) {}
   }
 
-  async function finalizeParticipation() {
+  const finalizeParticipation = useCallback(async () => {
     if (!participant?.participant_id) return
     try {
       await completeLiveParticipantGame(gameId, participant.participant_id)
     } catch (_) {}
-  }
+  }, [participant, gameId])
 
   const handleAnswer = useCallback(async (choiceIndex) => {
     if (answered || answerRevealed || !participant) return
@@ -227,7 +227,13 @@ export default function LiveQuizPlay() {
     if (phase === 'result') {
       finalizeParticipation()
     }
-  }, [phase])
+  }, [phase, finalizeParticipation])
+
+  useEffect(() => {
+    return () => {
+      sessionStorage.removeItem(`lq_participant_${gameId}`)
+    }
+  }, [gameId])
 
   // Show kicked modal
   if (isKicked) {
