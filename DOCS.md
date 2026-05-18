@@ -1,6 +1,6 @@
 # OptiLearn Architecture
 
-**Version 1.0.0** · Python 3.11 · FastAPI · React 18 · SQLite · Ollama · FAISS
+**Version 1.1.0** · Python 3.11 · FastAPI · React 18 · SQLite · Ollama · FAISS · Electron
 
 ---
 
@@ -24,6 +24,10 @@ Every architectural decision flows from that constraint: **offline first, zero e
 
 ```mermaid
 graph TB
+    subgraph Desktop["Desktop App  (optional Electron wrapper)"]
+        EL["Electron main.js\nSetup wizard · server spawn · tray"]
+    end
+
     subgraph Laptop["Teacher Laptop"]
         subgraph Server["OptiLearn Server  :8000 / :8443"]
             SPA["React SPA\nVite + PWA\ndist/"]
@@ -48,6 +52,7 @@ graph TB
         BP["Beyond Presence\navatar"]
     end
 
+    EL -->|spawns| Server
     S1 & S2 & S3 -->|HTTP :8000| API
     S1 & S2 & S3 -->|HTTPS :8443 mic| API
     Net -.->|captive redirect| S1
@@ -57,6 +62,53 @@ graph TB
 ```
 
 The React SPA is built once (`npm run build`) and served as static files by the same FastAPI process. There is no separate frontend server in production. The single Uvicorn process handles everything.
+
+The **desktop app** (`desktop/`) is a pure wrapper — Electron spawns the same FastAPI server as a child process and opens a native window pointed at `localhost:8000`. The web app code is untouched.
+
+---
+
+## Desktop App Layer
+
+```
+desktop/
+├── electron/
+│   ├── main.js           Main process. Owns the full app lifecycle:
+│   │                       1. First launch → show setup wizard window
+│   │                       2. Subsequent launches → show loading screen
+│   │                       3. Spawn FastAPI server (bundled Python runtime)
+│   │                       4. Poll :8000 until ready, then open main window
+│   │                       5. Mac: hide to tray on close; Windows: quit
+│   ├── setup.html        First-launch setup wizard (pure HTML/CSS/JS).
+│   │                       Step 1: API keys (Gemini, Beyond Presence) or offline toggle
+│   │                       Step 2: Ollama install check + download link
+│   │                       Step 3: AI model pull with live progress bar
+│   ├── preload.js        Minimal context bridge for the main app window.
+│   └── preload-setup.js  IPC bridge exposed to setup.html:
+│                           saveEnv · checkOllama · openOllamaDownload
+│                           pullModel · launchApp · onPullProgress
+└── scripts/
+    ├── build.sh          Builds frontend → bundles Python → runs electron-builder.
+    │                     Uses /usr/bin/python3 (system Python) for dmg-builder
+    │                     to avoid Homebrew libexpat ABI mismatch.
+    ├── bundle_python.py  Copies .venv/bin + .venv/lib into desktop/python-runtime/.
+    └── dev.sh            Dev mode: uses optilearn/.venv directly, no bundling.
+```
+
+**Setup wizard flow**
+
+```
+First launch?
+  YES → setup.html opens as a separate BrowserWindow
+        Step 1: saves API keys to $userData/.env via IPC
+        Step 2: pings localhost:11434 — offers ollama.com download if missing
+        Step 3: streams `ollama pull <model>` output to progress bar
+        Done  → writes $userData/.setup-done → calls launchApp()
+  NO  → loading screen → FastAPI spawn → main window
+```
+
+**ENV_FILE handoff**
+
+The server is spawned with `ENV_FILE=$userData/.env` in its environment. `config.py` reads this variable at import time and passes it to pydantic-settings as the `env_file` path. Web/dev mode leaves `ENV_FILE` unset so pydantic-settings falls back to `.env` in cwd — identical behaviour to before.
 
 ---
 
@@ -84,13 +136,14 @@ optilearn/app/
 │       ├── teacher_quiz.py Quiz builder (teacher) and quiz list (student). Two routers in one file.
 │       ├── materials.py    Material upload, listing, FAISS reindex trigger.
 │       ├── sessions.py     Chat session lifecycle.
-│       ├── persona.py      Beyond Presence avatar chat.
+│       ├── persona.py      Beyond Presence avatar chat. Returns bey.chat/{agent_id} URL directly.
 │       ├── dashboard.py    Aggregated teacher analytics.
 │       ├── network.py      Hotspot IP detection, QR code, captive portal status.
-│       └── settings.py     Network mode toggle (offline / auto / online).
+│       └── settings.py     Network mode toggle + API key management (GET/POST /api/settings/api-keys).
 │
 ├── core/
-│   ├── config.py         Single source of truth for all settings. Pydantic BaseSettings reads from .env.
+│   ├── config.py         Single source of truth for all settings. Reads ENV_FILE env var for desktop mode,
+│   │                     falls back to .env in cwd for web/dev mode.
 │   ├── prompts.py        Builds the system prompt per student. Injects mastery data here.
 │   ├── languages.py      Supported language list (ISO 639-1 codes + display names).
 │   ├── grades.py         Grade level normalisation helpers.
@@ -357,6 +410,8 @@ erDiagram
     teachers {
         TEXT id PK
         TEXT username
+        TEXT display_name
+        TEXT email
         TEXT password_hash
         INTEGER is_admin
     }
@@ -456,8 +511,7 @@ flowchart TD
     UV(["uvicorn app.main:app"]) --> LS["lifespan()"]
 
     LS --> A["load_user_network_settings()\nreads data/user_settings.json"]
-    A --> B["_load_agent_cache()\npersona agent"]
-    B --> C["_ensure_noto_fonts()\n10 script TTFs for PDF export\nskipped if already present"]
+    A --> C["_ensure_noto_fonts()\n10 script TTFs for PDF export\nskipped if already present"]
     C --> D["_ensure_ssl_cert()\nself-signed cert covering all LAN IPs\nskipped if already present"]
     D --> E["db.init_db()\nCREATE TABLE IF NOT EXISTS × 11"]
     E --> F["start_captive_portal(ip)\nDNS :53  needs root/admin"]
@@ -521,6 +575,9 @@ Once a `StreamingResponse` has started, HTTP status codes are no longer availabl
 **Network mode is runtime-configurable**  
 `USE_LOCAL_OLLAMA=true` in `.env` sets the default. The teacher can toggle between `offline / auto / online` at runtime via `POST /api/settings/network-mode` without restarting the server. The setting persists to `data/user_settings.json`. Read `model_client.load_user_network_settings()` to understand the precedence logic.
 
+**API keys can be updated live**  
+`POST /api/settings/api-keys` writes new values to the active `.env` file and applies them immediately to the `settings` singleton — no server restart needed. In desktop mode the active `.env` is in the OS user data directory (pointed to by `ENV_FILE`); in web mode it is `optilearn/.env`.
+
 **HTTPS is required for microphone access**  
 Browser `MediaRecorder` API requires a secure context. The server auto-generates a self-signed certificate on first startup (`_ensure_ssl_cert()`) covering all detected LAN IPs. Students must accept the certificate warning once. Voice features do not work over plain HTTP even on the local network.
 
@@ -543,3 +600,7 @@ Browser `MediaRecorder` API requires a secure context. The server auto-generates
 | Add a new agent tool | `app/tools/agent_tools.py` — add to `TOOL_SCHEMAS` and implement function |
 | Understand the offline / online switching | `app/services/model_client.py` — `load_user_network_settings()` and `check_connectivity()` |
 | Debug a slow response | `GET /api/health` → `scheduler.lanes` — check which lane is saturated |
+| Change the desktop first-launch wizard | `desktop/electron/setup.html` + `desktop/electron/main.js` (IPC handlers) |
+| Change how ENV_FILE is resolved | `app/core/config.py` — `_env_file` at module top |
+| Reset a teacher password or wipe the DB | `optilearn/scripts/reset-admin.sh` |
+| Update API keys without restarting | `POST /api/settings/api-keys` or `desktop/electron/setup.html` step 1 |
