@@ -6,15 +6,22 @@ Each persona uses Gemini 2.0 Flash as the LLM backend via BEY's external API int
 
 Flow:
   GET  /api/persona/list   — list the 6 available personas
-  POST /api/persona/call   — return the hosted call URL for the chosen persona
+  POST /api/persona/call   — create a BEY call session, return the call URL (no login required)
 """
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
 from app.core.config import settings
+
+BEY_BASE = "https://api.bey.dev/v1"
+
+
+def _bey_headers() -> dict[str, str]:
+    return {"x-api-key": settings.BEY_API_KEY, "Content-Type": "application/json"}
 
 router = APIRouter(prefix="/api/persona", tags=["persona"])
 
@@ -119,8 +126,8 @@ async def list_personas() -> dict:
 @router.post("/call", response_model=StartCallResponse)
 async def start_persona_call(body: StartCallRequest) -> StartCallResponse:
     """
-    Return the hosted BEY call URL for the chosen persona.
-    Agents are pre-created — no API call needed at runtime.
+    Create a BEY call session for the chosen persona.
+    Uses POST /v1/calls to get a session-specific call ID — no login required.
     """
     if not settings.BEY_API_KEY:
         raise HTTPException(status_code=503, detail="Persona chat is only available in online mode.")
@@ -130,9 +137,27 @@ async def start_persona_call(body: StartCallRequest) -> StartCallResponse:
         raise HTTPException(status_code=404, detail=f"Persona '{body.persona_id}' not found.")
 
     agent_id = persona["agent_id"]
-    call_url = f"https://bey.chat/{agent_id}"
 
-    logger.info("BEY call URL: persona={} url={}", body.persona_id, call_url)
+    # Create a session-specific call — bey.chat/{call_id} is public, no login needed
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{BEY_BASE}/calls",
+                headers=_bey_headers(),
+                json={"agent_id": agent_id, "livekit_username": body.student_name},
+            )
+        if resp.status_code not in (200, 201):
+            logger.error("BEY create call failed {}: {}", resp.status_code, resp.text)
+            raise HTTPException(status_code=502, detail="Could not start persona call.")
+        call_id = resp.json()["id"]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("BEY call error: {}", exc)
+        raise HTTPException(status_code=502, detail="Could not reach persona service.")
+
+    call_url = f"https://bey.chat/{call_id}"
+    logger.info("BEY call created: persona={} call_id={}", body.persona_id, call_id)
 
     return StartCallResponse(
         agent_id=agent_id,
