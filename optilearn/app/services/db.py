@@ -765,6 +765,24 @@ async def soft_delete_teacher(teacher_id: str) -> None:
         await db.commit()
 
 
+async def close_stale_live_classes() -> int:
+    """Mark any live_classes still 'active' or 'paused' as 'ended'.
+
+    Called once at server startup — if the process was killed mid-session the DB
+    rows are left open, which makes students see phantom active sessions.
+    Returns the number of rows closed.
+    """
+    now = datetime.utcnow().isoformat() + "Z"
+    async with _get_db() as db:
+        cursor = await db.execute(
+            "UPDATE live_classes SET status='ended', ended_at=? "
+            "WHERE status IN ('active','paused')",
+            (now,),
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
 async def purge_expired_sessions() -> int:
     """Delete all expired teacher sessions. Returns the number of rows deleted."""
     now = datetime.utcnow().isoformat() + "Z"
