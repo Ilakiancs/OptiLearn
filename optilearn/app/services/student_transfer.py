@@ -257,11 +257,12 @@ async def import_zip_bytes(archive_bytes: bytes, password: str, target_student_i
         for result in quiz_results_data:
             await conn.execute("""
                 INSERT OR REPLACE INTO quiz_results
-                (id, student_id, session_id, topic, question_text, student_answer, correct, score, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, student_id, quiz_id, session_id, topic, question_text, student_answer, correct, score, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 result.get("id", uuid.uuid4().hex),
                 dest_id,
+                result.get("quiz_id"),
                 result.get("session_id"),
                 result.get("topic"),
                 result.get("question_text"),
