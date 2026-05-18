@@ -286,6 +286,11 @@ function startServer() {
   env.SSL_CERT_PATH = path.join(USER_DATA, 'ssl', 'cert.pem')
   env.SSL_KEY_PATH = path.join(USER_DATA, 'ssl', 'key.pem')
 
+  // On Windows the piper/whisper binaries have .exe extensions.
+  const binExt = process.platform === 'win32' ? '.exe' : ''
+  env.PIPER_BINARY = path.join(OPTILEARN_DIR, 'bin', `piper${binExt}`)
+  env.WHISPER_BINARY = path.join(OPTILEARN_DIR, 'bin', `whisper${binExt}`)
+
   // Copy .env from optilearn source only if we have no user .env yet
   const envSrc = path.join(OPTILEARN_DIR, '.env')
   if (fs.existsSync(envSrc) && !fs.existsSync(ENV_FILE)) {
