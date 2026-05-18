@@ -20,11 +20,11 @@ from unsloth.chat_templates import get_chat_template
 HF_TOKEN = os.environ["HF_TOKEN"]
 HF_USERNAME = os.environ["HF_USERNAME"]
 
-DATASET_PATH = "training/dataset/combined_train.jsonl"
-OUTPUT_DIR = "training/outputs/polytutor-weights"
-LORA_DIR = "training/outputs/polytutor-lora"
-CHECKPOINT_DIR = "training/outputs/checkpoints"
-LOG_PATH = "training/outputs/training_log.jsonl"
+DATASET_PATH = "finetuning/dataset/combined_train.jsonl"
+OUTPUT_DIR = "finetuning/outputs/polytutor-weights"
+LORA_DIR = "finetuning/outputs/polytutor-lora"
+CHECKPOINT_DIR = "finetuning/outputs/checkpoints"
+LOG_PATH = "finetuning/outputs/training_log.jsonl"
 
 Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 Path(LORA_DIR).mkdir(parents=True, exist_ok=True)

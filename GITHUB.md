@@ -240,7 +240,7 @@ ollama pull gemma4:e2b
 To use the fine-tuned model:
 
 ```bash
-ollama create optilearn-gemma4 -f Modelfile
+ollama create optilearn-gemma4 -f finetuning/Modelfile
 ```
 
 Verify the model is running:
@@ -423,11 +423,13 @@ optilearn/
     ssl/                    Auto-generated TLS cert and key
     whisper-models/         Offline ASR model
     models/embeddings/      Multilingual sentence embedding model
-  training/
+  finetuning/
     01_prepare_dataset.py   Synthetic dataset generation (11,500+ examples)
     02_finetune.py          Unsloth LoRA fine-tuning on Gemma 4
     03_evaluate.py          Evaluation on held-out quiz questions
-    04_export.py            Export to Ollama Modelfile format
+    04_export.py            Export to GGUF + register with Ollama
+    Modelfile               Ollama model definition (fine-tuned)
+    real-data/              Real SFT data (2,169 examples)
   scripts/
     setup.sh                One-shot installer
     start.sh                Start servers
@@ -531,7 +533,7 @@ Fine-tuning (02_finetune.py): Loads Gemma 4 E2B base from Unsloth. Applies LoRA 
 
 Evaluation (03_evaluate.py): Tests on a held-out set of curriculum quiz questions. Records accuracy, refusal rate, and language accuracy on multilingual test inputs.
 
-Export (04_export.py): Converts weights to GGUF format for Ollama. Writes Modelfile with the OptiLearn system prompt and PARAMETER settings.
+Export (04_export.py): Converts weights to GGUF format for Ollama. Uses finetuning/Modelfile with the OptiLearn system prompt and PARAMETER settings.
 
 
 ## Telemetry

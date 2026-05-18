@@ -1,7 +1,7 @@
 """
 01_prepare_dataset.py
 Builds the PolyTutor training dataset from three synthetic sources.
-Outputs JSONL files to training/dataset/.
+Outputs JSONL files to finetuning/dataset/.
 Deterministic: seeded with 42.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 random.seed(42)
 
-DATASET_DIR = Path("training/dataset")
+DATASET_DIR = Path("finetuning/dataset")
 DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
 SYSTEM_PROMPT = (

@@ -2,7 +2,7 @@
 03_evaluate.py
 Benchmark base Gemma 4 9B vs fine-tuned PolyTutor on 60 held-out eval examples.
 Scores on: Socratic quality, language compliance, trauma-aware tone.
-Outputs training/outputs/benchmark_report.md.
+Outputs finetuning/outputs/benchmark_report.md.
 """
 
 import json
@@ -19,9 +19,9 @@ from unsloth.chat_templates import get_chat_template
 
 HF_USERNAME = os.environ.get("HF_USERNAME", "your-hf-username")
 
-EVAL_PATH = "training/dataset/eval_set.jsonl"
-WEIGHTS_PATH = "training/outputs/polytutor-weights"
-REPORT_PATH = "training/outputs/benchmark_report.md"
+EVAL_PATH = "finetuning/dataset/eval_set.jsonl"
+WEIGHTS_PATH = "finetuning/outputs/polytutor-weights"
+REPORT_PATH = "finetuning/outputs/benchmark_report.md"
 
 MAX_NEW_TOKENS = 256
 TEMPERATURE = 0.7
@@ -319,7 +319,7 @@ def main():
     print(f"Loaded {len(eval_examples)} eval examples.")
 
     training_count = 0
-    train_path = "training/dataset/combined_train.jsonl"
+    train_path = "finetuning/dataset/combined_train.jsonl"
     if Path(train_path).exists():
         with open(train_path) as f:
             training_count = sum(1 for line in f if line.strip())
@@ -377,7 +377,7 @@ def main():
 
     # ── Report ──
     print("\nGenerating benchmark report...")
-    Path("training/outputs").mkdir(parents=True, exist_ok=True)
+    Path("finetuning/outputs").mkdir(parents=True, exist_ok=True)
     report = build_report(results, training_count)
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
         f.write(report)

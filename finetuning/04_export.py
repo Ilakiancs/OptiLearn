@@ -9,13 +9,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-WEIGHTS_PATH = "training/outputs/polytutor-weights"
-GGUF_PATH = "training/outputs/polytutor-gemma4-q4_K_M.gguf"
+WEIGHTS_PATH = "finetuning/outputs/polytutor-weights"
+GGUF_PATH = "finetuning/outputs/polytutor-gemma4-q4_K_M.gguf"
 MODELS_DIR = "models"
 MODELS_GGUF = f"{MODELS_DIR}/polytutor-gemma4-q4_K_M.gguf"
 LLAMA_CPP_SCRIPT = "llama.cpp/convert_hf_to_gguf.py"
 OLLAMA_MODEL_NAME = "polytutor-gemma4"
-MODELFILE_PATH = "Modelfile"
+MODELFILE_PATH = "finetuning/Modelfile"
 
 
 def check_llama_cpp():

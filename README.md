@@ -230,7 +230,7 @@ ollama pull gemma4:e4b
 
 > If you have a fine-tuned OptiLearn model (see [Model Fine-Tuning](#model-fine-tuning)):
 > ```bash
-> ollama create optilearn-gemma4 -f Modelfile
+> ollama create optilearn-gemma4 -f finetuning/Modelfile
 > ```
 
 ### Step 3 — Configure .env for offline mode
@@ -366,13 +366,14 @@ Optilearn/
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── .env                            ← Your config (git-ignored)
-├── training/                           ← Model fine-tuning pipeline
+├── finetuning/                         ← Model fine-tuning pipeline
 │   ├── 01_prepare_dataset.py           ← Build 11,500-example training set
-│   ├── 02_finetune.py                  ← QLoRA fine-tune on Gemma 4 E4B (Unsloth)
+│   ├── 02_finetune.py                  ← QLoRA fine-tune on Gemma 4 9B (Unsloth)
 │   ├── 03_evaluate.py                  ← Benchmark base vs fine-tuned
 │   ├── 04_export.py                    ← Export to GGUF + register with Ollama
-│   └── README_training.md              ← Training pipeline guide
-├── Modelfile                           ← Ollama model definition (fine-tuned)
+│   ├── Modelfile                       ← Ollama model definition (fine-tuned)
+│   ├── real-data/                      ← Real SFT training data (2,169 examples)
+│   └── README.md                       ← Training pipeline guide
 ├── CLAUDE.md                           ← Build plan (phases 0–7)
 └── README.md                           ← This file
 ```
@@ -504,7 +505,7 @@ New teacher-uploaded materials (via the dashboard) are indexed automatically wit
 
 ## Model Fine-Tuning
 
-The `training/` directory contains a complete Unsloth QLoRA pipeline for fine-tuning Gemma 4 into a trauma-aware multilingual tutor.
+The `finetuning/` directory contains a complete Unsloth QLoRA pipeline for fine-tuning Gemma 4 into a trauma-aware multilingual tutor.
 
 ### Training Dataset
 
@@ -518,7 +519,7 @@ The `training/` directory contains a complete Unsloth QLoRA pipeline for fine-tu
 
 ### Running on Kaggle (recommended — ~$13 on A100)
 
-1. Upload the `training/` directory to a new Kaggle notebook
+1. Upload the `finetuning/` directory to a new Kaggle notebook
 2. Enable GPU (Accelerator → A100)
 3. Add two Kaggle secrets (Add-ons → Secrets):
    - `HF_TOKEN` — HuggingFace write token
@@ -536,15 +537,15 @@ What the training pipeline does:
 After training completes:
 
 ```bash
-# 1. Download training/outputs/optilearn-weights/ from Kaggle output panel
+# 1. Download finetuning/outputs/polytutor-weights/ from Kaggle output panel
 # 2. Clone llama.cpp for GGUF conversion
 git clone https://github.com/ggerganov/llama.cpp
 
-# 3. Run the export script
-python training/04_export.py
+# 3. Run the export script (from repo root)
+python finetuning/04_export.py
 
 # 4. Register the model with Ollama
-ollama create optilearn-gemma4 -f Modelfile
+ollama create polytutor-gemma4 -f finetuning/Modelfile
 
 # 5. Verify registration
 ollama list
