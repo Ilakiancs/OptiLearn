@@ -43,23 +43,43 @@ echo "▶ Installing Electron dependencies..."
 npm install
 echo "  ✓ node_modules ready"
 
-# ── Step 4: Copy icon assets ──────────────────────────────────────────────────
+# ── Step 4: Copy and generate icon assets ─────────────────────────────────────
 echo ""
 echo "▶ Copying icons..."
 if [ -f "$OPTILEARN_DIR/optilearn.ico" ]; then
     cp "$OPTILEARN_DIR/optilearn.ico" "$DESKTOP_DIR/assets/icon.ico"
 fi
-# Generate PNG from ico for Mac/Linux tray (requires imagemagick if available)
+
+# Generate PNG using Pillow (already in the venv — no extra dep needed)
+_VENV_PY="$OPTILEARN_DIR/.venv/bin/python3"
+_ICO="$DESKTOP_DIR/assets/icon.ico"
+_PNG="$DESKTOP_DIR/assets/icon.png"
+_TRAY="$DESKTOP_DIR/assets/icon-tray.png"
+if [ -f "$_ICO" ] && [ ! -f "$_PNG" ]; then
+    "$_VENV_PY" -c "
+from PIL import Image
+img = Image.open('$_ICO')
+img.save('$_PNG')
+img.resize((22,22), Image.LANCZOS).save('$_TRAY')
+print('  Icons generated via Pillow')
+" 2>/dev/null || true
+fi
+
+# Try imagemagick as a fallback/supplement
 if command -v convert &>/dev/null && [ -f "$DESKTOP_DIR/assets/icon.ico" ]; then
-    convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize 512x512 "$DESKTOP_DIR/assets/icon.png" 2>/dev/null || true
-    convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize 22x22 "$DESKTOP_DIR/assets/icon-tray.png" 2>/dev/null || true
-    # macOS icns (requires iconutil — macOS only)
-    if command -v iconutil &>/dev/null; then
+    [ ! -f "$DESKTOP_DIR/assets/icon.png" ] && \
+        convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize 512x512 "$DESKTOP_DIR/assets/icon.png" 2>/dev/null || true
+    [ ! -f "$DESKTOP_DIR/assets/icon-tray.png" ] && \
+        convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize 22x22 "$DESKTOP_DIR/assets/icon-tray.png" 2>/dev/null || true
+    # macOS icns via iconutil
+    if command -v iconutil &>/dev/null && [ ! -f "$DESKTOP_DIR/assets/icon.icns" ]; then
         ICONSET="$DESKTOP_DIR/assets/icon.iconset"
         mkdir -p "$ICONSET"
         for SIZE in 16 32 64 128 256 512; do
-            convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize "${SIZE}x${SIZE}" "$ICONSET/icon_${SIZE}x${SIZE}.png" 2>/dev/null || true
-            convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize "$((SIZE*2))x$((SIZE*2))" "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" 2>/dev/null || true
+            convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize "${SIZE}x${SIZE}" \
+                "$ICONSET/icon_${SIZE}x${SIZE}.png" 2>/dev/null || true
+            convert "$DESKTOP_DIR/assets/icon.ico[0]" -resize "$((SIZE*2))x$((SIZE*2))" \
+                "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" 2>/dev/null || true
         done
         iconutil -c icns "$ICONSET" -o "$DESKTOP_DIR/assets/icon.icns" 2>/dev/null || true
         rm -rf "$ICONSET"
@@ -67,7 +87,22 @@ if command -v convert &>/dev/null && [ -f "$DESKTOP_DIR/assets/icon.ico" ]; then
 fi
 echo "  ✓ Icons ready"
 
-# ── Step 5: Run electron-builder ──────────────────────────────────────────────
+# ── Step 5: Ensure 'python' is on PATH (electron-builder needs it) ────────────
+# On macOS/Linux, 'python' may not exist — only 'python3'. Create a temporary
+# symlink in a local bin dir and prepend it to PATH for the build step.
+_TMP_BIN="$DESKTOP_DIR/.tmp-bin"
+mkdir -p "$_TMP_BIN"
+_PYTHON3="$(command -v python3 2>/dev/null || true)"
+if [ -n "$_PYTHON3" ] && [ ! -f "$_TMP_BIN/python" ]; then
+    ln -sf "$_PYTHON3" "$_TMP_BIN/python"
+fi
+export PATH="$_TMP_BIN:$PATH"
+export PYTHON_PATH="${_PYTHON3:-python3}"
+
+# Cleanup trap — remove temp bin regardless of success/failure
+trap 'rm -rf "$_TMP_BIN"' EXIT
+
+# ── Step 6: Run electron-builder ──────────────────────────────────────────────
 echo ""
 TARGET="${1:---mac}"
 case "$TARGET" in

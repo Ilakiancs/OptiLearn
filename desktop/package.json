@@ -9,6 +9,7 @@
     "build:mac": "electron-builder --mac",
     "build:all": "electron-builder --win --mac"
   },
+  "author": "OptiLearn",
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^25.0.0"
@@ -60,8 +61,8 @@
       "requestedExecutionLevel": "requireAdministrator"
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
-      "icon": "assets/icon.icns",
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "icon": "assets/icon.png",
       "category": "public.app-category.education",
       "hardenedRuntime": false
     },
@@ -77,7 +78,7 @@
     },
     "dmg": {
       "title": "OptiLearn Installer",
-      "icon": "assets/icon.icns",
+      "icon": "assets/icon.png",
       "contents": [
         { "x": 130, "y": 220 },
         { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
