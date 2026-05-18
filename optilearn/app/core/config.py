@@ -4,8 +4,11 @@ app/core/config.py — centralised configuration via pydantic-settings BaseSetti
 All other files import `settings` from here. No file may read os.environ directly.
 """
 import os
+import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_IS_WINDOWS = sys.platform == "win32"
 
 # Desktop app passes ENV_FILE pointing to the user data dir. Web/dev mode uses
 # the default .env next to the project root.
@@ -60,10 +63,10 @@ class Settings(BaseSettings):
     BEY_API_KEY: str = ""
 
     # Whisper / TTS (Phase 2–3, not used yet)
-    WHISPER_BINARY: str = "./bin/whisper"
+    WHISPER_BINARY: str = "./bin/whisper.exe" if _IS_WINDOWS else "./bin/whisper"
     WHISPER_MODEL: str = "./data/whisper-models/ggml-base.bin"
     WHISPER_HF_MODEL: str = "openai/whisper-tiny"
-    PIPER_BINARY: str = "./bin/piper"
+    PIPER_BINARY: str = "./bin/piper.exe" if _IS_WINDOWS else "./bin/piper"
     VOICES_DIR: str = "./data/voices"
 
     # Server
