@@ -415,10 +415,10 @@ export default function HomeScreen() {
                   fontSize: '1rem', fontWeight: 600, textAlign: 'center', letterSpacing: '4px',
                 }}
               />
-              {importModal.error && (
+              {error && (
                 <div style={{ background: '#FFF3E0', color: '#FF9800', padding: 12, borderRadius: 8, display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.85rem' }}>
                   <WarningCircle size={16} weight="fill" style={{ flexShrink: 0, marginTop: 2 }} />
-                  <span>{importModal.error}</span>
+                  <span>{error}</span>
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10 }}>

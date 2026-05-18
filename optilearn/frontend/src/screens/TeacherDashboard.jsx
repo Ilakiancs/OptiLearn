@@ -80,36 +80,9 @@ function relativeTime(isoString) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function renderInline(text) {
-  const parts = text.split(/(\*\*.*?\*\*)/g)
-  return parts.map((part, i) =>
-    part.startsWith('**') && part.endsWith('**')
-      ? <strong key={i}>{part.slice(2, -2)}</strong>
-      : part
-  )
-}
-
 function renderMarkdown(text) {
   if (!text) return null
   return <FormattedText text={text} compact fontSize={13} headingSize={15} color="var(--color-text)" />
-  return text.split('\n').map((line, i) => {
-    if (line.startsWith('## ')) {
-      return <div key={i} style={{ fontWeight: 700, fontSize: '0.93rem', margin: '10px 0 3px', color: 'var(--color-text)' }}>{line.slice(3)}</div>
-    }
-    if (line.startsWith('### ')) {
-      return <div key={i} style={{ fontWeight: 600, fontSize: '0.88rem', margin: '7px 0 2px' }}>{line.slice(4)}</div>
-    }
-    if (line.startsWith('- ') || line.startsWith('* ')) {
-      return (
-        <div key={i} style={{ paddingLeft: 12, marginBottom: 2, display: 'flex', gap: 6 }}>
-          <span style={{ flexShrink: 0 }}>•</span>
-          <span>{renderInline(line.slice(2))}</span>
-        </div>
-      )
-    }
-    if (line.trim() === '') return <div key={i} style={{ height: 5 }} />
-    return <div key={i}>{renderInline(line)}</div>
-  })
 }
 
 // ── Alert helpers ────────────────────────────────────────────────
