@@ -60,6 +60,24 @@ psutil>=5.9.0
 qrcode[pil]>=7.4
 zeroconf>=0.131.0
 
+# OCR runtime deps (paddleocr itself has a PyMuPDF<1.21 conflict — install separately)
+# Full OCR install: pip install --no-deps paddleocr==2.7.0.3
+# See requirements-ocr.txt for the complete step-by-step.
+paddlepaddle>=2.6.0    # CPU build; swap for paddlepaddle-gpu if GPU available
+shapely>=2.0.0
+scikit-image>=0.21.0
+imgaug>=0.4.0
+pyclipper>=1.3.0
+lmdb>=1.4.0
+rapidfuzz>=3.0.0
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+lxml>=4.9.0
+attrdict>=2.0.1
+fire>=0.5.0
+python-docx>=1.0.0
+beautifulsoup4>=4.12.0
+
 # PDF extraction (material upload)
 PyMuPDF>=1.24.0
 

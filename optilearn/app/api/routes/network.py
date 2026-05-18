@@ -28,6 +28,14 @@ _seen_network_ips: set[str] = set()
 _heartbeat_ips: dict[str, float] = {}  # ip → last heartbeat timestamp
 HEARTBEAT_WINDOW_SECONDS = 20
 
+# TTL cache for DB student count — avoids a DB query on every heartbeat (every 10-30s per device)
+import time as _time_mod
+_student_count_cache: tuple[float, int] = (0.0, 0)
+_STUDENT_COUNT_TTL = 8.0
+
+# Cache the QR PNG — server URL never changes after startup
+_qr_bytes_cache: bytes | None = None
+
 _CAPTIVE_HOST_HINTS = (
     "captive.apple.com",
     "connectivitycheck.gstatic.com",
@@ -121,12 +129,22 @@ async def firefox_captive(request: Request) -> Response:
     return PlainTextResponse("success")
 
 
+async def _get_student_count() -> int:
+    global _student_count_cache  # noqa: PLW0603
+    ts, count = _student_count_cache
+    if _time_mod.monotonic() - ts < _STUDENT_COUNT_TTL:
+        return count
+    count = await db.count_recent_active_students()
+    _student_count_cache = (_time_mod.monotonic(), count)
+    return count
+
+
 async def _network_payload() -> dict:
     import time as _time
     hotspot_ip = get_cached_hotspot_ip()
     browser_clients = active_clients(window_seconds=LIVE_CLIENT_WINDOW_SECONDS)
     arp_clients = get_arp_clients()
-    db_student_count = await db.count_recent_active_students()
+    db_student_count = await _get_student_count()
     browser_ips = {client["ip"] for client in browser_clients}
     browser_ips.discard(hotspot_ip)
     _seen_network_ips.update(browser_ips)
@@ -175,12 +193,17 @@ async def network_heartbeat(request: Request) -> dict:
 
 @router.api_route("/api/network/refresh", methods=["GET", "POST"])
 async def refresh_network_status() -> dict:
+    global _qr_bytes_cache  # noqa: PLW0603
+    _qr_bytes_cache = None  # invalidate so QR is regenerated with new IP
     hotspot_ip = refresh_ip_cache()
     start_captive_portal(hotspot_ip)
     return await _network_payload()
 
 
 def _qr_png_bytes() -> bytes:
+    global _qr_bytes_cache  # noqa: PLW0603
+    if _qr_bytes_cache is not None:
+        return _qr_bytes_cache
     qr = qrcode.QRCode(
         version=2,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -192,7 +215,8 @@ def _qr_png_bytes() -> bytes:
     img = qr.make_image(fill_color=THEME_BLUE, back_color="white")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    return buf.getvalue()
+    _qr_bytes_cache = buf.getvalue()
+    return _qr_bytes_cache
 
 
 @router.get("/api/network/qr")

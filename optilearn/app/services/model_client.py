@@ -487,25 +487,36 @@ async def stream_26b(
     from google.genai import types as genai_types
 
     client = _get_26b_client()
-    parts: list[Any] = [genai_types.Part(text=prompt)]
+    # Image-first ordering improves extraction quality for vision models
     if image_b64:
-        parts.append(
+        parts: list[Any] = [
             genai_types.Part(
                 inline_data=genai_types.Blob(
                     mime_type="image/jpeg",
                     data=base64.b64decode(image_b64),
                 )
-            )
-        )
+            ),
+            genai_types.Part(text=prompt),
+        ]
+    else:
+        parts = [genai_types.Part(text=prompt)]
     contents = [genai_types.Content(role="user", parts=parts)]
+    thinking_cfg_kwargs: dict[str, Any] = {"include_thoughts": enable_thinking}
+    if not enable_thinking:
+        thinking_cfg_kwargs["thinking_budget"] = 0
+    try:
+        thinking_cfg = genai_types.ThinkingConfig(**thinking_cfg_kwargs)
+    except TypeError:
+        thinking_cfg = genai_types.ThinkingConfig(include_thoughts=enable_thinking)
+
     config_kwargs: dict[str, Any] = {
-        "temperature": 1.0,
+        "temperature": 1.0 if enable_thinking else 0.2,
         "top_p": 0.95,
         "top_k": 64,
-        "thinking_config": genai_types.ThinkingConfig(
-            include_thoughts=enable_thinking
-        ),
+        "thinking_config": thinking_cfg,
     }
+    if not enable_thinking:
+        config_kwargs["max_output_tokens"] = 2048 if image_b64 else 1024
     if system_prompt:
         config_kwargs["system_instruction"] = system_prompt
     config = genai_types.GenerateContentConfig(**config_kwargs)
@@ -703,6 +714,36 @@ async def route_generate(
         ):
             yield token
         return
+
+    # Vision bypass: local E2B cannot reliably extract dense text from images.
+    # Only bypasses when in auto mode (not when teacher has set offline mode).
+    if image_b64 and _has_26b_api_key() and model_profile.use_cloud_when_auto and not _is_force_offline():
+        actually_connected = await check_connectivity()
+        if actually_connected:
+            logger.info(
+                "MODEL ROUTE: {} -> 26B API ({}) [vision bypass]",
+                route_type,
+                settings.GEMMA_26B_MODEL,
+            )
+            async def vision_api_stream() -> AsyncGenerator[str, None]:
+                async for piece in stream_26b(
+                    prompt,
+                    system_prompt=system_prompt,
+                    enable_thinking=enable_thinking,
+                    image_b64=image_b64,
+                ):
+                    yield piece
+
+            async for token in model_scheduler.stream_with_lane(
+                lane=lane_name,
+                feature=feature_name,
+                route_type=route_type,
+                input_size=len(prompt) + len(system_prompt),
+                cache_status=cache_status,
+                generator_factory=vision_api_stream,
+            ):
+                yield token
+            return
 
     reason = (
         "manual override"

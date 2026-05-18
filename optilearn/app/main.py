@@ -259,6 +259,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.warning("Embedding model warmup timed out after 120 s — continuing anyway")
         except Exception as exc:
             logger.warning("Embedding model warmup skipped: {}", exc)
+        try:
+            from app.services import ocr_client
+            # Pre-download PaddleOCR models so image translation is ready immediately.
+            # First run: downloads ~10-40 MB per lang to ~/.paddleocr/ (needs internet once).
+            # Subsequent starts: loads from cache, fully offline.
+            await asyncio.wait_for(
+                asyncio.to_thread(ocr_client.warmup_models, ["en", "arabic"]),
+                timeout=180.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("PaddleOCR warmup timed out — models will download on first image upload")
+        except Exception as exc:
+            logger.warning("PaddleOCR warmup skipped: {}", exc)
 
     asyncio.create_task(_warmup_background_models())
 

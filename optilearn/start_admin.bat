@@ -46,5 +46,5 @@ if exist frontend\package.json (
 
 echo.
 echo Starting server. Keep this window open during class.
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 pause
