@@ -2,12 +2,11 @@
 app/api/routes/persona.py — Beyond Presence persona voice chat (online only).
 
 Agents are pre-created on the BEY platform and their IDs are hardcoded here.
-Each persona uses Gemini 2.5 Flash as the LLM backend via BEY's external API integration.
-BEY external API ID (Google Gemini 2.5 Flash): b75b7ef6-92fc-4b8c-a727-b7a0d40448d4
+Each persona uses BEY's default LLM backend.
 
 Flow:
   GET  /api/persona/list   — list the 6 available personas
-  POST /api/persona/call   — create a BEY call session, return the call URL (no login required)
+  POST /api/persona/call   — return the hosted agent URL (no login required)
 """
 from __future__ import annotations
 
