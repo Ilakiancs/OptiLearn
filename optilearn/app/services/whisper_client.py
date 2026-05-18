@@ -50,7 +50,14 @@ def _resolve_hf_asr_model() -> str:
         candidate = Path("models") / "whisper" / name
         if candidate.exists():
             return str(candidate)
-    return settings.WHISPER_HF_MODEL
+
+    # If WHISPER_HF_MODEL is a local path that doesn't exist, returning it raw
+    # causes HuggingFace Hub to reject it as an invalid repo ID. Fall back to
+    # the public Hub ID so the model can be downloaded on first use.
+    hf_id = settings.WHISPER_HF_MODEL
+    if hf_id.startswith((".", "/", "\\")):
+        return "openai/whisper-tiny"
+    return hf_id
 
 
 def get_transcriber_status() -> dict:
