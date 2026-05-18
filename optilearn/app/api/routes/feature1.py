@@ -1322,12 +1322,13 @@ async def explain_material(body: ExplainRequest) -> StreamingResponse:
     if student is None:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    translated_text: str = _translation_cache.get(body.material_id, "")  # type: ignore[assignment]
+    cache_key = f"{body.material_id}:{body.language}"
+    translated_text: str = _translation_cache.get(cache_key, "")  # type: ignore[assignment]
     if not translated_text:
         material = await db.get_material(body.material_id)
         if material and material.get("translated_text"):
             translated_text = material["translated_text"]
-            _translation_cache[body.material_id] = translated_text
+            _translation_cache[cache_key] = translated_text
     if not translated_text:
         raise HTTPException(
             status_code=404, detail="Translation not found — translate the material first."
@@ -1421,7 +1422,7 @@ async def ask_question(body: AskRequest):
     if student is None:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    translated_text: str = _translation_cache.get(body.material_id, "")  # type: ignore[assignment]
+    translated_text: str = _translation_cache.get(f"{body.material_id}:{body.language}", "")  # type: ignore[assignment]
     if not translated_text:
         material = await db.get_material(body.material_id)
         if material and material.get("translated_text"):
