@@ -518,15 +518,28 @@ export default function TranslateLearn() {
       .trim()
   }
 // -- Section --
+  function speakWebSpeech(text, language, onEnd) {
+    if (!window.speechSynthesis) { onEnd(); return }
+    window.speechSynthesis.cancel()
+    const BCP47 = { ar: 'ar', de: 'de-DE', en: 'en-US', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', pt: 'pt-BR', ru: 'ru-RU', sw: 'sw', tr: 'tr-TR', zh: 'zh-CN', 'zh-TW': 'zh-TW', ta: 'ta-IN', so: 'so', bn: 'bn-BD', am: 'am', si: 'si-LK', ti: 'ti', ur: 'ur' }
+    const utt = new SpeechSynthesisUtterance(text.slice(0, 3000))
+    utt.lang = BCP47[language] || language
+    utt.onend = onEnd
+    utt.onerror = onEnd
+    window.speechSynthesis.speak(utt)
+  }
+
   async function speakText(text, language, panelName) {
     if (playingPanelRef.current === panelName) {
       stopAudio()
+      window.speechSynthesis?.cancel()
       setPlayingPanel(null)
       return
     }
     if (!text || text.trim().length === 0) return
 
     stopAudio()
+    window.speechSynthesis?.cancel()
     playingPanelRef.current = panelName
     setPlayingPanel(panelName)
 
@@ -552,6 +565,7 @@ export default function TranslateLearn() {
       let buf = new Uint8Array(0)
       let scheduledUntil = ctx.currentTime
       let lastSource = null
+      let gotAudio = false
 
       const flush = async () => {
         while (buf.length >= 4) {
@@ -569,6 +583,7 @@ export default function TranslateLearn() {
             src.start(startAt)
             scheduledUntil = startAt + decoded.duration
             lastSource = src
+            gotAudio = true
           } catch (e) {
             console.error('TTS decode error:', e)
           }
@@ -594,9 +609,17 @@ export default function TranslateLearn() {
             setPlayingPanel(null)
           }
         }
-      } else {
+      } else if (gotAudio) {
         playingPanelRef.current = null
         setPlayingPanel(null)
+      } else {
+        // Server returned silence — fall back to browser Web Speech API
+        speakWebSpeech(normalizeOutputText(text), language, () => {
+          if (playingPanelRef.current === panelName) {
+            playingPanelRef.current = null
+            setPlayingPanel(null)
+          }
+        })
       }
     } catch (e) {
       console.error('TTS error:', e)

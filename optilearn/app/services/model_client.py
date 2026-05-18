@@ -114,6 +114,12 @@ _OLLAMA_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0)
 _API_MAX_RETRIES = 3
 _API_RETRY_DELAY = (1.5, 3.0, 6.0)
 
+# Circuit breaker: after this many consecutive 500s, stop trying 26B for _26B_COOLDOWN seconds.
+_26B_FAIL_THRESHOLD = 3
+_26B_COOLDOWN = 60.0
+_26b_consecutive_failures = 0
+_26b_open_until: float = 0.0
+
 _tutor_model_ready = False
 _tutor_model_loading = False
 _tutor_model_error = ""
@@ -830,6 +836,22 @@ async def route_generate_with_fallback(
             yield token
         return
 
+    global _26b_consecutive_failures, _26b_open_until
+    if time.time() < _26b_open_until:
+        remaining = int(_26b_open_until - time.time())
+        logger.warning(
+            "MODEL ROUTE: {} -> local profile={} ({}) reason=26B circuit open ({}s remaining)",
+            route_type, model_profile.name, _profile_local_model(model_profile), remaining,
+        )
+        async for token in _ollama_stream(
+            prompt, _profile_local_model(model_profile),
+            system_prompt=system_prompt, enable_thinking=enable_thinking,
+            extra_options=ollama_options, image_b64=image_b64,
+            lane=lane_name, feature=feature_name,
+        ):
+            yield token
+        return
+
     got_tokens = False
     try:
         logger.info(
@@ -857,8 +879,17 @@ async def route_generate_with_fallback(
         ):
             got_tokens = True
             yield token
+        _26b_consecutive_failures = 0
         return
     except Exception as exc:
+        _26b_consecutive_failures += 1
+        if _26b_consecutive_failures >= _26B_FAIL_THRESHOLD:
+            _26b_open_until = time.time() + _26B_COOLDOWN
+            logger.warning(
+                "26B circuit breaker OPEN after {} consecutive failures — skipping for {}s",
+                _26b_consecutive_failures, int(_26B_COOLDOWN),
+            )
+            _26b_consecutive_failures = 0
         logger.warning("26B stream failed after tokens={}: {}", got_tokens, exc)
         invalidate_network_cache()
         if got_tokens:

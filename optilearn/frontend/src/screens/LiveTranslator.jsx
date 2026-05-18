@@ -121,6 +121,8 @@ function TypingDots() {
 }
 
 // ── TTS streaming playback (identical to TranslateLearn) ───────
+const _TTS_BCP47 = { ar: 'ar', de: 'de-DE', en: 'en-US', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', pt: 'pt-BR', ru: 'ru-RU', sw: 'sw', tr: 'tr-TR', zh: 'zh-CN', 'zh-TW': 'zh-TW', ta: 'ta-IN', so: 'so', bn: 'bn-BD', am: 'am', si: 'si-LK', ti: 'ti', ur: 'ur' }
+
 function useTTS() {
   const audioCtxRef = useRef(null)
   const playingRef = useRef(null)
@@ -131,6 +133,7 @@ function useTTS() {
       try { audioCtxRef.current.close() } catch (_) {}
       audioCtxRef.current = null
     }
+    window.speechSynthesis?.cancel()
     playingRef.current = null
     setPlayingId(null)
   }
@@ -155,6 +158,7 @@ function useTTS() {
       let buf = new Uint8Array(0)
       let scheduledUntil = ctx.currentTime
       let lastSource = null
+      let gotAudio = false
 
       const flush = async () => {
         while (buf.length >= 4) {
@@ -172,6 +176,7 @@ function useTTS() {
             src.start(startAt)
             scheduledUntil = startAt + decoded.duration
             lastSource = src
+            gotAudio = true
           } catch (_) {}
         }
       }
@@ -188,7 +193,20 @@ function useTTS() {
         lastSource.onended = () => {
           if (audioCtxRef.current === ctx) { playingRef.current = null; setPlayingId(null) }
         }
-      } else { stop() }
+      } else if (gotAudio) {
+        playingRef.current = null; setPlayingId(null)
+      } else {
+        // Server returned silence — fall back to browser Web Speech API
+        if (window.speechSynthesis) {
+          const utt = new SpeechSynthesisUtterance(text.slice(0, 3000))
+          utt.lang = _TTS_BCP47[language] || language
+          utt.onend = () => { if (playingRef.current === id) { playingRef.current = null; setPlayingId(null) } }
+          utt.onerror = () => { if (playingRef.current === id) { playingRef.current = null; setPlayingId(null) } }
+          window.speechSynthesis.speak(utt)
+        } else {
+          stop()
+        }
+      }
     } catch (_) { stop() }
   }
 
