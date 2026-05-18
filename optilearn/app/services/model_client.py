@@ -350,20 +350,24 @@ def set_network_mode(mode: str) -> dict:
 
 async def check_network_status() -> dict:
     """
-    Returns network status based on USE_LOCAL_OLLAMA setting.
+    Returns network status.
+    Runtime network mode (teacher toggle) takes priority over USE_LOCAL_OLLAMA.
     Returns: {
         "connected": bool,
         "latency_ms": int | None,
         "use_26b": bool
     }
     """
-    # Determine status purely based on USE_LOCAL_OLLAMA setting
-    if settings.USE_LOCAL_OLLAMA:
-        # Offline mode: using local ollama
+    # Runtime toggle always wins over .env default
+    if _is_force_offline():
         return {"connected": True, "latency_ms": None, "use_26b": False}
-    else:
-        # Online mode: using API/cloud
-        return {"connected": True, "latency_ms": None, "use_26b": True}
+    if not _has_26b_api_key():
+        return {"connected": True, "latency_ms": None, "use_26b": False}
+    # Auto mode: measure latency and decide
+    latency = await _measure_network_latency()
+    if latency is None:
+        return {"connected": False, "latency_ms": None, "use_26b": False}
+    return {"connected": True, "latency_ms": latency, "use_26b": True}
 
 
 async def _measure_network_latency() -> int | None:
