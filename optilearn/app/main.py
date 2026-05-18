@@ -275,6 +275,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     asyncio.create_task(_warmup_background_models())
 
+    # Close any live class sessions left open from a previous server run.
+    closed = await db.close_stale_live_classes()
+    if closed:
+        logger.info("Closed {} stale live class session(s) from previous run.", closed)
+
     # Purge stale sessions at startup, then every hour in the background.
     purged = await db.purge_expired_sessions()
     if purged:

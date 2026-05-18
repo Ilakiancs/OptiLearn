@@ -917,7 +917,7 @@ async def live_class_notes_stream(session_id: str, target_language: str = "en") 
             if key not in _lc_notes_ready:
                 _lc_notes_ready[key] = asyncio.Event()
             try:
-                await asyncio.wait_for(_lc_notes_ready[key].wait(), timeout=120.0)
+                await asyncio.wait_for(_lc_notes_ready[key].wait(), timeout=300.0)
             except asyncio.TimeoutError:
                 yield _sse({"type": "error", "message": "Note generation timed out."})
                 return
@@ -987,25 +987,30 @@ async def get_completion_status(
         )
         participant_rows = await cur2.fetchall()
 
-        # Per-language ready translation count
+        # Per-language translation counts: ready (good) and done (ready+error = processed)
         cur3 = await conn.execute(
-            "SELECT target_language, COUNT(*) AS n FROM live_class_translations "
-            "WHERE session_id=? AND status='ready' GROUP BY target_language",
+            "SELECT target_language, "
+            "SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END) AS ready_n, "
+            "SUM(CASE WHEN status IN ('ready','error') THEN 1 ELSE 0 END) AS done_n "
+            "FROM live_class_translations "
+            "WHERE session_id=? GROUP BY target_language",
             (session_id,),
         )
         ready_rows = await cur3.fetchall()
 
     participant_map = {r[0]: r[1] for r in participant_rows}
-    ready_map = {r[0]: r[1] for r in ready_rows}
+    ready_map = {r[0]: (r[1], r[2]) for r in ready_rows}  # lang -> (ready, done)
 
     languages = {}
     for lang, count in participant_map.items():
-        ready = ready_map.get(lang, 0)
+        ready, done = ready_map.get(lang, (0, 0))
         languages[lang] = {
             "participant_count": count,
             "ready_chunks": ready,
+            "done_chunks": done,
             "total_chunks": total_chunks,
-            "complete": total_chunks > 0 and ready >= total_chunks,
+            # complete when all chunks are processed (including errored — they won't retry)
+            "complete": total_chunks > 0 and done >= total_chunks,
         }
 
     all_complete = bool(languages) and all(v["complete"] for v in languages.values())

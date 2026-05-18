@@ -715,9 +715,10 @@ export default function LiveTranslator() {
 
   async function streamLiveClassNotes(sessionId, targetLang) {
     setLiveNotesStreaming(true)
+    let gotNotes = false
     try {
       const r = await fetch(`/api/live-class/${sessionId}/notes-stream?target_language=${encodeURIComponent(targetLang)}`)
-      if (!r.ok) { setLiveNotesStreaming(false); return }
+      if (!r.ok) { setLiveNotesStreaming(false); pollForNotes(sessionId, targetLang); return }
       const reader = r.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
@@ -731,15 +732,35 @@ export default function LiveTranslator() {
           if (!line.startsWith('data: ')) continue
           try {
             const ev = JSON.parse(line.slice(6))
-            if (ev.type === 'token') setLiveNotes(prev => prev + ev.content)
-            else if (ev.type === 'done') { setLiveNotes(prev => cleanOutput(prev)); setLiveNotesStreaming(false) }
-            else if (ev.type === 'error') { setLiveError(ev.message); setLiveNotesStreaming(false) }
+            if (ev.type === 'token') { setLiveNotes(prev => prev + ev.content); gotNotes = true }
+            else if (ev.type === 'done') { setLiveNotes(prev => cleanOutput(prev)); setLiveNotesStreaming(false); gotNotes = true }
+            else if (ev.type === 'error') { setLiveNotesStreaming(false) }
           } catch (_) {}
         }
       }
     } catch (_) {
       setLiveNotesStreaming(false)
     }
+    // If stream closed without delivering notes (timed out server-side), poll the REST endpoint.
+    if (!gotNotes) pollForNotes(sessionId, targetLang)
+  }
+
+  async function pollForNotes(sessionId, targetLang) {
+    for (let i = 0; i < 36; i++) { // 36 × 10s = 6 min max
+      await new Promise(res => setTimeout(res, 10000))
+      try {
+        const r = await fetch(`/api/live-class/${sessionId}/notes?target_language=${encodeURIComponent(targetLang)}`)
+        if (r.ok) {
+          const data = await r.json()
+          if (data?.notes_text) {
+            setLiveNotes(cleanOutput(data.notes_text))
+            setLiveNotesStreaming(false)
+            return
+          }
+        }
+      } catch (_) {}
+    }
+    setLiveNotesStreaming(false)
   }
 
   async function downloadLivePdf(exportType) {
@@ -1294,8 +1315,6 @@ export default function LiveTranslator() {
 
   // ── JOINED TEACHER SESSION VIEW ───────────────────────────────
   if (joinedSession) {
-    const LANG_NAMES = { en:'English',si:'Sinhala',ta:'Tamil',ar:'Arabic',fr:'French',sw:'Swahili',so:'Somali',am:'Amharic',hi:'Hindi',ur:'Urdu',fa:'Dari/Farsi',my:'Burmese',bn:'Bengali',tr:'Turkish',ps:'Pashto' }
-    const ALL_LANGS = Object.entries(LANG_NAMES).map(([code, name]) => ({ code, name }))
     const statusColor = joinedSession.status === 'active' ? '#16a34a' : joinedSession.status === 'paused' ? '#f59e0b' : '#6b7280'
     const statusLabel = joinedSession.status === 'active' ? 'Live' : joinedSession.status === 'paused' ? 'Paused' : 'Ended'
     const isEnded = liveStatus === 'ended' || joinedSession.status === 'ended'
@@ -1454,10 +1473,8 @@ export default function LiveTranslator() {
         {/* Language selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.85rem', color: C.textSecondary, fontWeight: 600 }}>Translate to:</span>
-          <select value={joinLang} onChange={e => changeLiveLanguage(e.target.value)}
-            style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 12px', background: C.surface, color: C.textPrimary, fontSize: '0.9rem', minHeight: 36 }}>
-            {ALL_LANGS.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-          </select>
+          <LanguageSelect languages={languages} value={joinLang} onChange={e => changeLiveLanguage(e.target.value)}
+            style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 12px', background: C.surface, color: C.textPrimary, fontSize: '0.9rem', minHeight: 36 }} />
         </div>
 
         {/* Live transcript with timestamps */}
@@ -1506,8 +1523,6 @@ export default function LiveTranslator() {
   }
 
   if (phase === 'idle') {
-    const LANG_NAMES_SIMPLE = { en:'English',si:'Sinhala',ta:'Tamil',ar:'Arabic',fr:'French',sw:'Swahili',so:'Somali',am:'Amharic',hi:'Hindi',ur:'Urdu',fa:'Dari/Farsi',my:'Burmese',bn:'Bengali',tr:'Turkish',ps:'Pashto' }
-    const ALL_LANGS_SIMPLE = Object.entries(LANG_NAMES_SIMPLE).map(([code, name]) => ({ code, name }))
     return (
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '32px 16px' }}>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}`}</style>
@@ -1529,10 +1544,8 @@ export default function LiveTranslator() {
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.8rem', color: C.textSecondary }}>Translate to:</span>
-                      <select value={joinLang} onChange={e => setJoinLang(e.target.value)}
-                        style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', background: C.surface, color: C.textPrimary, fontSize: '0.85rem' }}>
-                        {ALL_LANGS_SIMPLE.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-                      </select>
+                      <LanguageSelect languages={languages} value={joinLang} onChange={e => setJoinLang(e.target.value)}
+                        style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', background: C.surface, color: C.textPrimary, fontSize: '0.85rem' }} />
                     </div>
                   </div>
                   <button
