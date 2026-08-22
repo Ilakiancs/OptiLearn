@@ -655,5 +655,6 @@ Download Piper from [github.com/rhasspy/piper/releases](https://github.com/rhass
 - [Unsloth](https://github.com/unslothai/unsloth) — fine-tuning pipeline
 
 ---
+Built with 🤍 for 250M+ students in crisis.
 
 *OptiLearn · Gemma 4 Good Hackathon 2026 · Education track · Opti5 Labs*
