@@ -699,7 +699,7 @@ Download Piper from [github.com/rhasspy/piper/releases](https://github.com/rhass
 
 ## License
 
-This project is licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.en).
+OptiLearn by Chanitha Abeygunawardena, Ilakian Puvanendra, Sasiru Virajith. This project is licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.en).
 
 ---
 
