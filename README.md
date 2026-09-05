@@ -12,6 +12,10 @@ Built for the Gemma 4 Good Hackathon 2026 · Opti5 Labs
 
 ---
 
+![OptiLearn](opti-learn-thumbanil.png)
+
+---
+
 ## Contents
 
 - [The Problem](#the-problem)
