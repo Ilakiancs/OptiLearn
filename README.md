@@ -1,8 +1,8 @@
 # OptiLearn
 
-> **Offline, AI-powered learning system for the 300 million refugee and struggling students worldwide**
+> **Offline, AI-powered learning system for the 100 million refugee and struggling students worldwide**
 
-A teacher in a refugee camp opens a laptop. Within 30 seconds, every phone and tablet in the room connects to a private AI tutor — speaking the student's language, adapting to their level, asking questions instead of lecturing. No internet. No cloud account. No subscription. No IT department.
+A teacher in a refugee camp opens a laptop. Within 30 seconds, every phone and tablet in the room connects to an AI tutor that speaks each student's own language, turns a photo of a textbook page into an explanation in seconds, and quizzes every student at exactly their level. When the teacher talks, students read a live translation on their own screen as she speaks. No internet. No cloud account. No subscription. No IT department.
 
 That's OptiLearn.
 
@@ -12,9 +12,42 @@ Built for the Gemma 4 Good Hackathon 2026 · Opti5 Labs
 
 ---
 
+## Contents
+
+- [The Problem](#the-problem)
+- [What OptiLearn Does](#what-optilearn-does)
+- [Why Gemma 4](#why-gemma-4)
+- [Key Features](#key-features)
+  - [For Students](#for-students)
+  - [For Teachers](#for-teachers)
+- [How It Works](#how-it-works)
+- [Architecture](#architecture)
+- [Getting Started](#getting-started)
+  - [Option 1: Web App (core product)](#option-1-web-app-core-product)
+  - [Option 2: Desktop App (for non-technical users)](#option-2-desktop-app-for-non-technical-users)
+- [Offline vs Online Mode](#offline-vs-online-mode)
+- [Offline Classroom Setup (Step by Step)](#offline-classroom-setup-step-by-step)
+- [First-Time Teacher Setup](#first-time-teacher-setup)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+  - [Health & Auth](#health--auth)
+  - [Students & Sessions](#students--sessions)
+  - [Translate & Learn](#translate--learn)
+  - [Teacher](#teacher)
+  - [Settings](#settings)
+- [Adding Curriculum](#adding-curriculum)
+- [Model Fine-Tuning](#model-fine-tuning)
+- [Troubleshooting](#troubleshooting)
+- [Design Principles](#design-principles)
+- [Built With](#built-with)
+- [License](#license)
+
+---
+
 ## The Problem
 
-**300 million children** in conflict zones, refugee camps, and rural communities are out of school or learning in under-resourced classrooms with one teacher per 60+ students and no internet access.
+**100 million children** in conflict zones, refugee camps, and rural communities are out of school or learning in under-resourced classrooms with one teacher per 60+ students and no internet access.
 
 Commercial ed-tech — Khan Academy, Duolingo, Google Classroom — requires cloud connectivity, device accounts, and reliable bandwidth. That excludes the students who need help most.
 
@@ -47,7 +80,7 @@ The AI knows each student by name, tracks what they've mastered, speaks their la
 
 ## Why Gemma 4
 
-- **Runs on a 2015 laptop** with 8 GB RAM — no GPU required for the 2B model
+- **Runs on a 2015 laptop** with 8 GB RAM — no GPU required for the E2B model
 - **100+ languages** natively, including Arabic, Somali, Amharic, Tamil, Tigrinya
 - **On-device inference** via Ollama — zero data leaves the classroom
 - **Gemma 4 26B cloud path** activates automatically when internet is available for richer translation and live class features, then falls back to local silently
@@ -67,6 +100,9 @@ The AI knows each student by name, tracks what they've mastered, speaks their la
 | **Multilingual PDFs** | Download explanations as PDFs rendered correctly for Arabic (RTL), Devanagari, Tamil, Ethiopic |
 | **AI Voice Avatar** | Beyond Presence-powered voice chat for students who prefer speaking over typing (online, optional) |
 | **Offline-first PWA** | Installable on Android/iOS home screen; service worker caches the UI for zero-latency reloads |
+| **Trauma-Aware Feedback** | Never says wrong, failed, or incorrect anywhere in the app; encouraging language is built into every prompt |
+| **No Sign-Up** | Pick a name from a list, or create a profile with just a name and language, no email or password |
+| **Dyslexia-Friendly Fonts** | Optional font set for students with reading difficulties |
 
 ### For Teachers
 | Feature | What it does |
@@ -78,7 +114,8 @@ The AI knows each student by name, tracks what they've mastered, speaks their la
 | **Material Upload** | Drop in a PDF or image → FAISS indexes it → students can ask questions about it |
 | **Live Quiz Game** | Kahoot-style quiz with a join code — all student devices play simultaneously |
 | **PDF Progress Report** | One-click weekly report per student, rendered in their script |
-| **Network QR Code** | QR code for the hotspot URL — students scan to connect, no typing required |
+| **Local Network QR Code** | QR code for the hotspot URL — students scan to connect, no typing required |
+| **Interface Language Toggle** | Switch the whole dashboard into the host country's language while students keep learning in their own |
 
 ---
 
@@ -303,13 +340,13 @@ graph TD
 
 ## Getting Started
 
-### Option 1 — Web App (core product)
+### Option 1: Web App (core product)
 
 The web app is the primary product. Runs on any machine with Python 3.11.
 
 ```bash
-git clone https://github.com/Ilakiancs/OpitLearn
-cd OpitLearn/optilearn
+git clone https://github.com/Ilakiancs/OptiLearn
+cd OptiLearn/optilearn
 
 # One-shot setup (Linux / macOS)
 chmod +x scripts/setup.sh scripts/start.sh
@@ -340,11 +377,11 @@ Open `http://localhost:8000`. Students connect at `http://192.168.137.1:8000` ov
 
 ---
 
-### Option 2 — Desktop App (for non-technical users)
+### Option 2: Desktop App (for non-technical users)
 
 A one-click installer wraps the web app in Electron. No Python, no Node, no terminal.
 
-Download from [**Releases →**](https://github.com/Ilakiancs/OpitLearn/releases)
+Download from [**Releases →**](https://github.com/Ilakiancs/OptiLearn/releases)
 
 | Platform | File |
 |---|---|
@@ -369,7 +406,7 @@ After setup the app launches automatically. Subsequent opens go straight to the 
 | | Offline mode | Online mode |
 |---|---|---|
 | **Set by** | `USE_LOCAL_OLLAMA=true` | `USE_LOCAL_OLLAMA=false` + API key |
-| **AI model** | Gemma 4 2B/4B via Ollama | Gemini API (Gemma 4 26B) |
+| **AI model** | Gemma 4 E2B/E4B via Ollama | Gemini API (Gemma 4 26B) |
 | **Internet needed** | Never | For AI calls only |
 | **Fallback** | — | Falls back to Ollama if disconnected |
 | **Student chat** | Always local (privacy) | Always local (privacy) |
@@ -657,7 +694,14 @@ Download Piper from [github.com/rhasspy/piper/releases](https://github.com/rhass
 - [Unsloth](https://github.com/unslothai/unsloth) — fine-tuning pipeline
 
 ---
-Built with 🤍 for 300M+ students in crisis. By students for students.
+
+## License
+
+This project is licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.en).
+
+---
+
+Built with 🤍 for 100M+ students in crisis. By students for students.
 
 [Website](https://opti-learn.com/) · [Kaggle Write-up](https://kaggle.com/competitions/gemma-4-good-hackathon/writeups/new-writeup-1776974818404) · [Technical Architecture](https://miro.com/app/board/uXjVHSbGyBQ=/?focusWidget=3458764672167765361&embedMode=view_only_without_ui&embedId=351779570391) · [YouTube Video · ](https://youtu.be/xBmYVeZDUVs)
 
