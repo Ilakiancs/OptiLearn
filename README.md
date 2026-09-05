@@ -1,6 +1,6 @@
 # OptiLearn
 
-> **Offline, AI-powered learning system for for the 300 million refugee and struggling students**
+> **Offline, AI-powered learning system for the 300 million refugee and struggling students worldwide**
 
 A teacher in a refugee camp opens a laptop. Within 30 seconds, every phone and tablet in the room connects to a private AI tutor — speaking the student's language, adapting to their level, asking questions instead of lecturing. No internet. No cloud account. No subscription. No IT department.
 
