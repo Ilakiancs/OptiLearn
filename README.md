@@ -1,12 +1,14 @@
 # OptiLearn
 
-> **AI-powered offline classroom for the 300 million students with no internet.**
+> **Offline, AI-powered learning system for for the 300 million refugee and struggling students**
 
 A teacher in a refugee camp opens a laptop. Within 30 seconds, every phone and tablet in the room connects to a private AI tutor — speaking the student's language, adapting to their level, asking questions instead of lecturing. No internet. No cloud account. No subscription. No IT department.
 
 That's OptiLearn.
 
-Built for the **[Gemma 4 Good Hackathon 2026](https://www.kaggle.com/competitions/gemma-4-good-hackathon/)** · Opti5 Labs
+Built for the Gemma 4 Good Hackathon 2026 · Opti5 Labs
+
+[Website](https://opti-learn.com/) · [Kaggle Write-up](https://kaggle.com/competitions/gemma-4-good-hackathon/writeups/new-writeup-1776974818404) · [Technical Architecture](https://miro.com/app/board/uXjVHSbGyBQ=/?focusWidget=3458764672167765361&embedMode=view_only_without_ui&embedId=351779570391) · [YouTube Video · ](https://youtu.be/xBmYVeZDUVs)
 
 ---
 
@@ -655,6 +657,8 @@ Download Piper from [github.com/rhasspy/piper/releases](https://github.com/rhass
 - [Unsloth](https://github.com/unslothai/unsloth) — fine-tuning pipeline
 
 ---
-Built with 🤍 for 250M+ students in crisis.
+Built with 🤍 for 300M+ students in crisis. By students for students.
 
-*OptiLearn · Gemma 4 Good Hackathon 2026 · Education track · Opti5 Labs*
+[Website](https://opti-learn.com/) · [Kaggle Write-up](https://kaggle.com/competitions/gemma-4-good-hackathon/writeups/new-writeup-1776974818404) · [Technical Architecture](https://miro.com/app/board/uXjVHSbGyBQ=/?focusWidget=3458764672167765361&embedMode=view_only_without_ui&embedId=351779570391) · [YouTube Video · ](https://youtu.be/xBmYVeZDUVs)
+
+*OptiLearn · Gemma 4 Good Hackathon 2026 · Main, Future of Education, Digital Equity & Inclusivity, Ollama Tracks · Opti5 Labs*
