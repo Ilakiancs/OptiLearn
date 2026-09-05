@@ -10,8 +10,6 @@ Built for the Gemma 4 Good Hackathon 2026 · Opti5 Labs
 
 [Website](https://opti-learn.com/) · [Kaggle Write-up](https://kaggle.com/competitions/gemma-4-good-hackathon/writeups/new-writeup-1776974818404) · [Technical Architecture](https://miro.com/app/board/uXjVHSbGyBQ=/?focusWidget=3458764672167765361&embedMode=view_only_without_ui&embedId=351779570391) · [YouTube Video · ](https://youtu.be/xBmYVeZDUVs)
 
----
-
 ![OptiLearn](opti-learn-thumbanil.png)
 
 ---
